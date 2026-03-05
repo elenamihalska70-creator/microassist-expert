@@ -1,3 +1,52 @@
+# Microassist
+
+Microassist est un assistant conçu pour aider les micro-entrepreneurs
+à comprendre simplement leurs obligations fiscales.
+
+L’objectif est de réduire le temps et le stress liés aux démarches
+administratives : déclarations, charges, TVA et échéances.
+
+En quelques étapes, l’outil donne une vision claire de ce qu’il faut
+déclarer, quand le faire et combien mettre de côté.
+
+Ainsi, l’entrepreneur peut se concentrer sur l’essentiel :
+développer son activité plutôt que perdre du temps
+dans les démarches administratives.
+
+---
+
+## Fonctionnalités
+
+- assistant fiscal étape par étape
+- estimation des charges (URSSAF)
+- suivi des échéances
+- tableau d’actions
+- export de résumé
+- stockage local sécurisé
+
+---
+
+## Stack technique
+
+- React
+- Vite
+- JavaScript
+- UX wizard interface
+- logique métier fiscale
+
+---
+
+## Auteur
+
+Prototype développé par **Olena Mykhalska**  
+Cheffe de projet digital
+
+---
+
+## Licence
+
+This project is provided for **demonstration and portfolio purposes only**.  
+Unauthorized copying or commercial use is prohibited.
 # React + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
