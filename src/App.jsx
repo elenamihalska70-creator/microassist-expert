@@ -1,0 +1,1040 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import "./App.css";
+import { FISCAL_STEPS as STEPS } from "./config/steps.fiscal";
+import { computeObligations, getDashValue } from "./utils/obligations";
+import { showConsoleSignature } from "./consoleSignature";
+
+const LS_KEY = "microassist_v1";
+const LS_VERSION = 1;
+
+function labelFromOptions(stepKey, value) {
+  const step = STEPS.find((s) => s.key === stepKey);
+  const opt = step?.options?.find((o) => o.value === value);
+  return opt?.label || value || "—";
+}
+
+
+function buildFiscalSummary(answers, computed) {
+  const lines = [
+    "✅ Résumé fiscal (MVP)",
+    `• Situation : ${labelFromOptions("entry_status", answers.entry_status)}`,
+    `• Statut : ${labelFromOptions("status", answers.status)}`,
+    `• Activité : ${labelFromOptions("activity_type", answers.activity_type)}`,
+    `• Déclarations : ${labelFromOptions("declaration_frequency", answers.declaration_frequency)}`,
+    "",
+    "📌 Synthèse",
+    `• Prochaine déclaration : ${computed?.nextDeclarationLabel ?? "—"}`,
+    `• Montant estimé : ${computed?.amountEstimatedLabel ?? "—"}`,
+    `• Date limite : ${computed?.deadlineLabel ?? "—"}`,
+    `• TVA : ${computed?.tvaStatusLabel ?? "—"}`,
+  ];
+
+  if (computed?.tvaHint) {
+  lines.push(`• Détail TVA : ${computed.tvaHint}`);
+}
+
+lines.push("");
+lines.push("⚠️ Note : estimation MVP — ne remplace pas un expert-comptable.");
+
+  return lines.join("\n");
+}
+function buildFiscalChecklist(answers, computed) {
+  const items = [];
+
+  items.push("🧭 Plan d’action (simple)");
+
+  // 0) Trésorerie recommandée (вау-эффект)
+  if (typeof computed?.treasuryRecommended === "number") {
+    items.push(`0) 💰 À garder de côté : ${computed.treasuryRecommended.toLocaleString("fr-FR")} € minimum.`);
+  }
+
+  // 1) Action principale: deadline / URSSAF
+  if (computed?.urgency === "late") {
+    items.push("1) Déclarer sur autoentrepreneur.urssaf.fr dès que possible (retard).");
+  } else if (computed?.urgency === "soon") {
+    items.push("1) Bloquer 10 minutes cette semaine pour déclarer sur autoentrepreneur.urssaf.fr.");
+  } else {
+    items.push("1) Garder ton CA à jour, puis déclarer à l’approche de l’échéance.");
+  }
+
+  // 2) TVA
+  if (computed?.tvaStatus === "exceeded") {
+    items.push("2) TVA : vérifier ton régime (seuil dépassé) et anticiper facturation/déclaration.");
+  } else if (computed?.tvaStatus === "soon") {
+    items.push("2) TVA : surveiller ton CA (seuil proche) et préparer les mentions/paramétrages.");
+  } else {
+    items.push("2) TVA : OK (franchise). Continuer à suivre ton CA.");
+  }
+
+  // 3) Rappels
+  items.push(
+    `3) Rappels : ${answers?.reminders_enabled ? "activés ✅" : "désactivés ⏸"} (recommandé : 48h avant).`
+  );
+
+  // 4) Recos
+  if (computed?.recommendations?.length) {
+    items.push("");
+    items.push("✅ Recommandations");
+    computed.recommendations.forEach((r, idx) => {
+      items.push(`${idx + 1}) ${r.title} — ${r.text}`);
+    });
+  }
+
+  return items.join("\n");
+}
+
+export default function App() {
+  const [stepIndex, setStepIndex] = useState(0);
+  const [answers, setAnswers] = useState({});
+  const [input, setInput] = useState("");
+  const [lastSavedAt, setLastSavedAt] = useState(null);
+  const [hasDraft, setHasDraft] = useState(false);
+const [restoredAt, setRestoredAt] = useState(null);
+const inputRef = useRef(null);
+const [isTyping, setIsTyping] = useState(false);
+const [helpOpen, setHelpOpen] = useState(false);
+const [userName, setUserName] = useState("");
+const [simulatedCA, setSimulatedCA] = useState(null);
+const [hydrated, setHydrated] = useState(false);
+const [focusMode, setFocusMode] = useState(false);
+const [showSecurity, setShowSecurity] = useState(false);
+const [showAvis, setShowAvis] = useState(false);
+const [showInfoBlocks, setShowInfoBlocks] = useState(() => {
+  const raw = localStorage.getItem("microassist_show_info");
+  return raw === null ? true : raw === "1";
+});
+
+const [rating, setRating] = useState(5);
+const [comment, setComment] = useState("");
+const [sent, setSent] = useState(false);
+
+useEffect(() => {
+  showConsoleSignature();
+}, []);
+
+function toggleInfoBlocks() {
+  setShowInfoBlocks((v) => {
+    const next = !v;
+    localStorage.setItem("microassist_show_info", next ? "1" : "0");
+    return next;
+  });
+}
+
+function goToSecurity() {
+  // 1) показать блоки, если скрыты
+  if (!showInfoBlocks) {
+    localStorage.setItem("microassist_show_info", "1");
+    setShowInfoBlocks(true);
+
+    // 2) подождать рендер и скролл
+    setTimeout(() => {
+      document.getElementById("security")?.scrollIntoView({ behavior: "smooth" });
+    }, 50);
+    return;
+  }
+
+  // если уже видно — просто скролл
+  document.getElementById("security")?.scrollIntoView({ behavior: "smooth" });
+}
+
+useEffect(() => {
+  setHelpOpen(false);
+}, [stepIndex]);
+
+
+const [messages, setMessages] = useState([
+  { role: "bot", text: "Bonjour 👋 On va construire ton projet en 5 étapes. Réponds simplement." },
+  { role: "bot", text: `Étape 1 — ${STEPS[0].title}\n${STEPS[0].question}` },
+]);
+
+
+  const chatEndRef = useRef(null);
+  const chatLogRef = useRef(null);
+  // ✅ 1) Restore au chargement
+
+useEffect(() => {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+
+    // ✅ если сохранения нет — разрешаем save дальше
+    if (!raw) {
+      setHydrated(true);
+      return;
+    }
+
+    setHasDraft(true);
+
+    const data = JSON.parse(raw);
+    if (!data || data.version !== LS_VERSION) {
+      setHydrated(true);
+      return;
+    }
+
+if (data.savedAt) setLastSavedAt(data.savedAt);
+
+const a = data.answers || {};
+if (a && typeof a === "object") setAnswers(a);
+
+if (Array.isArray(data.messages) && data.messages.length > 0) setMessages(data.messages);
+if (typeof data.userName === "string") setUserName(data.userName);
+
+// ✅ Auto-jump (profil léger) — один setStepIndex
+let nextIndex = 0;
+if (typeof data.stepIndex === "number") nextIndex = data.stepIndex;
+
+const hasProfile = !!a.activity_type && !!a.declaration_frequency;
+
+if (hasProfile) {
+  if (typeof a.ca_month === "number" && a.ca_month > 0) {
+    const dashIndex = getIndexByKey("fiscal_dashboard");
+    if (dashIndex !== -1) nextIndex = dashIndex;
+  } else {
+    const caIndex = getIndexByKey("ca_preset");
+    if (caIndex !== -1) nextIndex = caIndex;
+  }
+}
+
+setStepIndex(nextIndex);
+
+
+    setRestoredAt(new Date().toISOString());
+  } catch (e) {
+    console.warn("Restore failed:", e);
+  } finally {
+    // ✅ ВАЖНО: только после restore разрешаем autosave
+    setHydrated(true);
+  }
+}, []);
+
+
+useEffect(() => {
+  if (!userName) return;
+
+  setMessages((prev) => {
+    if (!prev?.length) return prev;
+
+    const next = [...prev];
+    // меняем только самое первое приветствие
+    next[0] = {
+      ...next[0],
+      text: `Bonjour, ${userName} 👋 On va construire ton projet en 5 étapes. Réponds simplement.`,
+    };
+    return next;
+  });
+}, [userName]);
+
+
+useEffect(() => {
+  const el = chatLogRef.current;
+  if (!el) return;
+
+  el.scrollTop = el.scrollHeight;
+}, [messages]);
+
+  const step = STEPS[stepIndex];
+  useEffect(() => {
+  if (step?.mode === "dashboard") return;
+  inputRef.current?.focus();
+}, [stepIndex]);
+
+  const computed = useMemo(() => {
+  if (simulatedCA !== null) {
+    return computeObligations({ ...answers, ca_month: simulatedCA });
+  }
+  return computeObligations(answers);
+}, [answers, simulatedCA]);
+  const activityLabel = useMemo(
+  () => labelFromOptions("activity_type", answers.activity_type),
+  [answers.activity_type]
+);
+
+const freqLabel = useMemo(
+  () => labelFromOptions("declaration_frequency", answers.declaration_frequency),
+  [answers.declaration_frequency]
+);
+
+const profileLine = useMemo(() => {
+  const a = answers.activity_type ? activityLabel : "";
+  const f = answers.declaration_frequency ? freqLabel : "";
+  if (!a && !f) return "";
+  if (a && f) return `${a} • ${f}`;
+  return a || f;
+}, [answers.activity_type, answers.declaration_frequency, activityLabel, freqLabel]);
+
+
+  const canSend = useMemo(() => input.trim().length > 0, [input]);
+// ✅ 2) Save à chaque changement
+useEffect(() => {
+  if (!hydrated) return;
+  if (messages.length === 0) return;
+
+  try {
+    const now = new Date().toISOString();
+    const payload = {
+      version: LS_VERSION,
+      stepIndex,
+      answers,
+      userName,
+      messages,  
+      savedAt: now,
+    };
+    localStorage.setItem(LS_KEY, JSON.stringify(payload));
+    setLastSavedAt(now);
+  } catch (e) {
+    console.warn("Save failed:", e);
+  }
+}, [hydrated, stepIndex, answers, messages, userName]);
+
+
+  function addMessage(role, text) {
+    setMessages((prev) => [...prev, { role, text }]);
+  }
+
+
+
+function getIndexByKey(key) {
+  return STEPS.findIndex((s) => s.key === key);
+}
+
+function goNext(updatedAnswers, forcedNextIndex = null) {
+  const nextIndex = forcedNextIndex ?? (stepIndex + 1);
+
+  setIsTyping(true);
+
+  setTimeout(() => {
+    setIsTyping(false);
+
+    if (nextIndex < STEPS.length) {
+      setStepIndex(nextIndex);
+      const nextStep = STEPS[nextIndex];
+      addMessage("bot", `Étape ${nextIndex + 1} — ${nextStep.title}\n${nextStep.question}`);
+    } else {
+      // (если ты уже переключилась на fiscal summary/checklist — оставь твой вариант)
+      addMessage("bot", "✅ Terminé.");
+    }
+  }, 600);
+}
+
+
+function handleSend() {
+  if (!canSend || isTyping) return;
+
+  const userText = input.trim();
+  setInput("");
+
+  submitAnswer({ chatText: userText, value: userText });
+}
+
+function submitAnswer({ chatText, value }) {
+  addMessage("user", chatText);
+
+  const key = step?.key;
+  let updatedAnswers = key ? { ...answers, [key]: value } : { ...answers };
+
+  let forcedNextIndex = null;
+
+  // ✅ если “Déjà entrepreneur” — идём на CA preset
+  if (key === "entry_status" && value === "existing") {
+  const nextIndex = getIndexByKey("activity_type");
+  if (nextIndex !== -1) forcedNextIndex = nextIndex;
+}
+
+
+  // ✅ CA preset
+  if (key === "ca_preset") {
+    if (value !== "other") {
+      updatedAnswers = { ...updatedAnswers, ca_month: Number(value) || 0 };
+      const dashIndex = getIndexByKey("fiscal_dashboard");
+      if (dashIndex !== -1) forcedNextIndex = dashIndex;
+    }
+    // если other → следующий шаг будет ca_month (ввод)
+  }
+
+  // ✅ CA manual input
+  if (key === "ca_month") {
+    const cleaned = String(value).replace(/[^\d.,]/g, "").replace(",", ".");
+    const num = Number(cleaned);
+    updatedAnswers = { ...updatedAnswers, ca_month: Number.isFinite(num) ? num : 0 };
+
+    // после ручного ввода — сразу на dashboard
+    const dashIndex = getIndexByKey("fiscal_dashboard");
+    if (dashIndex !== -1) forcedNextIndex = dashIndex;
+  }
+
+  setAnswers(updatedAnswers);
+  setTimeout(() => goNext(updatedAnswers, forcedNextIndex), 250);
+}
+
+
+function handleSelectOption(opt) {
+  submitAnswer({ chatText: opt.label, value: opt.value });
+}
+
+function handleKeyDown(e) {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    handleSend();
+  }
+}
+
+function handleCopySummary() {
+    const summary =
+  buildFiscalSummary(answers, computed) +
+  "\n\n" +
+  buildFiscalChecklist(answers, computed);
+    navigator.clipboard.writeText(summary);
+    alert("Résumé copié dans le presse-papiers ✅");
+ }
+  
+function handleDownloadTxt() {
+  
+  const content =
+  buildFiscalSummary(answers, computed) +
+  "\n\n" +
+  buildFiscalChecklist(answers, computed);
+
+
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "plan-action-mvp.txt";
+  a.click();
+
+  URL.revokeObjectURL(url);
+}
+
+function handleReset() {
+    localStorage.removeItem(LS_KEY);
+    // userName хранится внутри payload, поэтому отдельного ключа нет — достаточно removeItem(LS_KEY)
+
+    setStepIndex(0);
+    setAnswers({});
+    setInput("");
+    setUserName("");
+    setMessages([
+      {
+        role: "bot",
+        text: "Bonjour 👋 On recommence. Réponds simplement.",
+      },
+      {
+        role: "bot",
+        text: `Étape 1 — ${STEPS[0].title}\n${STEPS[0].question}`,
+      },
+    ]);
+  }
+function handleNewSession() {
+  localStorage.removeItem(LS_KEY);
+  setHasDraft(false);
+  setLastSavedAt(null);
+  setRestoredAt(null);
+  handleReset();
+}
+
+function handleDismissDraftBanner() {
+  setHasDraft(false);
+}
+
+  return (
+    <div className="page">
+   <header className="topbar">
+  <div className="topbarLeft">
+    <div className="brand">Entrepreneurs Assistant</div>
+
+    <input
+      className="nameInput"
+      value={userName}
+      onChange={(e) => setUserName(e.target.value)}
+      placeholder="Ton prénom"
+      aria-label="Ton prénom"
+    />
+
+    {userName && <div className="helloMini">Bonjour, {userName} 👋</div>}
+    {profileLine && <div className="profileMini">{profileLine}</div>}
+  </div>
+
+  <div className="topbarRight">
+    <nav className="nav">
+      <a href="#home">Accueil</a>
+      <a href="#services">Services</a>
+      <a href="#assistant">Assistant</a>
+      <a href="#contact">Contact</a>
+    </nav>
+
+    <div className="topActions">
+      {hasDraft && (
+        <button
+          className="btn btnGhost btnSmall"
+          onClick={() =>
+            document.getElementById("assistant")?.scrollIntoView({ behavior: "smooth" })
+          }
+          type="button"
+        >
+          Reprendre
+        </button>
+      )}
+
+      <button
+        className="btn btnGhost btnSmall"
+        onClick={() => {
+          const preserved = {
+            activity_type: answers.activity_type,
+            declaration_frequency: answers.declaration_frequency,
+          };
+
+          setStepIndex(0);
+          setAnswers(preserved);
+
+          setMessages([
+            { role: "bot", text: `Bonjour${userName ? `, ${userName}` : ""} 👋 On recommence.` },
+            { role: "bot", text: `Étape 1 — ${STEPS[0].title}\n${STEPS[0].question}` },
+          ]);
+
+          localStorage.removeItem(LS_KEY);
+        }}
+        type="button"
+      >
+        Nouveau
+      </button>
+    </div>
+  </div>
+</header>
+
+      <main className={`container ${focusMode ? "focusMode" : ""}`}>
+        
+        <section id="home" className="card hero heroSaaS">
+  <div className="heroGrid">
+    <div className="heroLeft">
+      <div className="heroBadge">🟣 MicroSaaS — MVP en test</div>
+
+      <h1>Assistant fiscal pour micro-entrepreneurs</h1> 
+
+<div className="heroLead">
+  <p>Micro-entrepreneur ?</p>
+  <p>
+    Tu ne sais jamais combien déclarer ni quand ?
+  </p>
+  <p>
+    En 1 minute, cet assistant te donne une réponse claire :
+    <strong> quoi déclarer, quand, et combien garder de côté.</strong>
+  </p>
+</div>
+
+      <ul className="heroBullets">
+        <li>✅ Prochaine action concrète (URSSAF)</li>
+        <li>✅ Montant estimé + date limite</li>
+        <li>✅ Alertes : échéance proche / seuil TVA</li>
+        <li>✅ Export : résumé + plan d’action</li>
+      </ul>
+
+      <div className="heroActions">
+        <button
+          className="btn btnPrimary"
+onClick={() => {
+  setFocusMode(true);
+  setShowSecurity(false);
+  setShowAvis(false);
+
+  setTimeout(() => {
+    document
+      .getElementById("assistant")
+      ?.scrollIntoView({ behavior: "smooth" });
+  }, 50);
+}}
+          type="button"
+        >
+          Tester la démo
+        </button>
+
+        <button
+        className="btn btnGhost"
+        onClick={goToSecurity}
+        type="button"
+>
+        Sécurité & confidentialité
+        </button>
+
+        <button className="btn btnGhost" onClick={handleReset} type="button">
+          Réinitialiser
+        </button>
+      </div>
+
+      <p className="heroFineprint">
+        ⚠️ Estimation MVP : repères pratiques — ne remplace pas un expert-comptable.
+      </p>
+    </div>
+
+    <div className="heroRight">
+      <div className="heroPanel">
+        <div className="heroPanelTitle">Aperçu (ce que tu vas obtenir)</div>
+
+        <div className="heroKpis">
+          <div className="kpi">
+            <div className="kpiLabel">Prochaine déclaration</div>
+            <div className="kpiValue">Mensuelle / Trimestrielle</div>
+          </div>
+          <div className="kpi">
+            <div className="kpiLabel">Date limite</div>
+            <div className="kpiValue">Dans X jours</div>
+          </div>
+          <div className="kpi">
+            <div className="kpiLabel">TVA</div>
+            <div className="kpiValue">OK / Bientôt / Dépassé</div>
+          </div>
+          <div className="kpi">
+            <div className="kpiLabel">Plan d’action</div>
+            <div className="kpiValue">1–3 actions claires</div>
+          </div>
+        </div>
+
+        <div className="heroTrust">
+          <span>🔒 Sans compte</span>
+          <span>🧠 Simple</span>
+          <span>⚡ Rapide</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+{!focusMode && (
+<section className="card">
+  <h2>À propos du projet</h2>
+
+  <p>
+  Microassist est un prototype développé dans le cadre de mon portfolio 
+  de Cheffe de projet digital.
+  </p>
+
+  <p>
+  L’objectif est de créer un assistant simple qui aide les micro-entrepreneurs
+  à comprendre leurs obligations fiscales et leurs échéances.
+  </p>
+
+  <p>
+  Le projet combine UX, logique métier et développement web.
+  </p>
+</section>
+)}
+
+      {!focusMode && (
+        <section id="services" className="card">
+          <h2>Services</h2>
+          <ul className="list">
+            <li>Idée → MVP : étapes simples</li>
+            <li>Organisation : checklists & priorités</li>
+            <li>Modèles : pitch, email, Notion</li>
+          </ul>
+        </section>
+      )}
+      {!focusMode && (
+        <section className="card">
+  <h2>Comment ça marche</h2>
+
+  <div className="steps">
+    <div className="step">
+      <strong>1. Réponds à quelques questions</strong>
+      <p>L’assistant comprend ta situation de micro-entrepreneur.</p>
+    </div>
+
+    <div className="step">
+      <strong>2. Analyse automatique</strong>
+      <p>Calcul simple des échéances et estimations.</p>
+    </div>
+
+    <div className="step">
+      <strong>3. Tableau clair</strong>
+      <p>Tu vois quoi déclarer, quand, et combien garder de côté.</p>
+    </div>
+  </div>
+</section>
+)}
+
+{!focusMode && (
+<section className="card">
+  <h2>Pour qui ?</h2>
+
+  <ul className="targetList">
+    <li>Micro-entrepreneurs</li>
+    <li>Freelances</li>
+    <li>Créateurs d’activité</li>
+    <li>Indépendants qui veulent comprendre leurs obligations</li>
+  </ul>
+</section>
+)}
+
+
+{focusMode && (
+  <div className="focusBar">
+
+    <div className="focusLeft">
+      <strong>Mode démo</strong>
+    </div>
+
+    <div className="focusLinks">
+      <button
+        className="btn btnGhost btnSmall"
+        onClick={() => setShowSecurity(!showSecurity)}
+      >
+        🔒 Sécurité
+      </button>
+
+      <button
+        className="btn btnGhost btnSmall"
+        onClick={() => setShowAvis(!showAvis)}
+      >
+        ⭐ Avis
+      </button>
+
+      <button
+        className="btn btnGhost btnSmall"
+        onClick={() => setFocusMode(false)}
+      >
+        Page complète
+      </button>
+    </div>
+
+  </div>
+)}
+
+        <section id="assistant" className="card">
+          <div className="assistantHeader">
+            <h2>Assistant (par étapes)</h2>
+            
+          <div className="progress">
+            {(hasDraft || lastSavedAt) && (
+  <div className="savedHint">
+    💾 {lastSavedAt
+      ? `Sauvegardé à ${new Date(lastSavedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+      : "Sauvegarde trouvée"}
+    {restoredAt && " — restauré ✅"}
+
+    <div className="savedActions">
+      <button className="btn btnGhost" onClick={handleNewSession}>
+        Nouveau
+      </button>
+      <button className="btn btnGhost" onClick={handleDismissDraftBanner}>
+        Masquer
+      </button>
+    </div>
+  </div>
+)}
+
+  <div>
+    Étape <strong>{Math.min(stepIndex + 1, STEPS.length)}</strong> / {STEPS.length}
+  </div>
+
+
+</div>
+
+          </div>
+
+          <div className="chat">
+            <div className="chatLog" ref={chatLogRef}>
+              {messages.map((m, idx) => (
+                <div key={idx} className={`msg ${m.role}`}>
+                  {m.text.split("\n").map((line, i) => (
+                    <div key={i}>{line}</div>
+                  ))}
+                </div>
+              ))}
+{isTyping && (
+  <div className="msg bot typing">
+    <span className="typingDots">
+      <span className="dot" />
+      <span className="dot" />
+      <span className="dot" />
+    </span>
+    <span className="typingText">L’assistant écrit…</span>
+  </div>
+)}
+
+            </div>
+
+            {/* INPUT ZONE (text / choice / dashboard) */}
+{step?.mode === "choice" ? (
+  <div className="choiceZone">
+    <div className="choiceRow">
+      {step.options?.map((opt) => (
+        <button
+          key={opt.value}
+          className="btn btnChoice"
+          onClick={() => handleSelectOption(opt)}
+          disabled={isTyping}
+          type="button"
+        >
+          {opt.label}
+        </button>
+      ))}
+
+      {step.help && (
+        <button
+          className="btn btnGhost btnHelp"
+          onClick={() => setHelpOpen((v) => !v)}
+          type="button"
+        >
+          ❓
+        </button>
+      )}
+    </div>
+
+    {helpOpen && step.help && (
+      <div className="helpBox" role="note">
+        {step.help}
+      </div>
+    )}
+  </div>
+) : step?.mode === "dashboard" ? (
+  <div className="dashboardZone">
+    <div className="simulatorBox">
+  <div className="simulatorTitle">📊 Simuler un autre CA</div>
+
+  <div className="simulatorControls">
+    <input
+      type="number"
+      placeholder="Ex: 4000"
+      value={simulatedCA ?? ""}
+      onChange={(e) =>
+        setSimulatedCA(
+          e.target.value ? Number(e.target.value) : null
+        )
+      }
+      className="simInput"
+    />
+
+    {simulatedCA !== null && (
+      <button
+        className="btn btnGhost btnSmall"
+        onClick={() => setSimulatedCA(null)}
+      >
+        Reset
+      </button>
+    )}
+  </div>
+</div>
+
+    <div className="cards">
+
+{step.cards?.map((c) => (
+<div
+  key={c.key}
+  className={[
+    "dashCard",
+
+    // deadline highlight
+    c.key === "deadline" && computed?.urgency === "soon" ? "isSoon" : "",
+    c.key === "deadline" && computed?.urgency === "late" ? "isLate" : "",
+
+    c.key === "tva" && computed?.tvaUrgency === "soon" ? "isSoon" : "",
+    c.key === "tva" && computed?.tvaUrgency === "late" ? "isLate" : "",
+
+  ].join(" ").trim()}
+>
+
+<div className="dashLabel">
+  {c.label}
+
+  {c.key === "tva" && computed?.tvaUrgency && (
+    <span
+      className={`badge ${
+        computed.tvaUrgency === "late" ? "badgeLate" : "badgeSoon"
+      }`}
+    >
+      {computed.tvaUrgency === "late" ? "🚨 Dépassé" : "⚠️ Bientôt"}
+    </span>
+  )}
+</div>
+
+
+    <div className="dashValue">
+      {c.key === "reminders" && (
+        <button
+          className="btn btnGhost"
+          type="button"
+          onClick={() =>
+            setAnswers((prev) => ({
+              ...prev,
+              reminders_enabled: !prev.reminders_enabled,
+            }))
+          }
+        >
+          {answers?.reminders_enabled ? "Désactiver" : "Activer"}
+        </button>
+      )}
+
+<div
+  className={[
+    "dashValueText",
+    c.key === "deadline" && computed?.urgency === "soon" ? "valueSoon" : "",
+    c.key === "deadline" && computed?.urgency === "late" ? "valueLate" : "",
+  ].join(" ").trim()}
+>
+  {getDashValue(c.key, answers, computed) ?? "—"}
+</div>
+
+{c.key === "tva" && computed?.tvaHint && (
+  <div className="dashHint">{computed.tvaHint}</div>
+)}
+
+
+{c.key === "deadline" && typeof computed?.daysLeft === "number" && (
+  <div className="dashHint">
+    {computed.daysLeft < 0
+      ? `En retard de ${Math.abs(computed.daysLeft)} jour(s)`
+      : computed.daysLeft === 0
+      ? "Aujourd’hui"
+      : `Dans ${computed.daysLeft} jour(s)`}
+  </div>
+)}
+
+
+    </div>
+  </div>
+))}
+
+    </div>
+
+    {/* ✅ Recommandations */}
+{computed?.recommendations?.length > 0 && (
+  <div className="dashRecs">
+    <div className="dashRecsTitle">✅ Recommandations</div>
+
+    <div className="dashRecsList">
+      {computed.recommendations.map((r) => (
+        <div
+          key={r.key}
+          className={[
+            "dashRecItem",
+            r.level === "danger" ? "recDanger" : "",
+            r.level === "warning" ? "recWarning" : "",
+            r.level === "ok" ? "recOk" : "",
+          ].join(" ").trim()}
+        >
+          <div className="dashRecTitle">{r.title}</div>
+          <div className="dashRecText">{r.text}</div>
+        </div>
+      ))}
+    </div>
+  </div>
+)}
+
+<div className="disclaimer">
+  ⚠️ Estimation MVP : ce tableau donne des repères (charges/TVA/échéances) et ne remplace pas un expert-comptable.
+</div>
+
+    <div className="miniActions">
+      <button className="btn btnGhost" type="button" onClick={() => setStepIndex(0)}>
+        ← Retour
+      </button>
+      <button className="btn btnGhost" type="button" onClick={handleReset}>
+        Recommencer
+      </button>
+    </div>
+  </div>
+) : (
+
+  <>
+    <div className="chatInput">
+      <input
+        ref={inputRef}
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder={step?.placeholder || "Écris ici…"}
+        aria-label="Message"
+        disabled={isTyping}
+      />
+      <button
+        className="btn"
+        onClick={handleSend}
+        disabled={!canSend || isTyping}
+        type="button"
+      >
+        Envoyer
+      </button>
+    </div>
+
+    <div className="autoSaveHint" aria-live="polite">
+      💾 Tes réponses sont sauvegardées automatiquement.
+    </div>
+  </>
+)}
+
+
+{(step?.mode === "dashboard" || stepIndex >= STEPS.length) && (
+  <div className="miniActions">
+    <button className="btn btnGhost" onClick={handleCopySummary}>
+      Copier le résumé
+    </button>
+
+    <button className="btn btnGhost" onClick={handleDownloadTxt}>
+      Télécharger le plan (.txt)
+    </button>
+  </div>
+)}
+
+</div>
+
+        </section>
+
+{showInfoBlocks && (
+  <section id="security" className="card security">
+    <div className="sectionHead">
+      <h2>🔒 Sécurité & confidentialité (démo)</h2>
+
+      <button
+        className="iconBtn"
+        type="button"
+        onClick={toggleInfoBlocks}
+        aria-label="Masquer cette section"
+      >
+        ✕
+      </button>
+    </div>
+
+    <ul className="securityList">
+      <li>✔ Aucun téléchargement ni installation</li>
+      <li>✔ Aucune création de compte</li>
+      <li>✔ Aucune donnée bancaire demandée</li>
+      <li>✔ Les données restent dans votre navigateur (localStorage)</li>
+      <li>✔ Aucun accès à votre compte URSSAF ou impôts</li>
+    </ul>
+
+    <p className="securityNote">
+      Cet assistant fonctionne 100% côté navigateur. Aucune donnée n’est envoyée vers un serveur.
+    </p>
+  </section>
+)}
+
+<section id="feedback" className="card feedbackCta">
+  <h2>⭐ Donner mon avis</h2>
+
+  <p className="muted">
+    Ton retour m’aide à améliorer l’assistant.  
+    Le formulaire prend moins de 30 secondes.
+  </p>
+
+  <a
+    className="btn btnPrimary"
+    href="https://docs.google.com/forms/d/e/1FAIpQLSfFLqWZajP6Dy0Zm5-bS9cnE5-joWecfCgfyIhzGRMbsk-jqA/viewform"
+    target="_blank"
+    rel="noopener noreferrer"
+  >
+    Ouvrir le formulaire
+  </a>
+
+  <p className="muted" style={{ marginTop: 10 }}>
+    Le formulaire s’ouvre dans un nouvel onglet.
+  </p>
+</section>
+
+      </main>
+
+
+      <footer className="footer">
+        © {new Date().getFullYear()} Microassist
+      </footer>
+    </div>
+  );
+}
