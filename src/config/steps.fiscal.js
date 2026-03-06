@@ -5,16 +5,15 @@ export const FISCAL_STEPS = [
     key: "entry_status",
     title: "Démarrage",
     mode: "choice",
-    question: "Tu es déjà entrepreneur ?",
+    question: "Tu es en micro-entreprise (auto-entrepreneur) ?",
     options: [
-      { value: "new", label: "🆕 Je me lance" },
-      { value: "existing", label: "🚀 Déjà entrepreneur" },
-      { value: "unknown", label: "🤔 Je ne sais pas" },
+      { value: "micro_yes", label: "✅ Oui, micro-entreprise" },
+      { value: "micro_no", label: "❌ Non (SAS / EI / EURL…)" },
     ],
-    help: "Choisis selon ta situation. Tu pourras ajuster ensuite.",
+    help: "Microassist (MVP) couvre surtout la micro-entreprise. Si tu n’es pas micro, une version dédiée arrive.",
   },
 
-  // Onboarding (peut être “skippé” plus tard par la logique)
+  /*
   {
     key: "status",
     title: "Statut",
@@ -24,11 +23,10 @@ export const FISCAL_STEPS = [
       { value: "auto_entrepreneur", label: "Auto-entrepreneur" },
       { value: "ei_eurl", label: "EI / EURL" },
       { value: "sas_sasu", label: "SAS / SASU" },
-      { value: "unknown", label: "❓ Je ne sais pas" },
     ],
     help: "Le statut détermine tes déclarations et paiements.",
   },
-
+*/
   {
     key: "activity_type",
     title: "Activité",
@@ -50,13 +48,10 @@ export const FISCAL_STEPS = [
     options: [
       { value: "monthly", label: "Mensuel" },
       { value: "quarterly", label: "Trimestriel" },
-      { value: "unknown", label: "❓ Je ne sais pas" },
     ],
     help: "Tu peux changer plus tard.",
   },
 
-
-  // CA (chiffre d’affaires) — rapide + autre
   {
     key: "ca_preset",
     title: "CA",
@@ -73,16 +68,13 @@ export const FISCAL_STEPS = [
     help: "CA = chiffre d’affaires du mois (total facturé).",
   },
 
-  // Saisie manuelle si “Autre”
   {
     key: "ca_month",
     title: "CA",
     question: "Entre ton CA du mois (en €)",
     placeholder: "Ex: 1200",
-    // pas de mode => ça utilise l’input texte existant
   },
 
-  // Dashboard (cœur du produit) — pas encore de calculs, juste structure
   {
     key: "fiscal_dashboard",
     title: "Tableau fiscal",
@@ -95,8 +87,6 @@ export const FISCAL_STEPS = [
       { key: "reminders", label: "🔔 Rappel activé" },
       { key: "tva", label: "TVA" },
       { key: "treasury", label: "💰 À garder de côté" },
-
     ],
   },
 ];
-

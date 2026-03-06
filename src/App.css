@@ -841,3 +841,25 @@ display:flex;
 gap:8px;
 }
 
+.roadmapList li{
+  display:flex;
+  gap:10px;
+  align-items:flex-start;
+  padding:8px 0;
+  border-bottom:1px solid rgba(0,0,0,.06);
+}
+.roadmapList li:last-child{ border-bottom:none; }
+
+.progressBar {
+  height: 6px;
+  background: #eee;
+  border-radius: 6px;
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: linear-gradient(90deg,#7c3aed,#6366f1);
+  transition: width 0.4s ease;
+}

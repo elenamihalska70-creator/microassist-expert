@@ -13,42 +13,58 @@ function labelFromOptions(stepKey, value) {
   return opt?.label || value || "—";
 }
 
-
-function buildFiscalSummary(answers, computed) {
-  const lines = [
-    "✅ Résumé fiscal (MVP)",
-    `• Situation : ${labelFromOptions("entry_status", answers.entry_status)}`,
-    `• Statut : ${labelFromOptions("status", answers.status)}`,
-    `• Activité : ${labelFromOptions("activity_type", answers.activity_type)}`,
-    `• Déclarations : ${labelFromOptions("declaration_frequency", answers.declaration_frequency)}`,
-    "",
-    "📌 Synthèse",
-    `• Prochaine déclaration : ${computed?.nextDeclarationLabel ?? "—"}`,
-    `• Montant estimé : ${computed?.amountEstimatedLabel ?? "—"}`,
-    `• Date limite : ${computed?.deadlineLabel ?? "—"}`,
-    `• TVA : ${computed?.tvaStatusLabel ?? "—"}`,
-  ];
-
-  if (computed?.tvaHint) {
-  lines.push(`• Détail TVA : ${computed.tvaHint}`);
+function track(eventName, params = {}) {
+  if (window.gtag) window.gtag("event", eventName, params);
 }
 
-lines.push("");
-lines.push("⚠️ Note : estimation MVP — ne remplace pas un expert-comptable.");
+function buildFiscalSummary(answers = {}, computed = {}) {
+  const lines = [];
+
+  lines.push("✅ Résumé fiscal (MVP)");
+
+  // --- Profil ---
+  lines.push(`• Situation : ${labelFromOptions("entry_status", answers.entry_status)}`);
+  lines.push(`• Statut : ${labelFromOptions("status", answers.status)}`);
+  lines.push(`• Activité : ${labelFromOptions("activity_type", answers.activity_type)}`);
+  lines.push(
+    `• Déclarations : ${labelFromOptions(
+      "declaration_frequency",
+      answers.declaration_frequency
+    )}`
+  );
+
+  lines.push(""); // espace visuel
+
+  // --- Synthèse ---
+  lines.push("📌 Synthèse");
+  lines.push(`• Prochaine déclaration : ${computed.nextDeclarationLabel ?? "—"}`);
+  lines.push(`• Montant estimé : ${computed.amountEstimatedLabel ?? "—"}`);
+  lines.push(`• Date limite : ${computed.deadlineLabel ?? "—"}`);
+  lines.push(`• TVA : ${computed.tvaStatusLabel ?? "—"}`);
+
+  if (computed.tvaHint) {
+    lines.push(`• Détail TVA : ${computed.tvaHint}`);
+  }
+
+  lines.push("");
+  lines.push("⚠️ Note : estimation MVP — ne remplace pas un expert-comptable.");
 
   return lines.join("\n");
 }
+
 function buildFiscalChecklist(answers, computed) {
   const items = [];
 
   items.push("🧭 Plan d’action (simple)");
 
-  // 0) Trésorerie recommandée (вау-эффект)
+  // 0) Trésorerie
   if (typeof computed?.treasuryRecommended === "number") {
-    items.push(`0) 💰 À garder de côté : ${computed.treasuryRecommended.toLocaleString("fr-FR")} € minimum.`);
+    items.push(
+      `0) 💰 À garder de côté : ${computed.treasuryRecommended.toLocaleString("fr-FR")} € minimum.`
+    );
   }
 
-  // 1) Action principale: deadline / URSSAF
+  // 1) URSSAF
   if (computed?.urgency === "late") {
     items.push("1) Déclarer sur autoentrepreneur.urssaf.fr dès que possible (retard).");
   } else if (computed?.urgency === "soon") {
@@ -67,9 +83,7 @@ function buildFiscalChecklist(answers, computed) {
   }
 
   // 3) Rappels
-  items.push(
-    `3) Rappels : ${answers?.reminders_enabled ? "activés ✅" : "désactivés ⏸"} (recommandé : 48h avant).`
-  );
+  items.push(`3) Rappels : ${answers?.reminders_enabled ? "activés ✅" : "désactivés ⏸"} (recommandé : 48h avant).`);
 
   // 4) Recos
   if (computed?.recommendations?.length) {
@@ -82,6 +96,7 @@ function buildFiscalChecklist(answers, computed) {
 
   return items.join("\n");
 }
+
 
 export default function App() {
   const [stepIndex, setStepIndex] = useState(0);
@@ -120,6 +135,21 @@ function toggleInfoBlocks() {
   });
 }
 
+// ✅ helper: bot message “assistant”
+function addAssistant(text) {
+  addMessage("bot", `🤖 ${text}`);
+}
+
+// ✅ helper: smooth scroll to section by id
+function scrollToSection(id) {
+  setTimeout(() => {
+    document.getElementById(id)?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, 80);
+}
+
 function goToSecurity() {
   // 1) показать блоки, если скрыты
   if (!showInfoBlocks) {
@@ -150,6 +180,31 @@ const [messages, setMessages] = useState([
 
   const chatEndRef = useRef(null);
   const chatLogRef = useRef(null);
+
+function getIndexByKey(key) {
+  return STEPS.findIndex((s) => s.key === key);
+}
+
+function goNext(updatedAnswers, forcedNextIndex = null) {
+  const nextIndex = forcedNextIndex ?? (stepIndex + 1);
+
+  setIsTyping(true);
+
+  setTimeout(() => {
+    setIsTyping(false);
+
+    if (nextIndex < STEPS.length) {
+      setStepIndex(nextIndex);
+      const nextStep = STEPS[nextIndex];
+      addMessage("bot", `Étape ${nextIndex + 1} — ${nextStep.title}\n${nextStep.question}`);
+    } else {
+      // (если ты уже переключилась на fiscal summary/checklist — оставь твой вариант)
+      addMessage("bot", "✅ Terminé.");
+    }
+  }, 600);
+}
+
+
   // ✅ 1) Restore au chargement
 
 useEffect(() => {
@@ -292,30 +347,6 @@ useEffect(() => {
 
 
 
-function getIndexByKey(key) {
-  return STEPS.findIndex((s) => s.key === key);
-}
-
-function goNext(updatedAnswers, forcedNextIndex = null) {
-  const nextIndex = forcedNextIndex ?? (stepIndex + 1);
-
-  setIsTyping(true);
-
-  setTimeout(() => {
-    setIsTyping(false);
-
-    if (nextIndex < STEPS.length) {
-      setStepIndex(nextIndex);
-      const nextStep = STEPS[nextIndex];
-      addMessage("bot", `Étape ${nextIndex + 1} — ${nextStep.title}\n${nextStep.question}`);
-    } else {
-      // (если ты уже переключилась на fiscal summary/checklist — оставь твой вариант)
-      addMessage("bot", "✅ Terminé.");
-    }
-  }, 600);
-}
-
-
 function handleSend() {
   if (!canSend || isTyping) return;
 
@@ -330,14 +361,24 @@ function submitAnswer({ chatText, value }) {
 
   const key = step?.key;
   let updatedAnswers = key ? { ...answers, [key]: value } : { ...answers };
-
-  let forcedNextIndex = null;
-
-  // ✅ если “Déjà entrepreneur” — идём на CA preset
-  if (key === "entry_status" && value === "existing") {
-  const nextIndex = getIndexByKey("activity_type");
-  if (nextIndex !== -1) forcedNextIndex = nextIndex;
+// 🔥 STOP flow if user is NOT micro-entreprise
+if (key === "entry_status" && value === "micro_no") {
+  setAnswers(updatedAnswers);
+if (key === "entry_status" && value === "micro_yes") {
+  updatedAnswers = { ...updatedAnswers, status: "auto_entrepreneur" };
 }
+
+  addAssistant(
+    "Pour l’instant, Microassist couvre surtout la micro-entreprise (URSSAF). " +
+    "Une version SAS/EI/EURL est en préparation. " +
+    "Tu peux laisser ton besoin dans la section “Prochainement”."
+  );
+
+  scrollToSection("prochainement");
+  return;
+}
+
+let forcedNextIndex = null;
 
 
   // ✅ CA preset
@@ -365,8 +406,8 @@ function submitAnswer({ chatText, value }) {
   setTimeout(() => goNext(updatedAnswers, forcedNextIndex), 250);
 }
 
-
 function handleSelectOption(opt) {
+  if (isTyping) return; // 🔒 anti double-clic
   submitAnswer({ chatText: opt.label, value: opt.value });
 }
 
@@ -506,8 +547,7 @@ function handleDismissDraftBanner() {
         <section id="home" className="card hero heroSaaS">
   <div className="heroGrid">
     <div className="heroLeft">
-      <div className="heroBadge">🟣 MicroSaaS — MVP en test</div>
-
+      <div className="heroBadge">🟣 MVP en test — version bêta gratuite </div>
       <h1>Assistant fiscal pour micro-entrepreneurs</h1> 
 
 <div className="heroLead">
@@ -529,23 +569,25 @@ function handleDismissDraftBanner() {
       </ul>
 
       <div className="heroActions">
-        <button
-          className="btn btnPrimary"
-onClick={() => {
-  setFocusMode(true);
-  setShowSecurity(false);
-  setShowAvis(false);
+<button
+  className="btn btnPrimary"
+  onClick={() => {
+    track("click_tester_demo");
 
-  setTimeout(() => {
-    document
-      .getElementById("assistant")
-      ?.scrollIntoView({ behavior: "smooth" });
-  }, 50);
-}}
-          type="button"
-        >
-          Tester la démo
-        </button>
+    setFocusMode(true);
+    setShowSecurity(false);
+    setShowAvis(false);
+
+    setTimeout(() => {
+      document
+        .getElementById("assistant")
+        ?.scrollIntoView({ behavior: "smooth" });
+    }, 50);
+  }}
+  type="button"
+>
+  Tester la démo
+</button>
 
         <button
         className="btn btnGhost"
@@ -600,20 +642,26 @@ onClick={() => {
 
 {!focusMode && (
 <section className="card">
-  <h2>À propos du projet</h2>
+  <h2>À propos de Microassist</h2>
 
   <p>
-  Microassist est un prototype développé dans le cadre de mon portfolio 
-  de Cheffe de projet digital.
+  Microassist est un outil conçu pour aider les micro-entrepreneurs
+  à comprendre simplement leurs obligations fiscales.
   </p>
 
   <p>
-  L’objectif est de créer un assistant simple qui aide les micro-entrepreneurs
-  à comprendre leurs obligations fiscales et leurs échéances.
+  L’objectif est de réduire le temps et le stress liés aux démarches
+  administratives : déclarations, charges, TVA et échéances.
   </p>
 
   <p>
-  Le projet combine UX, logique métier et développement web.
+  En quelques étapes, l’assistant donne une vision claire de ce qu’il faut
+  déclarer, quand le faire et combien mettre de côté.
+  </p>
+
+  <p>
+  L’entrepreneur peut ainsi se concentrer sur l’essentiel :
+  développer son activité et ses clients.
   </p>
 </section>
 )}
@@ -621,7 +669,7 @@ onClick={() => {
       {!focusMode && (
         <section id="services" className="card">
           <h2>Services</h2>
-          <ul className="list">
+          <ul className="roadmaplist">
             <li>Idée → MVP : étapes simples</li>
             <li>Organisation : checklists & priorités</li>
             <li>Modèles : pitch, email, Notion</li>
@@ -651,19 +699,50 @@ onClick={() => {
 </section>
 )}
 
+
 {!focusMode && (
-<section className="card">
-  <h2>Pour qui ?</h2>
+  <section id="prochainement" className="card">
+    <h2>Pour qui & Prochainement</h2>
 
-  <ul className="targetList">
-    <li>Micro-entrepreneurs</li>
-    <li>Freelances</li>
-    <li>Créateurs d’activité</li>
-    <li>Indépendants qui veulent comprendre leurs obligations</li>
-  </ul>
-</section>
+    <p className="muted">
+      Microassist est une démo en cours de test, conçue aujourd’hui pour la micro-entreprise (URSSAF).
+    </p>
+
+    <h3 style={{ marginTop: 12 }}>✅ Pour qui ?</h3>
+    <ul className="targetList">
+      <li>Micro-entrepreneurs</li>
+      <li>Freelances</li>
+      <li>Créateurs d’activité</li>
+      <li>Indépendants qui veulent clarifier leurs obligations</li>
+    </ul>
+
+    <h3 style={{ marginTop: 12 }}>🚧 Prochainement (feuille de route)</h3>
+    <ul className="roadmaplist">
+      <li>📌 Compte + historique des déclarations</li>
+      <li>📅 Rappels automatiques (email) avant l’échéance</li>
+      <li>📄 Export PDF du plan d’action</li>
+    </ul>
+
+    <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(0,0,0,0.08)" }}>
+      <p>
+        <strong>Tu n’es pas en micro-entreprise</strong> (SAS/SARL/EI) ?
+        Une version dédiée est en préparation.
+      </p>
+      <p className="muted" style={{ marginTop: 6 }}>
+        Laisse ton besoin → ça m’aide à prioriser les prochaines versions.
+      </p>
+
+      <a
+        className="btn btnPrimary"
+        href="https://docs.google.com/forms/d/e/1FAIpQLSfFLqWZajP6Dy0Zm5-bS9cnE5-joWecfCgfyIhzGRMbsk-jqA/viewform"
+        target="_blank"
+        rel="noreferrer"
+      >
+        Ouvrir le formulaire
+      </a>
+    </div>
+  </section>
 )}
-
 
 {focusMode && (
   <div className="focusBar">
@@ -703,6 +782,14 @@ onClick={() => {
             <h2>Assistant (par étapes)</h2>
             
           <div className="progress">
+          <div className="progressBar">
+  <div
+    className="progressFill"
+    style={{
+      width: `${((stepIndex + 1) / STEPS.length) * 100}%`
+    }}
+  />
+</div>
             {(hasDraft || lastSavedAt) && (
   <div className="savedHint">
     💾 {lastSavedAt
