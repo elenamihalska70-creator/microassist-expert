@@ -863,3 +863,148 @@ gap:8px;
   background: linear-gradient(90deg,#7c3aed,#6366f1);
   transition: width 0.4s ease;
 }
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.chatLog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 520px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.msg {
+  max-width: 78%;
+  padding: 12px 14px;
+  border-radius: 16px;
+  line-height: 1.45;
+  font-size: 15px;
+  white-space: pre-wrap;
+}
+
+.msg.bot {
+  align-self: flex-start;
+  background: #111;
+  color: white;
+  border-top-left-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+}
+
+.msg.user {
+  align-self: flex-end;
+  background: white;
+  color: #111;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-top-right-radius: 6px;
+}
+
+.msg.typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.typingDots {
+  display: inline-flex;
+  gap: 5px;
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.35;
+  animation: blink 1.2s infinite ease-in-out;
+}
+
+.dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.typingText {
+  opacity: 0.8;
+  font-size: 14px;
+}
+
+@keyframes blink {
+  0%, 80%, 100% {
+    transform: scale(0.8);
+    opacity: 0.25;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.choiceZone {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stepMiniHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 2px;
+}
+
+.stepMiniBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 58px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(124, 58, 237, 0.10);
+  color: #6d28d9;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.stepMiniTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: #222;
+}
+
+.choiceRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.btnChoice {
+  border: 1px solid rgba(0,0,0,0.08);
+  background: #111;
+  color: white;
+  border-radius: 14px;
+  padding: 12px 16px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btnChoice:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+}
+
+.btnChoice:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}

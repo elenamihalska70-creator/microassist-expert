@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import "./App.css";
 import { FISCAL_STEPS as STEPS } from "./config/steps.fiscal";
 import { computeObligations, getDashValue } from "./utils/obligations";
@@ -22,7 +22,6 @@ function buildFiscalSummary(answers = {}, computed = {}) {
 
   lines.push("✅ Résumé fiscal (MVP)");
 
-  // --- Profil ---
   lines.push(`• Situation : ${labelFromOptions("entry_status", answers.entry_status)}`);
   lines.push(`• Statut : ${labelFromOptions("status", answers.status)}`);
   lines.push(`• Activité : ${labelFromOptions("activity_type", answers.activity_type)}`);
@@ -33,9 +32,7 @@ function buildFiscalSummary(answers = {}, computed = {}) {
     )}`
   );
 
-  lines.push(""); // espace visuel
-
-  // --- Synthèse ---
+  lines.push("");
   lines.push("📌 Synthèse");
   lines.push(`• Prochaine déclaration : ${computed.nextDeclarationLabel ?? "—"}`);
   lines.push(`• Montant estimé : ${computed.amountEstimatedLabel ?? "—"}`);
@@ -57,14 +54,12 @@ function buildFiscalChecklist(answers, computed) {
 
   items.push("🧭 Plan d’action (simple)");
 
-  // 0) Trésorerie
   if (typeof computed?.treasuryRecommended === "number") {
     items.push(
       `0) 💰 À garder de côté : ${computed.treasuryRecommended.toLocaleString("fr-FR")} € minimum.`
     );
   }
 
-  // 1) URSSAF
   if (computed?.urgency === "late") {
     items.push("1) Déclarer sur autoentrepreneur.urssaf.fr dès que possible (retard).");
   } else if (computed?.urgency === "soon") {
@@ -73,7 +68,6 @@ function buildFiscalChecklist(answers, computed) {
     items.push("1) Garder ton CA à jour, puis déclarer à l’approche de l’échéance.");
   }
 
-  // 2) TVA
   if (computed?.tvaStatus === "exceeded") {
     items.push("2) TVA : vérifier ton régime (seuil dépassé) et anticiper facturation/déclaration.");
   } else if (computed?.tvaStatus === "soon") {
@@ -82,10 +76,10 @@ function buildFiscalChecklist(answers, computed) {
     items.push("2) TVA : OK (franchise). Continuer à suivre ton CA.");
   }
 
-  // 3) Rappels
-  items.push(`3) Rappels : ${answers?.reminders_enabled ? "activés ✅" : "désactivés ⏸"} (recommandé : 48h avant).`);
+  items.push(
+    `3) Rappels : ${answers?.reminders_enabled ? "activés ✅" : "désactivés ⏸"} (recommandé : 48h avant).`
+  );
 
-  // 4) Recos
   if (computed?.recommendations?.length) {
     items.push("");
     items.push("✅ Recommandations");
@@ -97,363 +91,341 @@ function buildFiscalChecklist(answers, computed) {
   return items.join("\n");
 }
 
-
 export default function App() {
   const [stepIndex, setStepIndex] = useState(0);
   const [answers, setAnswers] = useState({});
   const [input, setInput] = useState("");
   const [lastSavedAt, setLastSavedAt] = useState(null);
   const [hasDraft, setHasDraft] = useState(false);
-const [restoredAt, setRestoredAt] = useState(null);
-const inputRef = useRef(null);
-const [isTyping, setIsTyping] = useState(false);
-const [helpOpen, setHelpOpen] = useState(false);
-const [userName, setUserName] = useState("");
-const [simulatedCA, setSimulatedCA] = useState(null);
-const [hydrated, setHydrated] = useState(false);
-const [focusMode, setFocusMode] = useState(false);
-const [showSecurity, setShowSecurity] = useState(false);
-const [showAvis, setShowAvis] = useState(false);
-const [showInfoBlocks, setShowInfoBlocks] = useState(() => {
-  const raw = localStorage.getItem("microassist_show_info");
-  return raw === null ? true : raw === "1";
-});
+  const [restoredAt, setRestoredAt] = useState(null);
+  const [isTyping, setIsTyping] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [userName, setUserName] = useState("");
+  const [simulatedCA, setSimulatedCA] = useState(null);
+  const [hydrated, setHydrated] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
 
-const [rating, setRating] = useState(5);
-const [comment, setComment] = useState("");
-const [sent, setSent] = useState(false);
-
-useEffect(() => {
-  showConsoleSignature();
-}, []);
-
-function toggleInfoBlocks() {
-  setShowInfoBlocks((v) => {
-    const next = !v;
-    localStorage.setItem("microassist_show_info", next ? "1" : "0");
-    return next;
+  const [showInfoBlocks, setShowInfoBlocks] = useState(() => {
+    const raw = localStorage.getItem("microassist_show_info");
+    return raw === null ? true : raw === "1";
   });
-}
 
-// ✅ helper: bot message “assistant”
-function addAssistant(text) {
-  addMessage("bot", `🤖 ${text}`);
-}
-
-// ✅ helper: smooth scroll to section by id
-function scrollToSection(id) {
-  setTimeout(() => {
-    document.getElementById(id)?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
-  }, 80);
-}
-
-function goToSecurity() {
-  // 1) показать блоки, если скрыты
-  if (!showInfoBlocks) {
-    localStorage.setItem("microassist_show_info", "1");
-    setShowInfoBlocks(true);
-
-    // 2) подождать рендер и скролл
-    setTimeout(() => {
-      document.getElementById("security")?.scrollIntoView({ behavior: "smooth" });
-    }, 50);
-    return;
-  }
-
-  // если уже видно — просто скролл
-  document.getElementById("security")?.scrollIntoView({ behavior: "smooth" });
-}
-
-useEffect(() => {
-  setHelpOpen(false);
-}, [stepIndex]);
-
-
-const [messages, setMessages] = useState([
-  { role: "bot", text: "Bonjour 👋 On va construire ton projet en 5 étapes. Réponds simplement." },
-  { role: "bot", text: `Étape 1 — ${STEPS[0].title}\n${STEPS[0].question}` },
-]);
-
-
-  const chatEndRef = useRef(null);
+  const inputRef = useRef(null);
   const chatLogRef = useRef(null);
+  const chatEndRef = useRef(null);
+  const assistantRef = useRef(null);
+  const securityRef = useRef(null);
+  const feedbackRef = useRef(null);
 
-function getIndexByKey(key) {
-  return STEPS.findIndex((s) => s.key === key);
-}
+  useEffect(() => {
+    showConsoleSignature();
+  }, []);
 
-function goNext(updatedAnswers, forcedNextIndex = null) {
-  const nextIndex = forcedNextIndex ?? (stepIndex + 1);
-
-  setIsTyping(true);
-
-  setTimeout(() => {
-    setIsTyping(false);
-
-    if (nextIndex < STEPS.length) {
-      setStepIndex(nextIndex);
-      const nextStep = STEPS[nextIndex];
-      addMessage("bot", `Étape ${nextIndex + 1} — ${nextStep.title}\n${nextStep.question}`);
-    } else {
-      // (если ты уже переключилась на fiscal summary/checklist — оставь твой вариант)
-      addMessage("bot", "✅ Terminé.");
-    }
-  }, 600);
-}
-
-
-  // ✅ 1) Restore au chargement
-
-useEffect(() => {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-
-    // ✅ если сохранения нет — разрешаем save дальше
-    if (!raw) {
-      setHydrated(true);
-      return;
-    }
-
-    setHasDraft(true);
-
-    const data = JSON.parse(raw);
-    if (!data || data.version !== LS_VERSION) {
-      setHydrated(true);
-      return;
-    }
-
-if (data.savedAt) setLastSavedAt(data.savedAt);
-
-const a = data.answers || {};
-if (a && typeof a === "object") setAnswers(a);
-
-if (Array.isArray(data.messages) && data.messages.length > 0) setMessages(data.messages);
-if (typeof data.userName === "string") setUserName(data.userName);
-
-// ✅ Auto-jump (profil léger) — один setStepIndex
-let nextIndex = 0;
-if (typeof data.stepIndex === "number") nextIndex = data.stepIndex;
-
-const hasProfile = !!a.activity_type && !!a.declaration_frequency;
-
-if (hasProfile) {
-  if (typeof a.ca_month === "number" && a.ca_month > 0) {
-    const dashIndex = getIndexByKey("fiscal_dashboard");
-    if (dashIndex !== -1) nextIndex = dashIndex;
-  } else {
-    const caIndex = getIndexByKey("ca_preset");
-    if (caIndex !== -1) nextIndex = caIndex;
-  }
-}
-
-setStepIndex(nextIndex);
-
-
-    setRestoredAt(new Date().toISOString());
-  } catch (e) {
-    console.warn("Restore failed:", e);
-  } finally {
-    // ✅ ВАЖНО: только после restore разрешаем autosave
-    setHydrated(true);
-  }
-}, []);
-
-
-useEffect(() => {
-  if (!userName) return;
-
-  setMessages((prev) => {
-    if (!prev?.length) return prev;
-
-    const next = [...prev];
-    // меняем только самое первое приветствие
-    next[0] = {
-      ...next[0],
-      text: `Bonjour, ${userName} 👋 On va construire ton projet en 5 étapes. Réponds simplement.`,
-    };
-    return next;
-  });
-}, [userName]);
-
-
-useEffect(() => {
-  const el = chatLogRef.current;
-  if (!el) return;
-
-  el.scrollTop = el.scrollHeight;
-}, [messages]);
+  const [messages, setMessages] = useState([
+    { role: "bot", text: "Bonjour 👋 On va construire ton projet en 5 étapes. Réponds simplement." },
+    { role: "bot", text: `Étape 1 — ${STEPS[0].title}\n${STEPS[0].question}` },
+  ]);
 
   const step = STEPS[stepIndex];
-  useEffect(() => {
-  if (step?.mode === "dashboard") return;
-  inputRef.current?.focus();
-}, [stepIndex]);
-
-  const computed = useMemo(() => {
-  if (simulatedCA !== null) {
-    return computeObligations({ ...answers, ca_month: simulatedCA });
-  }
-  return computeObligations(answers);
-}, [answers, simulatedCA]);
-  const activityLabel = useMemo(
-  () => labelFromOptions("activity_type", answers.activity_type),
-  [answers.activity_type]
-);
-
-const freqLabel = useMemo(
-  () => labelFromOptions("declaration_frequency", answers.declaration_frequency),
-  [answers.declaration_frequency]
-);
-
-const profileLine = useMemo(() => {
-  const a = answers.activity_type ? activityLabel : "";
-  const f = answers.declaration_frequency ? freqLabel : "";
-  if (!a && !f) return "";
-  if (a && f) return `${a} • ${f}`;
-  return a || f;
-}, [answers.activity_type, answers.declaration_frequency, activityLabel, freqLabel]);
-
-
-  const canSend = useMemo(() => input.trim().length > 0, [input]);
-// ✅ 2) Save à chaque changement
-useEffect(() => {
-  if (!hydrated) return;
-  if (messages.length === 0) return;
-
-  try {
-    const now = new Date().toISOString();
-    const payload = {
-      version: LS_VERSION,
-      stepIndex,
-      answers,
-      userName,
-      messages,  
-      savedAt: now,
-    };
-    localStorage.setItem(LS_KEY, JSON.stringify(payload));
-    setLastSavedAt(now);
-  } catch (e) {
-    console.warn("Save failed:", e);
-  }
-}, [hydrated, stepIndex, answers, messages, userName]);
-
 
   function addMessage(role, text) {
     setMessages((prev) => [...prev, { role, text }]);
   }
 
+  function addAssistant(text) {
+    addMessage("bot", `🤖 ${text}`);
+  }
 
+  function scrollToRef(ref) {
+    requestAnimationFrame(() => {
+      ref.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }
 
-function handleSend() {
-  if (!canSend || isTyping) return;
+  function scrollToSection(id) {
+    requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }
 
-  const userText = input.trim();
-  setInput("");
+  function getIndexByKey(key) {
+    return STEPS.findIndex((s) => s.key === key);
+  }
 
-  submitAnswer({ chatText: userText, value: userText });
-}
+  function openSecuritySection() {
+    if (!showInfoBlocks) {
+      localStorage.setItem("microassist_show_info", "1");
+      setShowInfoBlocks(true);
+      setTimeout(() => {
+        scrollToRef(securityRef);
+      }, 80);
+      return;
+    }
+    scrollToRef(securityRef);
+  }
 
-function submitAnswer({ chatText, value }) {
-  addMessage("user", chatText);
+  function closeInfoBlocks() {
+    localStorage.setItem("microassist_show_info", "0");
+    setShowInfoBlocks(false);
+  }
 
-  const key = step?.key;
-  let updatedAnswers = key ? { ...answers, [key]: value } : { ...answers };
-// 🔥 STOP flow if user is NOT micro-entreprise
-if (key === "entry_status" && value === "micro_no") {
-  setAnswers(updatedAnswers);
-if (key === "entry_status" && value === "micro_yes") {
-  updatedAnswers = { ...updatedAnswers, status: "auto_entrepreneur" };
-}
+  function handleDismissDraftBanner() {
+    setHasDraft(false);
+  }
 
-  addAssistant(
-    "Pour l’instant, Microassist couvre surtout la micro-entreprise (URSSAF). " +
-    "Une version SAS/EI/EURL est en préparation. " +
-    "Tu peux laisser ton besoin dans la section “Prochainement”."
+  function goNext(forcedNextIndex = null) {
+    const nextIndex = forcedNextIndex ?? stepIndex + 1;
+
+    setIsTyping(true);
+
+    setTimeout(() => {
+      setIsTyping(false);
+
+      if (nextIndex < STEPS.length) {
+        setStepIndex(nextIndex);
+        const nextStep = STEPS[nextIndex];
+        addMessage("bot", `Étape ${nextIndex + 1} — ${nextStep.title}\n${nextStep.question}`);
+      } else {
+        addMessage("bot", "✅ Terminé.");
+      }
+    }, 600);
+  }
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+
+      if (!raw) {
+        setHydrated(true);
+        return;
+      }
+
+      setHasDraft(true);
+
+      const data = JSON.parse(raw);
+      if (!data || data.version !== LS_VERSION) {
+        setHydrated(true);
+        return;
+      }
+
+      if (data.savedAt) setLastSavedAt(data.savedAt);
+
+      const a = data.answers || {};
+      if (a && typeof a === "object") setAnswers(a);
+
+      if (Array.isArray(data.messages) && data.messages.length > 0) setMessages(data.messages);
+      if (typeof data.userName === "string") setUserName(data.userName);
+
+      let nextIndex = 0;
+      if (typeof data.stepIndex === "number") nextIndex = data.stepIndex;
+
+      const hasProfile = !!a.activity_type && !!a.declaration_frequency;
+
+      if (hasProfile) {
+        if (typeof a.ca_month === "number" && a.ca_month > 0) {
+          const dashIndex = getIndexByKey("fiscal_dashboard");
+          if (dashIndex !== -1) nextIndex = dashIndex;
+        } else {
+          const caIndex = getIndexByKey("ca_preset");
+          if (caIndex !== -1) nextIndex = caIndex;
+        }
+      }
+
+      setStepIndex(nextIndex);
+      setRestoredAt(new Date().toISOString());
+    } catch (e) {
+      console.warn("Restore failed:", e);
+    } finally {
+      setHydrated(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!userName) return;
+
+    setMessages((prev) => {
+      if (!prev?.length) return prev;
+
+      const next = [...prev];
+      next[0] = {
+        ...next[0],
+        text: `Bonjour, ${userName} 👋 On va construire ton projet en 5 étapes. Réponds simplement.`,
+      };
+      return next;
+    });
+  }, [userName]);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isTyping]);
+
+  useEffect(() => {
+    if (step?.mode === "dashboard") return;
+    inputRef.current?.focus();
+  }, [stepIndex, step?.mode]);
+
+  useEffect(() => {
+    setHelpOpen(false);
+  }, [stepIndex]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (messages.length === 0) return;
+
+    try {
+      const now = new Date().toISOString();
+      const payload = {
+        version: LS_VERSION,
+        stepIndex,
+        answers,
+        userName,
+        messages,
+        savedAt: now,
+      };
+      localStorage.setItem(LS_KEY, JSON.stringify(payload));
+      setLastSavedAt(now);
+    } catch (e) {
+      console.warn("Save failed:", e);
+    }
+  }, [hydrated, stepIndex, answers, messages, userName]);
+
+  const computed = useMemo(() => {
+    if (simulatedCA !== null) {
+      return computeObligations({ ...answers, ca_month: simulatedCA });
+    }
+    return computeObligations(answers);
+  }, [answers, simulatedCA]);
+
+  const activityLabel = useMemo(
+    () => labelFromOptions("activity_type", answers.activity_type),
+    [answers.activity_type]
   );
 
-  scrollToSection("prochainement");
-  return;
-}
+  const freqLabel = useMemo(
+    () => labelFromOptions("declaration_frequency", answers.declaration_frequency),
+    [answers.declaration_frequency]
+  );
 
-let forcedNextIndex = null;
+  const profileLine = useMemo(() => {
+    const a = answers.activity_type ? activityLabel : "";
+    const f = answers.declaration_frequency ? freqLabel : "";
+    if (!a && !f) return "";
+    if (a && f) return `${a} • ${f}`;
+    return a || f;
+  }, [answers.activity_type, answers.declaration_frequency, activityLabel, freqLabel]);
 
+  const canSend = useMemo(() => input.trim().length > 0, [input]);
 
-  // ✅ CA preset
-  if (key === "ca_preset") {
-    if (value !== "other") {
-      updatedAnswers = { ...updatedAnswers, ca_month: Number(value) || 0 };
+  function handleSend() {
+    if (!canSend || isTyping) return;
+
+    const userText = input.trim();
+    setInput("");
+
+    submitAnswer({ chatText: userText, value: userText });
+  }
+
+  function submitAnswer({ chatText, value }) {
+    addMessage("user", chatText);
+
+    const key = step?.key;
+    let updatedAnswers = key ? { ...answers, [key]: value } : { ...answers };
+    let forcedNextIndex = null;
+
+    if (key === "entry_status" && value === "micro_no") {
+      setAnswers(updatedAnswers);
+
+      addAssistant(
+        "Pour l’instant, Microassist couvre surtout la micro-entreprise (URSSAF). " +
+          "Une version SAS/EI/EURL est en préparation. " +
+          "Tu peux laisser ton besoin dans la section “Prochainement”."
+      );
+
+      scrollToSection("prochainement");
+      return;
+    }
+
+    if (key === "entry_status" && value === "micro_yes") {
+      updatedAnswers = { ...updatedAnswers, status: "auto_entrepreneur" };
+    }
+
+    if (key === "ca_preset") {
+      if (value !== "other") {
+        updatedAnswers = { ...updatedAnswers, ca_month: Number(value) || 0 };
+        const dashIndex = getIndexByKey("fiscal_dashboard");
+        if (dashIndex !== -1) forcedNextIndex = dashIndex;
+      }
+    }
+
+    if (key === "ca_month") {
+      const cleaned = String(value).replace(/[^\d.,]/g, "").replace(",", ".");
+      const num = Number(cleaned);
+      updatedAnswers = { ...updatedAnswers, ca_month: Number.isFinite(num) ? num : 0 };
+
       const dashIndex = getIndexByKey("fiscal_dashboard");
       if (dashIndex !== -1) forcedNextIndex = dashIndex;
     }
-    // если other → следующий шаг будет ca_month (ввод)
+
+    setAnswers(updatedAnswers);
+    setTimeout(() => goNext(forcedNextIndex), 250);
   }
 
-  // ✅ CA manual input
-  if (key === "ca_month") {
-    const cleaned = String(value).replace(/[^\d.,]/g, "").replace(",", ".");
-    const num = Number(cleaned);
-    updatedAnswers = { ...updatedAnswers, ca_month: Number.isFinite(num) ? num : 0 };
-
-    // после ручного ввода — сразу на dashboard
-    const dashIndex = getIndexByKey("fiscal_dashboard");
-    if (dashIndex !== -1) forcedNextIndex = dashIndex;
+  function handleSelectOption(opt) {
+    if (isTyping) return;
+    submitAnswer({ chatText: opt.label, value: opt.value });
   }
 
-  setAnswers(updatedAnswers);
-  setTimeout(() => goNext(updatedAnswers, forcedNextIndex), 250);
-}
-
-function handleSelectOption(opt) {
-  if (isTyping) return; // 🔒 anti double-clic
-  submitAnswer({ chatText: opt.label, value: opt.value });
-}
-
-function handleKeyDown(e) {
-  if (e.key === "Enter") {
-    e.preventDefault();
-    handleSend();
+  function handleKeyDown(e) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleSend();
+    }
   }
-}
 
-function handleCopySummary() {
+  function handleCopySummary() {
     const summary =
-  buildFiscalSummary(answers, computed) +
-  "\n\n" +
-  buildFiscalChecklist(answers, computed);
+      buildFiscalSummary(answers, computed) + "\n\n" + buildFiscalChecklist(answers, computed);
+
     navigator.clipboard.writeText(summary);
     alert("Résumé copié dans le presse-papiers ✅");
- }
-  
-function handleDownloadTxt() {
-  
-  const content =
-  buildFiscalSummary(answers, computed) +
-  "\n\n" +
-  buildFiscalChecklist(answers, computed);
+  }
 
+  function handleDownloadTxt() {
+    const content =
+      buildFiscalSummary(answers, computed) + "\n\n" + buildFiscalChecklist(answers, computed);
 
-  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
 
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "plan-action-mvp.txt";
-  a.click();
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "plan-action-mvp.txt";
+    a.click();
 
-  URL.revokeObjectURL(url);
-}
+    URL.revokeObjectURL(url);
+  }
 
-function handleReset() {
+  function handleReset() {
     localStorage.removeItem(LS_KEY);
-    // userName хранится внутри payload, поэтому отдельного ключа нет — достаточно removeItem(LS_KEY)
 
     setStepIndex(0);
     setAnswers({});
     setInput("");
     setUserName("");
+    setSimulatedCA(null);
+    setHelpOpen(false);
+    setIsTyping(false);
+    setFocusMode(false);
+    setHasDraft(false);
+    setLastSavedAt(null);
+    setRestoredAt(null);
+
     setMessages([
       {
         role: "bot",
@@ -465,356 +437,339 @@ function handleReset() {
       },
     ]);
   }
-function handleNewSession() {
-  localStorage.removeItem(LS_KEY);
-  setHasDraft(false);
-  setLastSavedAt(null);
-  setRestoredAt(null);
-  handleReset();
-}
 
-function handleDismissDraftBanner() {
-  setHasDraft(false);
-}
+  function handleNewSession() {
+    localStorage.removeItem(LS_KEY);
+    setHasDraft(false);
+    setLastSavedAt(null);
+    setRestoredAt(null);
+    handleReset();
+  }
 
   return (
     <div className="page">
-   <header className="topbar">
-  <div className="topbarLeft">
-    <div className="brand">Entrepreneurs Assistant</div>
+      <header className="topbar">
+        <div className="topbarLeft">
+          <div className="brand">Entrepreneurs Assistant</div>
 
-    <input
-      className="nameInput"
-      value={userName}
-      onChange={(e) => setUserName(e.target.value)}
-      placeholder="Ton prénom"
-      aria-label="Ton prénom"
-    />
+          <input
+            className="nameInput"
+            value={userName}
+            onChange={(e) => setUserName(e.target.value)}
+            placeholder="Ton prénom"
+            aria-label="Ton prénom"
+          />
 
-    {userName && <div className="helloMini">Bonjour, {userName} 👋</div>}
-    {profileLine && <div className="profileMini">{profileLine}</div>}
-  </div>
+          {userName && <div className="helloMini">Bonjour, {userName} 👋</div>}
+          {profileLine && <div className="profileMini">{profileLine}</div>}
+        </div>
 
-  <div className="topbarRight">
-    <nav className="nav">
-      <a href="#home">Accueil</a>
-      <a href="#services">Services</a>
-      <a href="#assistant">Assistant</a>
-      <a href="#contact">Contact</a>
-    </nav>
+        <div className="topbarRight">
+          <nav className="nav">
+            <a href="#home">Accueil</a>
+            <a href="#services">Services</a>
+            <a href="#assistant">Assistant</a>
+            <a href="#contact">Contact</a>
+          </nav>
 
-    <div className="topActions">
-      {hasDraft && (
-        <button
-          className="btn btnGhost btnSmall"
-          onClick={() =>
-            document.getElementById("assistant")?.scrollIntoView({ behavior: "smooth" })
-          }
-          type="button"
-        >
-          Reprendre
-        </button>
-      )}
+          <div className="topActions">
+            {hasDraft && (
+              <button
+                className="btn btnGhost btnSmall"
+                onClick={() => scrollToRef(assistantRef)}
+                type="button"
+              >
+                Reprendre
+              </button>
+            )}
 
-      <button
-        className="btn btnGhost btnSmall"
-        onClick={() => {
-          const preserved = {
-            activity_type: answers.activity_type,
-            declaration_frequency: answers.declaration_frequency,
-          };
+            <button
+              className="btn btnGhost btnSmall"
+              onClick={() => {
+                const preserved = {
+                  activity_type: answers.activity_type,
+                  declaration_frequency: answers.declaration_frequency,
+                };
 
-          setStepIndex(0);
-          setAnswers(preserved);
+                setStepIndex(0);
+                setAnswers(preserved);
+                setSimulatedCA(null);
+                setHelpOpen(false);
+                setIsTyping(false);
 
-          setMessages([
-            { role: "bot", text: `Bonjour${userName ? `, ${userName}` : ""} 👋 On recommence.` },
-            { role: "bot", text: `Étape 1 — ${STEPS[0].title}\n${STEPS[0].question}` },
-          ]);
+                setMessages([
+                  { role: "bot", text: `Bonjour${userName ? `, ${userName}` : ""} 👋 On recommence.` },
+                  { role: "bot", text: `Étape 1 — ${STEPS[0].title}\n${STEPS[0].question}` },
+                ]);
 
-          localStorage.removeItem(LS_KEY);
-        }}
-        type="button"
-      >
-        Nouveau
-      </button>
-    </div>
-  </div>
-</header>
+                localStorage.removeItem(LS_KEY);
+              }}
+              type="button"
+            >
+              Nouveau
+            </button>
+          </div>
+        </div>
+      </header>
 
       <main className={`container ${focusMode ? "focusMode" : ""}`}>
-        
         <section id="home" className="card hero heroSaaS">
-  <div className="heroGrid">
-    <div className="heroLeft">
-      <div className="heroBadge">🟣 MVP en test — version bêta gratuite </div>
-      <h1>Assistant fiscal pour micro-entrepreneurs</h1> 
+          <div className="heroGrid">
+            <div className="heroLeft">
+              <div className="heroBadge">🟣 MVP en test — version bêta gratuite</div>
+              <h1>Assistant fiscal pour micro-entrepreneurs</h1>
 
-<div className="heroLead">
-  <p>Micro-entrepreneur ?</p>
-  <p>
-    Tu ne sais jamais combien déclarer ni quand ?
-  </p>
-  <p>
-    En 1 minute, cet assistant te donne une réponse claire :
-    <strong> quoi déclarer, quand, et combien garder de côté.</strong>
-  </p>
-</div>
+              <div className="heroLead">
+                <p>Micro-entrepreneur ?</p>
+                <p>Tu ne sais jamais combien déclarer ni quand ?</p>
+                <p>
+                  En 1 minute, cet assistant te donne une réponse claire :
+                  <strong> quoi déclarer, quand, et combien garder de côté.</strong>
+                </p>
+              </div>
 
-      <ul className="heroBullets">
-        <li>✅ Prochaine action concrète (URSSAF)</li>
-        <li>✅ Montant estimé + date limite</li>
-        <li>✅ Alertes : échéance proche / seuil TVA</li>
-        <li>✅ Export : résumé + plan d’action</li>
-      </ul>
+              <ul className="heroBullets">
+                <li>✅ Prochaine action concrète (URSSAF)</li>
+                <li>✅ Montant estimé + date limite</li>
+                <li>✅ Alertes : échéance proche / seuil TVA</li>
+                <li>✅ Export : résumé + plan d’action</li>
+              </ul>
 
-      <div className="heroActions">
-<button
-  className="btn btnPrimary"
-  onClick={() => {
-    track("click_tester_demo");
+              <div className="heroActions">
+                <button
+                  className="btn btnPrimary"
+                  onClick={() => {
+                    track("click_tester_demo");
+                    setFocusMode(true);
+                    setTimeout(() => {
+                      scrollToRef(assistantRef);
+                    }, 80);
+                  }}
+                  type="button"
+                >
+                  Tester la démo
+                </button>
 
-    setFocusMode(true);
-    setShowSecurity(false);
-    setShowAvis(false);
+                <button className="btn btnGhost" onClick={openSecuritySection} type="button">
+                  Sécurité & confidentialité
+                </button>
 
-    setTimeout(() => {
-      document
-        .getElementById("assistant")
-        ?.scrollIntoView({ behavior: "smooth" });
-    }, 50);
-  }}
-  type="button"
->
-  Tester la démo
-</button>
+                <button className="btn btnGhost" onClick={handleReset} type="button">
+                  Réinitialiser
+                </button>
+              </div>
 
-        <button
-        className="btn btnGhost"
-        onClick={goToSecurity}
-        type="button"
->
-        Sécurité & confidentialité
-        </button>
+              <p className="heroFineprint">
+                ⚠️ Estimation MVP : repères pratiques — ne remplace pas un expert-comptable.
+              </p>
+            </div>
 
-        <button className="btn btnGhost" onClick={handleReset} type="button">
-          Réinitialiser
-        </button>
-      </div>
+            <div className="heroRight">
+              <div className="heroPanel">
+                <div className="heroPanelTitle">Aperçu (ce que tu vas obtenir)</div>
 
-      <p className="heroFineprint">
-        ⚠️ Estimation MVP : repères pratiques — ne remplace pas un expert-comptable.
-      </p>
-    </div>
+                <div className="heroKpis">
+                  <div className="kpi">
+                    <div className="kpiLabel">Prochaine déclaration</div>
+                    <div className="kpiValue">Mensuelle / Trimestrielle</div>
+                  </div>
+                  <div className="kpi">
+                    <div className="kpiLabel">Date limite</div>
+                    <div className="kpiValue">Dans X jours</div>
+                  </div>
+                  <div className="kpi">
+                    <div className="kpiLabel">TVA</div>
+                    <div className="kpiValue">OK / Bientôt / Dépassé</div>
+                  </div>
+                  <div className="kpi">
+                    <div className="kpiLabel">Plan d’action</div>
+                    <div className="kpiValue">1–3 actions claires</div>
+                  </div>
+                </div>
 
-    <div className="heroRight">
-      <div className="heroPanel">
-        <div className="heroPanelTitle">Aperçu (ce que tu vas obtenir)</div>
-
-        <div className="heroKpis">
-          <div className="kpi">
-            <div className="kpiLabel">Prochaine déclaration</div>
-            <div className="kpiValue">Mensuelle / Trimestrielle</div>
+                <div className="heroTrust">
+                  <span>🔒 Sans compte</span>
+                  <span>🧠 Simple</span>
+                  <span>⚡ Rapide</span>
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="kpi">
-            <div className="kpiLabel">Date limite</div>
-            <div className="kpiValue">Dans X jours</div>
-          </div>
-          <div className="kpi">
-            <div className="kpiLabel">TVA</div>
-            <div className="kpiValue">OK / Bientôt / Dépassé</div>
-          </div>
-          <div className="kpi">
-            <div className="kpiLabel">Plan d’action</div>
-            <div className="kpiValue">1–3 actions claires</div>
-          </div>
-        </div>
-
-        <div className="heroTrust">
-          <span>🔒 Sans compte</span>
-          <span>🧠 Simple</span>
-          <span>⚡ Rapide</span>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-{!focusMode && (
-<section className="card">
-  <h2>À propos de Microassist</h2>
-
-  <p>
-  Microassist est un outil conçu pour aider les micro-entrepreneurs
-  à comprendre simplement leurs obligations fiscales.
-  </p>
-
-  <p>
-  L’objectif est de réduire le temps et le stress liés aux démarches
-  administratives : déclarations, charges, TVA et échéances.
-  </p>
-
-  <p>
-  En quelques étapes, l’assistant donne une vision claire de ce qu’il faut
-  déclarer, quand le faire et combien mettre de côté.
-  </p>
-
-  <p>
-  L’entrepreneur peut ainsi se concentrer sur l’essentiel :
-  développer son activité et ses clients.
-  </p>
-</section>
-)}
-
-      {!focusMode && (
-        <section id="services" className="card">
-          <h2>Services</h2>
-          <ul className="roadmaplist">
-            <li>Idée → MVP : étapes simples</li>
-            <li>Organisation : checklists & priorités</li>
-            <li>Modèles : pitch, email, Notion</li>
-          </ul>
         </section>
-      )}
-      {!focusMode && (
-        <section className="card">
-  <h2>Comment ça marche</h2>
 
-  <div className="steps">
-    <div className="step">
-      <strong>1. Réponds à quelques questions</strong>
-      <p>L’assistant comprend ta situation de micro-entrepreneur.</p>
-    </div>
+        {!focusMode && (
+          <section className="card">
+            <h2>À propos de Microassist</h2>
 
-    <div className="step">
-      <strong>2. Analyse automatique</strong>
-      <p>Calcul simple des échéances et estimations.</p>
-    </div>
+            <p>
+              Microassist est un outil conçu pour aider les micro-entrepreneurs à comprendre
+              simplement leurs obligations fiscales.
+            </p>
 
-    <div className="step">
-      <strong>3. Tableau clair</strong>
-      <p>Tu vois quoi déclarer, quand, et combien garder de côté.</p>
-    </div>
-  </div>
-</section>
-)}
+            <p>
+              L’objectif est de réduire le temps et le stress liés aux démarches administratives :
+              déclarations, charges, TVA et échéances.
+            </p>
 
+            <p>
+              En quelques étapes, l’assistant donne une vision claire de ce qu’il faut déclarer,
+              quand le faire et combien mettre de côté.
+            </p>
 
-{!focusMode && (
-  <section id="prochainement" className="card">
-    <h2>Pour qui & Prochainement</h2>
+            <p>
+              L’entrepreneur peut ainsi se concentrer sur l’essentiel : développer son activité et
+              ses clients.
+            </p>
+          </section>
+        )}
 
-    <p className="muted">
-      Microassist est une démo en cours de test, conçue aujourd’hui pour la micro-entreprise (URSSAF).
-    </p>
+        {!focusMode && (
+          <section id="services" className="card">
+            <h2>Services</h2>
+            <ul className="roadmaplist">
+              <li>Idée → MVP : étapes simples</li>
+              <li>Organisation : checklists & priorités</li>
+              <li>Modèles : pitch, email, Notion</li>
+            </ul>
+          </section>
+        )}
 
-    <h3 style={{ marginTop: 12 }}>✅ Pour qui ?</h3>
-    <ul className="targetList">
-      <li>Micro-entrepreneurs</li>
-      <li>Freelances</li>
-      <li>Créateurs d’activité</li>
-      <li>Indépendants qui veulent clarifier leurs obligations</li>
-    </ul>
+        {!focusMode && (
+          <section className="card">
+            <h2>Comment ça marche</h2>
 
-    <h3 style={{ marginTop: 12 }}>🚧 Prochainement (feuille de route)</h3>
-    <ul className="roadmaplist">
-      <li>📌 Compte + historique des déclarations</li>
-      <li>📅 Rappels automatiques (email) avant l’échéance</li>
-      <li>📄 Export PDF du plan d’action</li>
-    </ul>
+            <div className="steps">
+              <div className="step">
+                <strong>1. Réponds à quelques questions</strong>
+                <p>L’assistant comprend ta situation de micro-entrepreneur.</p>
+              </div>
 
-    <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(0,0,0,0.08)" }}>
-      <p>
-        <strong>Tu n’es pas en micro-entreprise</strong> (SAS/SARL/EI) ?
-        Une version dédiée est en préparation.
-      </p>
-      <p className="muted" style={{ marginTop: 6 }}>
-        Laisse ton besoin → ça m’aide à prioriser les prochaines versions.
-      </p>
+              <div className="step">
+                <strong>2. Analyse automatique</strong>
+                <p>Calcul simple des échéances et estimations.</p>
+              </div>
 
-      <a
-        className="btn btnPrimary"
-        href="https://docs.google.com/forms/d/e/1FAIpQLSfFLqWZajP6Dy0Zm5-bS9cnE5-joWecfCgfyIhzGRMbsk-jqA/viewform"
-        target="_blank"
-        rel="noreferrer"
-      >
-        Ouvrir le formulaire
-      </a>
-    </div>
-  </section>
-)}
+              <div className="step">
+                <strong>3. Tableau clair</strong>
+                <p>Tu vois quoi déclarer, quand, et combien garder de côté.</p>
+              </div>
+            </div>
+          </section>
+        )}
 
-{focusMode && (
-  <div className="focusBar">
+        {!focusMode && (
+          <section id="prochainement" className="card">
+            <h2>Pour qui & Prochainement</h2>
 
-    <div className="focusLeft">
-      <strong>Mode démo</strong>
-    </div>
+            <p className="muted">
+              Microassist est une démo en cours de test, conçue aujourd’hui pour la micro-entreprise
+              (URSSAF).
+            </p>
 
-    <div className="focusLinks">
-      <button
-        className="btn btnGhost btnSmall"
-        onClick={() => setShowSecurity(!showSecurity)}
-      >
-        🔒 Sécurité
-      </button>
+            <h3 style={{ marginTop: 12 }}>✅ Pour qui ?</h3>
+            <ul className="targetList">
+              <li>Micro-entrepreneurs</li>
+              <li>Freelances</li>
+              <li>Créateurs d’activité</li>
+              <li>Indépendants qui veulent clarifier leurs obligations</li>
+            </ul>
 
-      <button
-        className="btn btnGhost btnSmall"
-        onClick={() => setShowAvis(!showAvis)}
-      >
-        ⭐ Avis
-      </button>
+            <h3 style={{ marginTop: 12 }}>🚧 Prochainement (feuille de route)</h3>
+            <ul className="roadmaplist">
+              <li>📌 Compte + historique des déclarations</li>
+              <li>📅 Rappels automatiques (email) avant l’échéance</li>
+              <li>📄 Export PDF du plan d’action</li>
+            </ul>
 
-      <button
-        className="btn btnGhost btnSmall"
-        onClick={() => setFocusMode(false)}
-      >
-        Page complète
-      </button>
-    </div>
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(0,0,0,0.08)" }}>
+              <p>
+                <strong>Tu n’es pas en micro-entreprise</strong> (SAS/SARL/EI) ? Une version dédiée
+                est en préparation.
+              </p>
+              <p className="muted" style={{ marginTop: 6 }}>
+                Laisse ton besoin → ça m’aide à prioriser les prochaines versions.
+              </p>
 
-  </div>
-)}
+              <a
+                className="btn btnPrimary"
+                href="https://docs.google.com/forms/d/e/1FAIpQLSfFLqWZajP6Dy0Zm5-bS9cnE5-joWecfCgfyIhzGRMbsk-jqA/viewform"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Ouvrir le formulaire
+              </a>
+            </div>
+          </section>
+        )}
 
-        <section id="assistant" className="card">
+        {focusMode && (
+          <div className="focusBar">
+            <div className="focusLeft">
+              <strong>Mode démo</strong>
+            </div>
+
+            <div className="focusLinks">
+              <button className="btn btnGhost btnSmall" onClick={openSecuritySection}>
+                🔒 Sécurité
+              </button>
+
+              <button
+                className="btn btnGhost btnSmall"
+                onClick={() => scrollToRef(feedbackRef)}
+              >
+                ⭐ Avis
+              </button>
+
+              <button
+                className="btn btnGhost btnSmall"
+                onClick={() => setFocusMode(false)}
+              >
+                Page complète
+              </button>
+            </div>
+          </div>
+        )}
+
+        <section id="assistant" ref={assistantRef} className="card">
           <div className="assistantHeader">
             <h2>Assistant (par étapes)</h2>
-            
-          <div className="progress">
-          <div className="progressBar">
-  <div
-    className="progressFill"
-    style={{
-      width: `${((stepIndex + 1) / STEPS.length) * 100}%`
-    }}
-  />
-</div>
-            {(hasDraft || lastSavedAt) && (
-  <div className="savedHint">
-    💾 {lastSavedAt
-      ? `Sauvegardé à ${new Date(lastSavedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
-      : "Sauvegarde trouvée"}
-    {restoredAt && " — restauré ✅"}
 
-    <div className="savedActions">
-      <button className="btn btnGhost" onClick={handleNewSession}>
-        Nouveau
-      </button>
-      <button className="btn btnGhost" onClick={handleDismissDraftBanner}>
-        Masquer
-      </button>
-    </div>
-  </div>
-)}
+            <div className="progress">
+              <div className="progressBar">
+                <div
+                  className="progressFill"
+                  style={{
+                    width: `${((stepIndex + 1) / STEPS.length) * 100}%`,
+                  }}
+                />
+              </div>
 
-  <div>
-    Étape <strong>{Math.min(stepIndex + 1, STEPS.length)}</strong> / {STEPS.length}
-  </div>
+              {(hasDraft || lastSavedAt) && (
+                <div className="savedHint">
+                  💾{" "}
+                  {lastSavedAt
+                    ? `Sauvegardé à ${new Date(lastSavedAt).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}`
+                    : "Sauvegarde trouvée"}
+                  {restoredAt && " — restauré ✅"}
 
+                  <div className="savedActions">
+                    <button className="btn btnGhost" onClick={handleNewSession}>
+                      Nouveau
+                    </button>
+                    <button className="btn btnGhost" onClick={handleDismissDraftBanner}>
+                      Masquer
+                    </button>
+                  </div>
+                </div>
+              )}
 
-</div>
-
+              <div>
+                Étape <strong>{Math.min(stepIndex + 1, STEPS.length)}</strong> / {STEPS.length}
+              </div>
+            </div>
           </div>
 
           <div className="chat">
@@ -826,302 +781,293 @@ function handleDismissDraftBanner() {
                   ))}
                 </div>
               ))}
-{isTyping && (
-  <div className="msg bot typing">
-    <span className="typingDots">
-      <span className="dot" />
-      <span className="dot" />
-      <span className="dot" />
-    </span>
-    <span className="typingText">L’assistant écrit…</span>
-  </div>
-)}
 
+              {isTyping && (
+                <div className="msg bot typing">
+                  <span className="typingDots">
+                    <span className="dot" />
+                    <span className="dot" />
+                    <span className="dot" />
+                  </span>
+                  <span className="typingText">L’assistant écrit…</span>
+                </div>
+              )}
+
+              <div ref={chatEndRef} />
             </div>
 
-            {/* INPUT ZONE (text / choice / dashboard) */}
-{step?.mode === "choice" ? (
-  <div className="choiceZone">
-    <div className="choiceRow">
-      {step.options?.map((opt) => (
-        <button
-          key={opt.value}
-          className="btn btnChoice"
-          onClick={() => handleSelectOption(opt)}
-          disabled={isTyping}
-          type="button"
-        >
-          {opt.label}
-        </button>
-      ))}
+            {step?.mode === "choice" ? (
+              <div className="choiceZone">
+                <div className="stepMiniHeader">
+                  <span className="stepMiniBadge">Étape {stepIndex + 1}</span>
+                  <span className="stepMiniTitle">{step?.title}</span>
+                </div>
 
-      {step.help && (
-        <button
-          className="btn btnGhost btnHelp"
-          onClick={() => setHelpOpen((v) => !v)}
-          type="button"
-        >
-          ❓
-        </button>
-      )}
-    </div>
+                <div className="choiceRow">
+                  {step.options?.map((opt) => (
+                    <button
+                      key={opt.value}
+                      className="btn btnChoice"
+                      onClick={() => handleSelectOption(opt)}
+                      disabled={isTyping}
+                      type="button"
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
 
-    {helpOpen && step.help && (
-      <div className="helpBox" role="note">
-        {step.help}
-      </div>
-    )}
-  </div>
-) : step?.mode === "dashboard" ? (
-  <div className="dashboardZone">
-    <div className="simulatorBox">
-  <div className="simulatorTitle">📊 Simuler un autre CA</div>
+                  {step.help && (
+                    <button
+                      className="btn btnGhost btnHelp"
+                      onClick={() => setHelpOpen((v) => !v)}
+                      type="button"
+                    >
+                      ❓
+                    </button>
+                  )}
+                </div>
 
-  <div className="simulatorControls">
-    <input
-      type="number"
-      placeholder="Ex: 4000"
-      value={simulatedCA ?? ""}
-      onChange={(e) =>
-        setSimulatedCA(
-          e.target.value ? Number(e.target.value) : null
-        )
-      }
-      className="simInput"
-    />
+                {helpOpen && step.help && (
+                  <div className="helpBox" role="note">
+                    {step.help}
+                  </div>
+                )}
+              </div>
+            ) : step?.mode === "dashboard" ? (
+              <div className="dashboardZone">
+                <div className="simulatorBox">
+                  <div className="simulatorTitle">📊 Simuler un autre CA</div>
 
-    {simulatedCA !== null && (
-      <button
-        className="btn btnGhost btnSmall"
-        onClick={() => setSimulatedCA(null)}
-      >
-        Reset
-      </button>
-    )}
-  </div>
-</div>
+                  <div className="simulatorControls">
+                    <input
+                      type="number"
+                      placeholder="Ex: 4000"
+                      value={simulatedCA ?? ""}
+                      onChange={(e) =>
+                        setSimulatedCA(e.target.value ? Number(e.target.value) : null)
+                      }
+                      className="simInput"
+                    />
 
-    <div className="cards">
+                    {simulatedCA !== null && (
+                      <button
+                        className="btn btnGhost btnSmall"
+                        onClick={() => setSimulatedCA(null)}
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </div>
+                </div>
 
-{step.cards?.map((c) => (
-<div
-  key={c.key}
-  className={[
-    "dashCard",
+                <div className="cards">
+                  {step.cards?.map((c) => (
+                    <div
+                      key={c.key}
+                      className={[
+                        "dashCard",
+                        c.key === "deadline" && computed?.urgency === "soon" ? "isSoon" : "",
+                        c.key === "deadline" && computed?.urgency === "late" ? "isLate" : "",
+                        c.key === "tva" && computed?.tvaUrgency === "soon" ? "isSoon" : "",
+                        c.key === "tva" && computed?.tvaUrgency === "late" ? "isLate" : "",
+                      ]
+                        .join(" ")
+                        .trim()}
+                    >
+                      <div className="dashLabel">
+                        {c.label}
 
-    // deadline highlight
-    c.key === "deadline" && computed?.urgency === "soon" ? "isSoon" : "",
-    c.key === "deadline" && computed?.urgency === "late" ? "isLate" : "",
+                        {c.key === "tva" && computed?.tvaUrgency && (
+                          <span
+                            className={`badge ${
+                              computed.tvaUrgency === "late" ? "badgeLate" : "badgeSoon"
+                            }`}
+                          >
+                            {computed.tvaUrgency === "late" ? "🚨 Dépassé" : "⚠️ Bientôt"}
+                          </span>
+                        )}
+                      </div>
 
-    c.key === "tva" && computed?.tvaUrgency === "soon" ? "isSoon" : "",
-    c.key === "tva" && computed?.tvaUrgency === "late" ? "isLate" : "",
+                      <div className="dashValue">
+                        {c.key === "reminders" && (
+                          <button
+                            className="btn btnGhost"
+                            type="button"
+                            onClick={() =>
+                              setAnswers((prev) => ({
+                                ...prev,
+                                reminders_enabled: !prev.reminders_enabled,
+                              }))
+                            }
+                          >
+                            {answers?.reminders_enabled ? "Désactiver" : "Activer"}
+                          </button>
+                        )}
 
-  ].join(" ").trim()}
->
+                        <div
+                          className={[
+                            "dashValueText",
+                            c.key === "deadline" && computed?.urgency === "soon" ? "valueSoon" : "",
+                            c.key === "deadline" && computed?.urgency === "late" ? "valueLate" : "",
+                          ]
+                            .join(" ")
+                            .trim()}
+                        >
+                          {getDashValue(c.key, answers, computed) ?? "—"}
+                        </div>
 
-<div className="dashLabel">
-  {c.label}
+                        {c.key === "tva" && computed?.tvaHint && (
+                          <div className="dashHint">{computed.tvaHint}</div>
+                        )}
 
-  {c.key === "tva" && computed?.tvaUrgency && (
-    <span
-      className={`badge ${
-        computed.tvaUrgency === "late" ? "badgeLate" : "badgeSoon"
-      }`}
-    >
-      {computed.tvaUrgency === "late" ? "🚨 Dépassé" : "⚠️ Bientôt"}
-    </span>
-  )}
-</div>
+                        {c.key === "deadline" && typeof computed?.daysLeft === "number" && (
+                          <div className="dashHint">
+                            {computed.daysLeft < 0
+                              ? `En retard de ${Math.abs(computed.daysLeft)} jour(s)`
+                              : computed.daysLeft === 0
+                              ? "Aujourd’hui"
+                              : `Dans ${computed.daysLeft} jour(s)`}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
 
+                {computed?.recommendations?.length > 0 && (
+                  <div className="dashRecs">
+                    <div className="dashRecsTitle">✅ Recommandations</div>
 
-    <div className="dashValue">
-      {c.key === "reminders" && (
-        <button
-          className="btn btnGhost"
-          type="button"
-          onClick={() =>
-            setAnswers((prev) => ({
-              ...prev,
-              reminders_enabled: !prev.reminders_enabled,
-            }))
-          }
-        >
-          {answers?.reminders_enabled ? "Désactiver" : "Activer"}
-        </button>
-      )}
+                    <div className="dashRecsList">
+                      {computed.recommendations.map((r) => (
+                        <div
+                          key={r.key}
+                          className={[
+                            "dashRecItem",
+                            r.level === "danger" ? "recDanger" : "",
+                            r.level === "warning" ? "recWarning" : "",
+                            r.level === "ok" ? "recOk" : "",
+                          ]
+                            .join(" ")
+                            .trim()}
+                        >
+                          <div className="dashRecTitle">{r.title}</div>
+                          <div className="dashRecText">{r.text}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
-<div
-  className={[
-    "dashValueText",
-    c.key === "deadline" && computed?.urgency === "soon" ? "valueSoon" : "",
-    c.key === "deadline" && computed?.urgency === "late" ? "valueLate" : "",
-  ].join(" ").trim()}
->
-  {getDashValue(c.key, answers, computed) ?? "—"}
-</div>
+                <div className="disclaimer">
+                  ⚠️ Estimation MVP : ce tableau donne des repères (charges/TVA/échéances) et ne
+                  remplace pas un expert-comptable.
+                </div>
 
-{c.key === "tva" && computed?.tvaHint && (
-  <div className="dashHint">{computed.tvaHint}</div>
-)}
+                <div className="miniActions">
+                  <button className="btn btnGhost" type="button" onClick={() => setStepIndex(0)}>
+                    ← Retour
+                  </button>
+                  <button className="btn btnGhost" type="button" onClick={handleReset}>
+                    Recommencer
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="chatInput">
+                  <input
+                    ref={inputRef}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder={step?.placeholder || "Écris ici…"}
+                    aria-label="Message"
+                    disabled={isTyping}
+                  />
+                  <button
+                    className="btn"
+                    onClick={handleSend}
+                    disabled={!canSend || isTyping}
+                    type="button"
+                  >
+                    Envoyer
+                  </button>
+                </div>
 
+                <div className="autoSaveHint" aria-live="polite">
+                  💾 Tes réponses sont sauvegardées automatiquement.
+                </div>
+              </>
+            )}
 
-{c.key === "deadline" && typeof computed?.daysLeft === "number" && (
-  <div className="dashHint">
-    {computed.daysLeft < 0
-      ? `En retard de ${Math.abs(computed.daysLeft)} jour(s)`
-      : computed.daysLeft === 0
-      ? "Aujourd’hui"
-      : `Dans ${computed.daysLeft} jour(s)`}
-  </div>
-)}
+            {(step?.mode === "dashboard" || stepIndex >= STEPS.length) && (
+              <div className="miniActions">
+                <button className="btn btnGhost" onClick={handleCopySummary}>
+                  Copier le résumé
+                </button>
 
-
-    </div>
-  </div>
-))}
-
-    </div>
-
-    {/* ✅ Recommandations */}
-{computed?.recommendations?.length > 0 && (
-  <div className="dashRecs">
-    <div className="dashRecsTitle">✅ Recommandations</div>
-
-    <div className="dashRecsList">
-      {computed.recommendations.map((r) => (
-        <div
-          key={r.key}
-          className={[
-            "dashRecItem",
-            r.level === "danger" ? "recDanger" : "",
-            r.level === "warning" ? "recWarning" : "",
-            r.level === "ok" ? "recOk" : "",
-          ].join(" ").trim()}
-        >
-          <div className="dashRecTitle">{r.title}</div>
-          <div className="dashRecText">{r.text}</div>
-        </div>
-      ))}
-    </div>
-  </div>
-)}
-
-<div className="disclaimer">
-  ⚠️ Estimation MVP : ce tableau donne des repères (charges/TVA/échéances) et ne remplace pas un expert-comptable.
-</div>
-
-    <div className="miniActions">
-      <button className="btn btnGhost" type="button" onClick={() => setStepIndex(0)}>
-        ← Retour
-      </button>
-      <button className="btn btnGhost" type="button" onClick={handleReset}>
-        Recommencer
-      </button>
-    </div>
-  </div>
-) : (
-
-  <>
-    <div className="chatInput">
-      <input
-        ref={inputRef}
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder={step?.placeholder || "Écris ici…"}
-        aria-label="Message"
-        disabled={isTyping}
-      />
-      <button
-        className="btn"
-        onClick={handleSend}
-        disabled={!canSend || isTyping}
-        type="button"
-      >
-        Envoyer
-      </button>
-    </div>
-
-    <div className="autoSaveHint" aria-live="polite">
-      💾 Tes réponses sont sauvegardées automatiquement.
-    </div>
-  </>
-)}
-
-
-{(step?.mode === "dashboard" || stepIndex >= STEPS.length) && (
-  <div className="miniActions">
-    <button className="btn btnGhost" onClick={handleCopySummary}>
-      Copier le résumé
-    </button>
-
-    <button className="btn btnGhost" onClick={handleDownloadTxt}>
-      Télécharger le plan (.txt)
-    </button>
-  </div>
-)}
-
-</div>
-
+                <button className="btn btnGhost" onClick={handleDownloadTxt}>
+                  Télécharger le plan (.txt)
+                </button>
+              </div>
+            )}
+          </div>
         </section>
 
-{showInfoBlocks && (
-  <section id="security" className="card security">
-    <div className="sectionHead">
-      <h2>🔒 Sécurité & confidentialité (démo)</h2>
+        {showInfoBlocks && (
+          <section id="security" ref={securityRef} className="card security">
+            <div className="sectionHead">
+              <h2>🔒 Sécurité & confidentialité (démo)</h2>
 
-      <button
-        className="iconBtn"
-        type="button"
-        onClick={toggleInfoBlocks}
-        aria-label="Masquer cette section"
-      >
-        ✕
-      </button>
-    </div>
+              <button
+                className="iconBtn"
+                type="button"
+                onClick={closeInfoBlocks}
+                aria-label="Masquer cette section"
+              >
+                ✕
+              </button>
+            </div>
 
-    <ul className="securityList">
-      <li>✔ Aucun téléchargement ni installation</li>
-      <li>✔ Aucune création de compte</li>
-      <li>✔ Aucune donnée bancaire demandée</li>
-      <li>✔ Les données restent dans votre navigateur (localStorage)</li>
-      <li>✔ Aucun accès à votre compte URSSAF ou impôts</li>
-    </ul>
+            <ul className="securityList">
+              <li>✔ Aucun téléchargement ni installation</li>
+              <li>✔ Aucune création de compte</li>
+              <li>✔ Aucune donnée bancaire demandée</li>
+              <li>✔ Les données restent dans votre navigateur (localStorage)</li>
+              <li>✔ Aucun accès à votre compte URSSAF ou impôts</li>
+            </ul>
 
-    <p className="securityNote">
-      Cet assistant fonctionne 100% côté navigateur. Aucune donnée n’est envoyée vers un serveur.
-    </p>
-  </section>
-)}
+            <p className="securityNote">
+              Cet assistant fonctionne 100% côté navigateur. Aucune donnée n’est envoyée vers un
+              serveur.
+            </p>
+          </section>
+        )}
 
-<section id="feedback" className="card feedbackCta">
-  <h2>⭐ Donner mon avis</h2>
+        <section id="feedback" ref={feedbackRef} className="card feedbackCta">
+          <h2>⭐ Donner mon avis</h2>
 
-  <p className="muted">
-    Ton retour m’aide à améliorer l’assistant.  
-    Le formulaire prend moins de 30 secondes.
-  </p>
+          <p className="muted">
+            Ton retour m’aide à améliorer l’assistant. Le formulaire prend moins de 30 secondes.
+          </p>
 
-  <a
-    className="btn btnPrimary"
-    href="https://docs.google.com/forms/d/e/1FAIpQLSfFLqWZajP6Dy0Zm5-bS9cnE5-joWecfCgfyIhzGRMbsk-jqA/viewform"
-    target="_blank"
-    rel="noopener noreferrer"
-  >
-    Ouvrir le formulaire
-  </a>
+          <a
+            className="btn btnPrimary"
+            href="https://docs.google.com/forms/d/e/1FAIpQLSfFLqWZajP6Dy0Zm5-bS9cnE5-joWecfCgfyIhzGRMbsk-jqA/viewform"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Ouvrir le formulaire
+          </a>
 
-  <p className="muted" style={{ marginTop: 10 }}>
-    Le formulaire s’ouvre dans un nouvel onglet.
-  </p>
-</section>
-
+          <p className="muted" style={{ marginTop: 10 }}>
+            Le formulaire s’ouvre dans un nouvel onglet.
+          </p>
+        </section>
       </main>
 
-
-      <footer className="footer">
-        © {new Date().getFullYear()} Microassist
-      </footer>
+      <footer className="footer">© {new Date().getFullYear()} Microassist</footer>
     </div>
   );
 }
