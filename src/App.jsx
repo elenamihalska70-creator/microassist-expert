@@ -759,9 +759,7 @@ export default function App() {
                     <button className="btn btnGhost" onClick={handleNewSession}>
                       Nouveau
                     </button>
-                    <button className="btn btnGhost" onClick={handleDismissDraftBanner}>
-                      Masquer
-                    </button>
+                    
                   </div>
                 </div>
               )}
