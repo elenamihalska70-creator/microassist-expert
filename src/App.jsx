@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useLayoutEffect } from "react";
 import "./App.css";
 import { FISCAL_STEPS as STEPS } from "./config/steps.fiscal";
 import { computeObligations, getDashValue } from "./utils/obligations";
@@ -6,6 +6,17 @@ import { showConsoleSignature } from "./consoleSignature";
 
 const LS_KEY = "microassist_v1";
 const LS_VERSION = 1;
+
+const UI_KEY = "microassist_ui_sections";
+
+const DEFAULT_VISIBLE_SECTIONS = {
+  about: true,
+  services: true,
+  howItWorks: true,
+  roadmap: true,
+  security: true,
+  feedback: true,
+};
 
 function labelFromOptions(stepKey, value) {
   const step = STEPS.find((s) => s.key === stepKey);
@@ -21,7 +32,6 @@ function buildFiscalSummary(answers = {}, computed = {}) {
   const lines = [];
 
   lines.push("✅ Résumé fiscal (MVP)");
-
   lines.push(`• Situation : ${labelFromOptions("entry_status", answers.entry_status)}`);
   lines.push(`• Statut : ${labelFromOptions("status", answers.status)}`);
   lines.push(`• Activité : ${labelFromOptions("activity_type", answers.activity_type)}`);
@@ -63,21 +73,29 @@ function buildFiscalChecklist(answers, computed) {
   if (computed?.urgency === "late") {
     items.push("1) Déclarer sur autoentrepreneur.urssaf.fr dès que possible (retard).");
   } else if (computed?.urgency === "soon") {
-    items.push("1) Bloquer 10 minutes cette semaine pour déclarer sur autoentrepreneur.urssaf.fr.");
+    items.push(
+      "1) Bloquer 10 minutes cette semaine pour déclarer sur autoentrepreneur.urssaf.fr."
+    );
   } else {
     items.push("1) Garder ton CA à jour, puis déclarer à l’approche de l’échéance.");
   }
 
   if (computed?.tvaStatus === "exceeded") {
-    items.push("2) TVA : vérifier ton régime (seuil dépassé) et anticiper facturation/déclaration.");
+    items.push(
+      "2) TVA : vérifier ton régime (seuil dépassé) et anticiper facturation/déclaration."
+    );
   } else if (computed?.tvaStatus === "soon") {
-    items.push("2) TVA : surveiller ton CA (seuil proche) et préparer les mentions/paramétrages.");
+    items.push(
+      "2) TVA : surveiller ton CA (seuil proche) et préparer les mentions/paramétrages."
+    );
   } else {
     items.push("2) TVA : OK (franchise). Continuer à suivre ton CA.");
   }
 
   items.push(
-    `3) Rappels : ${answers?.reminders_enabled ? "activés ✅" : "désactivés ⏸"} (recommandé : 48h avant).`
+    `3) Rappels : ${
+      answers?.reminders_enabled ? "activés ✅" : "désactivés ⏸"
+    } (recommandé : 48h avant).`
   );
 
   if (computed?.recommendations?.length) {
@@ -105,28 +123,92 @@ export default function App() {
   const [hydrated, setHydrated] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
 
-  const [showInfoBlocks, setShowInfoBlocks] = useState(() => {
-    const raw = localStorage.getItem("microassist_show_info");
-    return raw === null ? true : raw === "1";
+  const [visibleSections, setVisibleSections] = useState(() => {
+    try {
+      const raw = localStorage.getItem(UI_KEY);
+      return raw
+        ? { ...DEFAULT_VISIBLE_SECTIONS, ...JSON.parse(raw) }
+        : DEFAULT_VISIBLE_SECTIONS;
+    } catch {
+      return DEFAULT_VISIBLE_SECTIONS;
+    }
   });
 
+  const [messages, setMessages] = useState([
+    {
+      role: "bot",
+      text: "Bonjour 👋 On va construire ton projet en 5 étapes. Réponds simplement.",
+    },
+    {
+      role: "bot",
+      text: `Étape 1 — ${STEPS[0].title}\n${STEPS[0].question}`,
+    },
+  ]);
+
   const inputRef = useRef(null);
-  const chatLogRef = useRef(null);
   const chatEndRef = useRef(null);
   const assistantRef = useRef(null);
   const securityRef = useRef(null);
   const feedbackRef = useRef(null);
+  const heroRef = useRef(null);
+  
+  useLayoutEffect(() => {
+  if ("scrollRestoration" in window.history) {
+    window.history.scrollRestoration = "manual";
+  }
+
+  // если вдруг в URL остался hash, убираем его
+  if (window.location.hash) {
+    window.history.replaceState(
+      null,
+      "",
+      window.location.pathname + window.location.search
+    );
+  }
+
+  const forceTop = () => {
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  };
+
+  forceTop();
+
+  const t1 = setTimeout(forceTop, 0);
+  const t2 = setTimeout(forceTop, 150);
+  const t3 = setTimeout(forceTop, 500);
+
+  return () => {
+    clearTimeout(t1);
+    clearTimeout(t2);
+    clearTimeout(t3);
+  };
+}, []);
 
   useEffect(() => {
     showConsoleSignature();
   }, []);
 
-  const [messages, setMessages] = useState([
-    { role: "bot", text: "Bonjour 👋 On va construire ton projet en 5 étapes. Réponds simplement." },
-    { role: "bot", text: `Étape 1 — ${STEPS[0].title}\n${STEPS[0].question}` },
-  ]);
-
   const step = STEPS[stepIndex];
+
+  function scrollToTopSection(target = "hero") {
+  const refMap = {
+    hero: heroRef,
+    assistant: assistantRef,
+    security: securityRef,
+    feedback: feedbackRef,
+  };
+
+  const ref = refMap[target];
+  if (!ref?.current) return;
+
+  requestAnimationFrame(() => {
+    ref.current.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  });
+}
 
   function addMessage(role, text) {
     setMessages((prev) => [...prev, { role, text }]);
@@ -134,6 +216,10 @@ export default function App() {
 
   function addAssistant(text) {
     addMessage("bot", `🤖 ${text}`);
+  }
+
+  function getIndexByKey(key) {
+    return STEPS.findIndex((s) => s.key === key);
   }
 
   function scrollToRef(ref) {
@@ -154,29 +240,29 @@ export default function App() {
     });
   }
 
-  function getIndexByKey(key) {
-    return STEPS.findIndex((s) => s.key === key);
+  function hideSection(key) {
+    setVisibleSections((prev) => ({
+      ...prev,
+      [key]: false,
+    }));
+  }
+
+  function showAllSections() {
+    setVisibleSections(DEFAULT_VISIBLE_SECTIONS);
   }
 
   function openSecuritySection() {
-    if (!showInfoBlocks) {
-      localStorage.setItem("microassist_show_info", "1");
-      setShowInfoBlocks(true);
-      setTimeout(() => {
-        scrollToRef(securityRef);
-      }, 80);
-      return;
-    }
-    scrollToRef(securityRef);
-  }
+    setVisibleSections((prev) => ({
+      ...prev,
+      security: true,
+    }));
 
-  function closeInfoBlocks() {
-    localStorage.setItem("microassist_show_info", "0");
-    setShowInfoBlocks(false);
-  }
-
-  function handleDismissDraftBanner() {
-    setHasDraft(false);
+    setTimeout(() => {
+      securityRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 80);
   }
 
   function goNext(forcedNextIndex = null) {
@@ -219,8 +305,13 @@ export default function App() {
       const a = data.answers || {};
       if (a && typeof a === "object") setAnswers(a);
 
-      if (Array.isArray(data.messages) && data.messages.length > 0) setMessages(data.messages);
-      if (typeof data.userName === "string") setUserName(data.userName);
+      if (Array.isArray(data.messages) && data.messages.length > 0) {
+        setMessages(data.messages);
+      }
+
+      if (typeof data.userName === "string") {
+        setUserName(data.userName);
+      }
 
       let nextIndex = 0;
       if (typeof data.stepIndex === "number") nextIndex = data.stepIndex;
@@ -245,6 +336,10 @@ export default function App() {
       setHydrated(true);
     }
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem(UI_KEY, JSON.stringify(visibleSections));
+  }, [visibleSections]);
 
   useEffect(() => {
     if (!userName) return;
@@ -372,8 +467,11 @@ export default function App() {
       if (dashIndex !== -1) forcedNextIndex = dashIndex;
     }
 
-    setAnswers(updatedAnswers);
-    setTimeout(() => goNext(forcedNextIndex), 250);
+setAnswers(updatedAnswers);
+
+setTimeout(() => {
+  goNext(forcedNextIndex);
+}, 250);
   }
 
   function handleSelectOption(opt) {
@@ -411,40 +509,44 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
-  function handleReset() {
-    localStorage.removeItem(LS_KEY);
+ function handleReset() {
+  localStorage.removeItem(LS_KEY);
 
-    setStepIndex(0);
-    setAnswers({});
-    setInput("");
-    setUserName("");
-    setSimulatedCA(null);
-    setHelpOpen(false);
-    setIsTyping(false);
-    setFocusMode(false);
-    setHasDraft(false);
-    setLastSavedAt(null);
-    setRestoredAt(null);
+  setStepIndex(0);
+  setAnswers({});
+  setInput("");
+  setUserName("");
+  setSimulatedCA(null);
+  setHelpOpen(false);
+  setIsTyping(false);
+  setFocusMode(false);
+  setHasDraft(false);
+  setLastSavedAt(null);
+  setRestoredAt(null);
 
-    setMessages([
-      {
-        role: "bot",
-        text: "Bonjour 👋 On recommence. Réponds simplement.",
-      },
-      {
-        role: "bot",
-        text: `Étape 1 — ${STEPS[0].title}\n${STEPS[0].question}`,
-      },
-    ]);
-  }
+  setMessages([
+    {
+      role: "bot",
+      text: "Bonjour 👋 On recommence. Réponds simplement.",
+    },
+    {
+      role: "bot",
+      text: `Étape 1 — ${STEPS[0].title}\n${STEPS[0].question}`,
+    },
+  ]);
 
-  function handleNewSession() {
-    localStorage.removeItem(LS_KEY);
-    setHasDraft(false);
-    setLastSavedAt(null);
-    setRestoredAt(null);
-    handleReset();
-  }
+  setTimeout(() => {
+    scrollToTopSection("assistant");
+  }, 120);
+}
+
+function handleNewSession() {
+  localStorage.removeItem(LS_KEY);
+  setHasDraft(false);
+  setLastSavedAt(null);
+  setRestoredAt(null);
+  handleReset();
+}
 
   return (
     <div className="page">
@@ -469,7 +571,7 @@ export default function App() {
             <a href="#home">Accueil</a>
             <a href="#services">Services</a>
             <a href="#assistant">Assistant</a>
-            <a href="#contact">Contact</a>
+            <a href="#feedback">Contact</a>
           </nav>
 
           <div className="topActions">
@@ -483,38 +585,48 @@ export default function App() {
               </button>
             )}
 
-            <button
-              className="btn btnGhost btnSmall"
-              onClick={() => {
-                const preserved = {
-                  activity_type: answers.activity_type,
-                  declaration_frequency: answers.declaration_frequency,
-                };
+  <button
+  className="btn btnGhost btnSmall"
+  onClick={() => {
+    const preserved = {
+      activity_type: answers.activity_type,
+      declaration_frequency: answers.declaration_frequency,
+    };
 
-                setStepIndex(0);
-                setAnswers(preserved);
-                setSimulatedCA(null);
-                setHelpOpen(false);
-                setIsTyping(false);
+    setStepIndex(0);
+    setAnswers(preserved);
+    setSimulatedCA(null);
+    setHelpOpen(false);
+    setIsTyping(false);
 
-                setMessages([
-                  { role: "bot", text: `Bonjour${userName ? `, ${userName}` : ""} 👋 On recommence.` },
-                  { role: "bot", text: `Étape 1 — ${STEPS[0].title}\n${STEPS[0].question}` },
-                ]);
+    setMessages([
+      {
+        role: "bot",
+        text: `Bonjour${userName ? `, ${userName}` : ""} 👋 On recommence.`,
+      },
+      {
+        role: "bot",
+        text: `Étape 1 — ${STEPS[0].title}\n${STEPS[0].question}`,
+      },
+    ]);
 
-                localStorage.removeItem(LS_KEY);
-              }}
-              type="button"
-            >
-              Nouveau
-            </button>
+    localStorage.removeItem(LS_KEY);
+
+    setTimeout(() => {
+      scrollToTopSection("assistant");
+    }, 120);
+  }}
+  type="button"
+>
+  Nouveau
+</button>
           </div>
         </div>
       </header>
 
       <main className={`container ${focusMode ? "focusMode" : ""}`}>
-        <section id="home" className="card hero heroSaaS">
-          <div className="heroGrid">
+        <section id="home" ref={heroRef} className="card hero heroSaaS">
+         <div className="heroGrid">
             <div className="heroLeft">
               <div className="heroBadge">🟣 MVP en test — version bêta gratuite</div>
               <h1>Assistant fiscal pour micro-entrepreneurs</h1>
@@ -598,8 +710,26 @@ export default function App() {
         </section>
 
         {!focusMode && (
+          <div className="sectionTools">
+            <button className="btn btnGhost btnSmall" type="button" onClick={showAllSections}>
+              Afficher toutes les sections
+            </button>
+          </div>
+        )}
+
+        {!focusMode && visibleSections.about && (
           <section className="card">
-            <h2>À propos de Microassist</h2>
+            <div className="sectionHead">
+              <h2>À propos de Microassist</h2>
+              <button
+                className="iconBtn"
+                type="button"
+                onClick={() => hideSection("about")}
+                aria-label="Masquer cette section"
+              >
+                ✕
+              </button>
+            </div>
 
             <p>
               Microassist est un outil conçu pour aider les micro-entrepreneurs à comprendre
@@ -623,9 +753,20 @@ export default function App() {
           </section>
         )}
 
-        {!focusMode && (
+        {!focusMode && visibleSections.services && (
           <section id="services" className="card">
-            <h2>Services</h2>
+            <div className="sectionHead">
+              <h2>Services</h2>
+              <button
+                className="iconBtn"
+                type="button"
+                onClick={() => hideSection("services")}
+                aria-label="Masquer cette section"
+              >
+                ✕
+              </button>
+            </div>
+
             <ul className="roadmaplist">
               <li>Idée → MVP : étapes simples</li>
               <li>Organisation : checklists & priorités</li>
@@ -634,9 +775,19 @@ export default function App() {
           </section>
         )}
 
-        {!focusMode && (
+        {!focusMode && visibleSections.howItWorks && (
           <section className="card">
-            <h2>Comment ça marche</h2>
+            <div className="sectionHead">
+              <h2>Comment ça marche</h2>
+              <button
+                className="iconBtn"
+                type="button"
+                onClick={() => hideSection("howItWorks")}
+                aria-label="Masquer cette section"
+              >
+                ✕
+              </button>
+            </div>
 
             <div className="steps">
               <div className="step">
@@ -657,13 +808,23 @@ export default function App() {
           </section>
         )}
 
-        {!focusMode && (
+        {!focusMode && visibleSections.roadmap && (
           <section id="prochainement" className="card">
-            <h2>Pour qui & Prochainement</h2>
+            <div className="sectionHead">
+              <h2>Pour qui & Prochainement</h2>
+              <button
+                className="iconBtn"
+                type="button"
+                onClick={() => hideSection("roadmap")}
+                aria-label="Masquer cette section"
+              >
+                ✕
+              </button>
+            </div>
 
             <p className="muted">
-              Microassist est une démo en cours de test, conçue aujourd’hui pour la micro-entreprise
-              (URSSAF).
+              Microassist est une démo en cours de test, conçue aujourd’hui pour la
+              micro-entreprise (URSSAF).
             </p>
 
             <h3 style={{ marginTop: 12 }}>✅ Pour qui ?</h3>
@@ -681,7 +842,13 @@ export default function App() {
               <li>📄 Export PDF du plan d’action</li>
             </ul>
 
-            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(0,0,0,0.08)" }}>
+            <div
+              style={{
+                marginTop: 12,
+                paddingTop: 12,
+                borderTop: "1px solid rgba(0,0,0,0.08)",
+              }}
+            >
               <p>
                 <strong>Tu n’es pas en micro-entreprise</strong> (SAS/SARL/EI) ? Une version dédiée
                 est en préparation.
@@ -713,17 +880,11 @@ export default function App() {
                 🔒 Sécurité
               </button>
 
-              <button
-                className="btn btnGhost btnSmall"
-                onClick={() => scrollToRef(feedbackRef)}
-              >
+              <button className="btn btnGhost btnSmall" onClick={() => scrollToRef(feedbackRef)}>
                 ⭐ Avis
               </button>
 
-              <button
-                className="btn btnGhost btnSmall"
-                onClick={() => setFocusMode(false)}
-              >
+              <button className="btn btnGhost btnSmall" onClick={() => setFocusMode(false)}>
                 Page complète
               </button>
             </div>
@@ -759,7 +920,6 @@ export default function App() {
                     <button className="btn btnGhost" onClick={handleNewSession}>
                       Nouveau
                     </button>
-                    
                   </div>
                 </div>
               )}
@@ -771,7 +931,7 @@ export default function App() {
           </div>
 
           <div className="chat">
-            <div className="chatLog" ref={chatLogRef}>
+            <div className="chatLog">
               {messages.map((m, idx) => (
                 <div key={idx} className={`msg ${m.role}`}>
                   {m.text.split("\n").map((line, i) => (
@@ -851,6 +1011,7 @@ export default function App() {
                       <button
                         className="btn btnGhost btnSmall"
                         onClick={() => setSimulatedCA(null)}
+                        type="button"
                       >
                         Reset
                       </button>
@@ -994,18 +1155,18 @@ export default function App() {
                 </div>
 
                 <div className="autoSaveHint" aria-live="polite">
-                  💾 Tes réponses sont sauvegardées automatiquement.
+                  💾 Tes réponses sont sauvegardées automatiquement dans ton navigateur.
                 </div>
               </>
             )}
 
             {(step?.mode === "dashboard" || stepIndex >= STEPS.length) && (
               <div className="miniActions">
-                <button className="btn btnGhost" onClick={handleCopySummary}>
+                <button className="btn btnGhost" onClick={handleCopySummary} type="button">
                   Copier le résumé
                 </button>
 
-                <button className="btn btnGhost" onClick={handleDownloadTxt}>
+                <button className="btn btnGhost" onClick={handleDownloadTxt} type="button">
                   Télécharger le plan (.txt)
                 </button>
               </div>
@@ -1013,7 +1174,7 @@ export default function App() {
           </div>
         </section>
 
-        {showInfoBlocks && (
+        {visibleSections.security && (
           <section id="security" ref={securityRef} className="card security">
             <div className="sectionHead">
               <h2>🔒 Sécurité & confidentialité (démo)</h2>
@@ -1021,7 +1182,7 @@ export default function App() {
               <button
                 className="iconBtn"
                 type="button"
-                onClick={closeInfoBlocks}
+                onClick={() => hideSection("security")}
                 aria-label="Masquer cette section"
               >
                 ✕
@@ -1043,26 +1204,38 @@ export default function App() {
           </section>
         )}
 
-        <section id="feedback" ref={feedbackRef} className="card feedbackCta">
-          <h2>⭐ Donner mon avis</h2>
+        {visibleSections.feedback && (
+          <section id="feedback" ref={feedbackRef} className="card feedbackCta">
+            <div className="sectionHead">
+              <h2>⭐ Partagez votre avis</h2>
+              <button
+                className="iconBtn"
+                type="button"
+                onClick={() => hideSection("feedback")}
+                aria-label="Masquer cette section"
+              >
+                ✕
+              </button>
+            </div>
 
-          <p className="muted">
-            Ton retour m’aide à améliorer l’assistant. Le formulaire prend moins de 30 secondes.
-          </p>
+            <p className="muted">
+              Ton retour m’aide à améliorer l’assistant. Le formulaire prend moins de 30 secondes.
+            </p>
 
-          <a
-            className="btn btnPrimary"
-            href="https://docs.google.com/forms/d/e/1FAIpQLSfFLqWZajP6Dy0Zm5-bS9cnE5-joWecfCgfyIhzGRMbsk-jqA/viewform"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Ouvrir le formulaire
-          </a>
+            <a
+              className="btn btnPrimary"
+              href="https://docs.google.com/forms/d/e/1FAIpQLSfFLqWZajP6Dy0Zm5-bS9cnE5-joWecfCgfyIhzGRMbsk-jqA/viewform"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Ouvrir le formulaire
+            </a>
 
-          <p className="muted" style={{ marginTop: 10 }}>
-            Le formulaire s’ouvre dans un nouvel onglet.
-          </p>
-        </section>
+            <p className="muted" style={{ marginTop: 10 }}>
+              Le formulaire s’ouvre dans un nouvel onglet.
+            </p>
+          </section>
+        )}
       </main>
 
       <footer className="footer">© {new Date().getFullYear()} Microassist</footer>
