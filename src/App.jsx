@@ -162,7 +162,8 @@ export default function App() {
   const securityRef = useRef(null);
   const feedbackRef = useRef(null);
   const heroRef = useRef(null);
-  
+  const fiscalRef = useRef(null);
+
   useLayoutEffect(() => {
   if ("scrollRestoration" in window.history) {
     window.history.scrollRestoration = "manual";
@@ -543,6 +544,85 @@ const monthlyHistory = useMemo(() => {
   });
 }, [revenues]);
 
+const fiscalTimeline = useMemo(() => {
+  return [
+    {
+      key: "declaration",
+      icon: "📅",
+      label: "Prochaine déclaration",
+      value: computed?.nextDeclarationLabel || "À définir",
+      hint: computed?.deadlineLabel || "Choisis une périodicité pour voir l’échéance",
+    },
+    {
+      key: "charges",
+      icon: "💰",
+      label: "Charges estimées",
+      value: `${Math.round(currentMonthTotal * 0.22).toLocaleString("fr-FR")} €`,
+      hint: revenues.length > 0
+        ? "Montant estimatif à mettre de côté"
+        : "Ajoute un revenu pour voir une estimation",
+    },
+    {
+      key: "tva",
+      icon: "🧾",
+      label: "TVA",
+      value: computed?.tvaStatusLabel || "Non définie",
+      hint: computed?.tvaHint || "Le suivi TVA apparaîtra ici",
+    },
+  ];
+}, [computed, currentMonthTotal, revenues.length]);
+
+const fiscalAlert = useMemo(() => {
+  if (revenues.length === 0) {
+    return {
+      level: "neutral",
+      title: "Aucune alerte pour le moment",
+      text: "Ajoute un revenu pour commencer le suivi fiscal.",
+    };
+  }
+
+  if (computed?.urgency === "late") {
+    return {
+      level: "danger",
+      title: "Déclaration en retard",
+      text: "Ta déclaration semble en retard. Vérifie rapidement ton échéance URSSAF.",
+    };
+  }
+
+  if (computed?.urgency === "soon") {
+    return {
+      level: "warning",
+      title: "Déclaration proche",
+      text: `Ta prochaine déclaration arrive bientôt${computed?.deadlineLabel ? ` : ${computed.deadlineLabel}` : ""}.`,
+    };
+  }
+
+  if (computed?.tvaUrgency === "late") {
+    return {
+      level: "danger",
+      title: "Seuil TVA dépassé",
+      text: computed?.tvaHint || "Vérifie ton régime de TVA.",
+    };
+  }
+
+  if (computed?.tvaUrgency === "soon") {
+    return {
+      level: "warning",
+      title: "Seuil TVA proche",
+      text: computed?.tvaHint || "Surveille ton chiffre d’affaires.",
+    };
+  }
+
+  return {
+    level: "ok",
+    title: "Situation stable",
+    text: computed?.deadlineLabel
+      ? `Prochaine déclaration : ${computed.deadlineLabel}.`
+      : "Aucune alerte particulière pour le moment.",
+  };
+}, [revenues, computed]);
+
+
 const revenueAmount = Number(String(revenueForm.amount || "").replace(",", "."));
 
  function resetRevenueForm() {
@@ -592,19 +672,25 @@ function handleSaveRevenue() {
   };
 
   setRevenues((prev) => [entry, ...prev]);
-  setShowAddRevenue(false);
 
-  addAssistant(
-    `Revenu enregistré ✅\n\nSur ${amount.toLocaleString("fr-FR")} € :\n` +
-      `• estimation charges : ${Math.round(amount * 0.22).toLocaleString("fr-FR")} €\n` +
-      `• disponible estimé : ${Math.round(amount * 0.78).toLocaleString("fr-FR")} €`
+  setSaveNotice(
+    `Revenu enregistré • charges estimées : ${Math.round(amount * 0.22).toLocaleString("fr-FR")} € • disponible estimé : ${Math.round(amount * 0.78).toLocaleString("fr-FR")} €`
   );
 
+  setShowAddRevenue(false);
   resetRevenueForm();
-  setSaveNotice("Revenu enregistré");
-setTimeout(() => setSaveNotice(null), 2000);
-}
 
+  setTimeout(() => {
+    setSaveNotice(null);
+  }, 2500);
+
+  setTimeout(() => {
+    fiscalRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, 200);
+}
 function handleDeleteRevenue(id) {
   setRevenues((prev) => prev.filter((item) => item.id !== id));
 }
@@ -1361,7 +1447,7 @@ function handleNewSession() {
   </div>
 </section>
 
-<section className="card">
+<section ref={fiscalRef} className="card">
 
   <div className="sectionHead">
     <h2>Mon espace fiscal</h2>
@@ -1376,11 +1462,11 @@ function handleNewSession() {
   </div>
 
 
-  {saveNotice && (
-    <div className="saveNotice">
-      ✅ {saveNotice}
-    </div>
-  )}
+{saveNotice && (
+  <div className="saveNotice">
+    ✅ {saveNotice}
+  </div>
+)}
 
 
   <div className="fiscalDashboard">
@@ -1408,6 +1494,41 @@ function handleNewSession() {
 
   </div>
 
+<div className="fiscalTimeline">
+  <h3>Prochaines étapes fiscales</h3>
+
+  <div className="timelineList">
+    {fiscalTimeline.map((item) => (
+      <div key={item.key} className="timelineItem">
+        <div className="timelineTop">
+          <span className="timelineIcon">{item.icon}</span>
+          <span className="timelineLabel">{item.label}</span>
+        </div>
+
+        <div className="timelineValue">{item.value}</div>
+        <div className="timelineHint">{item.hint}</div>
+      </div>
+    ))}
+  </div>
+</div>
+
+<div
+  className={[
+    "fiscalAlert",
+    fiscalAlert.level === "danger" ? "alertDanger" : "",
+    fiscalAlert.level === "warning" ? "alertWarning" : "",
+    fiscalAlert.level === "ok" ? "alertOk" : "",
+  ].join(" ").trim()}
+>
+  <div className="fiscalAlertTitle">{fiscalAlert.title}</div>
+  <div className="fiscalAlertText">{fiscalAlert.text}</div>
+
+  {computed?.nextDeclarationLabel && (
+    <div className="fiscalAlertMeta">
+      Prochaine déclaration : <strong>{computed.nextDeclarationLabel}</strong>
+    </div>
+  )}
+</div>
 
   <div className="monthStatus">
 
