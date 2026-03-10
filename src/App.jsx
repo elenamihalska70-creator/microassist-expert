@@ -113,6 +113,7 @@ export default function App() {
   const [stepIndex, setStepIndex] = useState(0);
   const [answers, setAnswers] = useState({});
   const [input, setInput] = useState("");
+  const [saveNotice, setSaveNotice] = useState(null);
   const [lastSavedAt, setLastSavedAt] = useState(null);
   const [hasDraft, setHasDraft] = useState(false);
   const [restoredAt, setRestoredAt] = useState(null);
@@ -600,6 +601,8 @@ function handleSaveRevenue() {
   );
 
   resetRevenueForm();
+  setSaveNotice("Revenu enregistré");
+setTimeout(() => setSaveNotice(null), 2000);
 }
 
 function handleDeleteRevenue(id) {
@@ -745,12 +748,16 @@ setTimeout(() => {
 
 function handleNewSession() {
   localStorage.removeItem(LS_KEY);
+  localStorage.removeItem(REVENUES_KEY);
+
+  setRevenues([]);
+
   setHasDraft(false);
   setLastSavedAt(null);
   setRestoredAt(null);
+
   handleReset();
 }
-
   return (
     <div className="page">
       <header className="topbar">
@@ -790,35 +797,7 @@ function handleNewSession() {
 
   <button
   className="btn btnGhost btnSmall"
-  onClick={() => {
-    const preserved = {
-      activity_type: answers.activity_type,
-      declaration_frequency: answers.declaration_frequency,
-    };
-
-    setStepIndex(0);
-    setAnswers(preserved);
-    setSimulatedCA(null);
-    setHelpOpen(false);
-    setIsTyping(false);
-
-    setMessages([
-      {
-        role: "bot",
-        text: `Bonjour${userName ? `, ${userName}` : ""} 👋 On recommence.`,
-      },
-      {
-        role: "bot",
-        text: `Étape 1 — ${STEPS[0].title}\n${STEPS[0].question}`,
-      },
-    ]);
-
-    localStorage.removeItem(LS_KEY);
-
-    setTimeout(() => {
-      scrollToTopSection("assistant");
-    }, 120);
-  }}
+  onClick={handleNewSession}
   type="button"
 >
   Nouveau
@@ -1382,7 +1361,7 @@ function handleNewSession() {
   </div>
 </section>
 
-  <section className="card">
+<section className="card">
 
   <div className="sectionHead">
     <h2>Mon espace fiscal</h2>
@@ -1395,6 +1374,13 @@ function handleNewSession() {
       + Ajouter revenu
     </button>
   </div>
+
+
+  {saveNotice && (
+    <div className="saveNotice">
+      ✅ {saveNotice}
+    </div>
+  )}
 
 
   <div className="fiscalDashboard">
@@ -1423,9 +1409,21 @@ function handleNewSession() {
   </div>
 
 
+  <div className="monthStatus">
+
+    {revenues.length === 0 ? (
+      <span>⚠ Aucun revenu enregistré ce mois</span>
+    ) : (
+      <span>✔ Suivi du mois en cours</span>
+    )}
+
+  </div>
+
+
   <div className="journalHeader">
     <h3>Journal des revenus</h3>
   </div>
+
 
   {revenues.length === 0 ? (
     <p className="muted" style={{ marginTop: 10 }}>
@@ -1433,10 +1431,12 @@ function handleNewSession() {
     </p>
   ) : (
     <div className="revenuesList">
+
       {revenues.map((item) => (
         <div key={item.id} className="revenueItem">
 
           <div className="revenueMain">
+
             <div className="revenueAmount">
               {Number(item.amount).toLocaleString("fr-FR")} €
             </div>
@@ -1444,9 +1444,11 @@ function handleNewSession() {
             <div className="revenueDate">
               {formatRevenueDate(item.date)}
             </div>
+
           </div>
 
           <div className="revenueMeta">
+
             {item.client && (
               <div>
                 <strong>Client :</strong> {item.client}
@@ -1464,6 +1466,7 @@ function handleNewSession() {
                 <strong>Note :</strong> {item.note}
               </div>
             )}
+
           </div>
 
           <div className="revenueActions">
@@ -1478,42 +1481,55 @@ function handleNewSession() {
 
         </div>
       ))}
+
     </div>
   )}
 
-  
 
-{monthlyHistory.length > 0 && (
-  <div className="monthlyHistory">
+  {monthlyHistory.length > 0 && (
+    <div className="monthlyHistory">
 
-    <h3>Historique mensuel</h3>
+      <h3>Historique mensuel</h3>
 
-    <div className="historyList">
-      {monthlyHistory.map((m) => {
-        const date = new Date(m.year, m.month);
+      <div className="historyList">
 
-        const label = date.toLocaleDateString("fr-FR", {
-          month: "long",
-          year: "numeric",
-        });
+        {monthlyHistory.map((m) => {
 
-        return (
-          <div key={`${m.year}-${m.month}`} className="historyItem">
-            <span className="historyMonth">{label}</span>
+          const date = new Date(m.year, m.month)
 
-            <strong className="historyTotal">
-              {m.total.toLocaleString("fr-FR")} €
-            </strong>
-          </div>
-        );
-      })}
+          const label = date.toLocaleDateString("fr-FR", {
+            month: "long",
+            year: "numeric",
+          })
+
+          return (
+            <div key={`${m.year}-${m.month}`} className="historyItem">
+
+              <span className="historyMonth">
+                {label}
+              </span>
+
+              <strong className="historyTotal">
+                {m.total.toLocaleString("fr-FR")} €
+              </strong>
+
+            </div>
+          )
+
+        })}
+
+      </div>
+
     </div>
+  )}
 
+
+  <div className="dataTrustLine">
+    🔒 Données locales uniquement — aucun compte requis pour tester.
   </div>
-)}
+
 
 </section>
-
 
         {visibleSections.security && (
           <section id="security" ref={securityRef} className="card security">
@@ -1542,6 +1558,7 @@ function handleNewSession() {
               Cet assistant fonctionne 100% côté navigateur. Aucune donnée n’est envoyée vers un
               serveur.
             </p>
+            
           </section>
         )}
 
