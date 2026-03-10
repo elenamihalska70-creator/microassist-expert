@@ -6,7 +6,7 @@ import { showConsoleSignature } from "./consoleSignature";
 
 const LS_KEY = "microassist_v1";
 const LS_VERSION = 1;
-
+const REVENUES_KEY = "microassist_revenues_v1";
 const UI_KEY = "microassist_ui_sections";
 
 const DEFAULT_VISIBLE_SECTIONS = {
@@ -122,7 +122,17 @@ export default function App() {
   const [simulatedCA, setSimulatedCA] = useState(null);
   const [hydrated, setHydrated] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
-
+  const [showAddRevenue, setShowAddRevenue] = useState(false);
+  const [revenues, setRevenues] = useState([]);
+  const [revenuesHydrated, setRevenuesHydrated] = useState(false);
+  const [revenueForm, setRevenueForm] = useState({
+    amount: "",
+    date: new Date().toISOString().slice(0, 10),
+    client: "",
+    invoice: "",
+    note: "",
+  });
+  const [showRevenueDetails, setShowRevenueDetails] = useState(false);
   const [visibleSections, setVisibleSections] = useState(() => {
     try {
       const raw = localStorage.getItem(UI_KEY);
@@ -188,6 +198,39 @@ export default function App() {
   useEffect(() => {
     showConsoleSignature();
   }, []);
+ useEffect(() => {
+  try {
+    const raw = localStorage.getItem(REVENUES_KEY);
+
+    if (raw) {
+      const parsed = JSON.parse(raw);
+
+      if (Array.isArray(parsed)) {
+        const normalized = parsed.map((item) => ({
+          ...item,
+          amount: Number(String(item.amount || 0).replace(",", ".")),
+          date: item.date || new Date().toISOString().slice(0, 10),
+        }));
+
+        setRevenues(normalized);
+      }
+    }
+  } catch (e) {
+    console.warn("Revenues restore failed:", e);
+  } finally {
+    setRevenuesHydrated(true);
+  }
+}, []);
+
+useEffect(() => {
+  if (!revenuesHydrated) return;
+
+  try {
+    localStorage.setItem(REVENUES_KEY, JSON.stringify(revenues));
+  } catch (e) {
+    console.warn("Revenues save failed:", e);
+  }
+}, [revenues, revenuesHydrated]);
 
   const step = STEPS[stepIndex];
 
@@ -337,6 +380,30 @@ export default function App() {
     }
   }, []);
 
+useEffect(() => {
+  try {
+    const raw = localStorage.getItem(REVENUES_KEY);
+
+    if (raw) {
+      const parsed = JSON.parse(raw);
+
+      if (Array.isArray(parsed)) {
+        const normalized = parsed.map((item) => ({
+          ...item,
+          amount: Number(String(item.amount || 0).replace(",", ".")),
+          date: item.date || new Date().toISOString().slice(0, 10),
+        }));
+
+        setRevenues(normalized);
+      }
+    }
+  } catch (e) {
+    console.warn("Revenues restore failed:", e);
+  } finally {
+    setRevenuesHydrated(true);
+  }
+}, []);
+
   useEffect(() => {
     localStorage.setItem(UI_KEY, JSON.stringify(visibleSections));
   }, [visibleSections]);
@@ -390,6 +457,16 @@ export default function App() {
     }
   }, [hydrated, stepIndex, answers, messages, userName]);
 
+useEffect(() => {
+  if (!revenuesHydrated) return;
+
+  try {
+    localStorage.setItem(REVENUES_KEY, JSON.stringify(revenues));
+  } catch (e) {
+    console.warn("Revenues save failed:", e);
+  }
+}, [revenues, revenuesHydrated]);
+
   const computed = useMemo(() => {
     if (simulatedCA !== null) {
       return computeObligations({ ...answers, ca_month: simulatedCA });
@@ -417,7 +494,131 @@ export default function App() {
 
   const canSend = useMemo(() => input.trim().length > 0, [input]);
 
-  function handleSend() {
+const currentMonthTotal = useMemo(() => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+
+  return revenues.reduce((sum, item) => {
+    if (!item?.date) return sum;
+
+    const d = new Date(`${item.date}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return sum;
+
+    if (d.getFullYear() === year && d.getMonth() === month) {
+      return sum + Number(item.amount || 0);
+    }
+
+    return sum;
+  }, 0);
+}, [revenues]);
+
+const monthlyHistory = useMemo(() => {
+  const map = {};
+
+  revenues.forEach((item) => {
+    if (!item?.date) return;
+
+    const d = new Date(`${item.date}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return;
+
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+
+    if (!map[key]) {
+      map[key] = {
+        year: d.getFullYear(),
+        month: d.getMonth(),
+        total: 0,
+      };
+    }
+
+    map[key].total += Number(item.amount || 0);
+  });
+
+  return Object.values(map).sort((a, b) => {
+    const da = new Date(a.year, a.month, 1);
+    const db = new Date(b.year, b.month, 1);
+    return db - da;
+  });
+}, [revenues]);
+
+const revenueAmount = Number(String(revenueForm.amount || "").replace(",", "."));
+
+ function resetRevenueForm() {
+  setRevenueForm({
+    amount: "",
+    date: new Date().toISOString().slice(0, 10),
+    client: "",
+    invoice: "",
+    note: "",
+  });
+  setShowRevenueDetails(false);
+}
+
+function handleOpenRevenuePopup() {
+  resetRevenueForm();
+  setShowAddRevenue(true);
+}
+
+function handleCloseRevenuePopup() {
+  setShowAddRevenue(false);
+  resetRevenueForm();
+}
+
+function handleRevenueFieldChange(field, value) {
+  setRevenueForm((prev) => ({
+    ...prev,
+    [field]: value,
+  }));
+}
+
+function handleSaveRevenue() {
+  const amount = Number(String(revenueForm.amount).replace(",", "."));
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    alert("Merci d’indiquer un montant valide.");
+    return;
+  }
+
+  const entry = {
+    id: Date.now().toString(),
+    amount,
+    date: revenueForm.date || new Date().toISOString().slice(0, 10),
+    client: revenueForm.client.trim(),
+    invoice: revenueForm.invoice.trim(),
+    note: revenueForm.note.trim(),
+    createdAt: new Date().toISOString(),
+  };
+
+  setRevenues((prev) => [entry, ...prev]);
+  setShowAddRevenue(false);
+
+  addAssistant(
+    `Revenu enregistré ✅\n\nSur ${amount.toLocaleString("fr-FR")} € :\n` +
+      `• estimation charges : ${Math.round(amount * 0.22).toLocaleString("fr-FR")} €\n` +
+      `• disponible estimé : ${Math.round(amount * 0.78).toLocaleString("fr-FR")} €`
+  );
+
+  resetRevenueForm();
+}
+
+function handleDeleteRevenue(id) {
+  setRevenues((prev) => prev.filter((item) => item.id !== id));
+}
+
+function formatRevenueDate(dateStr) {
+  try {
+    return new Date(dateStr).toLocaleDateString("fr-FR", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  } catch {
+    return dateStr;
+  }
+}
+
+function handleSend() {
     if (!canSend || isTyping) return;
 
     const userText = input.trim();
@@ -511,7 +712,9 @@ setTimeout(() => {
 
  function handleReset() {
   localStorage.removeItem(LS_KEY);
+  localStorage.removeItem(REVENUES_KEY);
 
+  setRevenues([]);
   setStepIndex(0);
   setAnswers({});
   setInput("");
@@ -891,288 +1094,426 @@ function handleNewSession() {
           </div>
         )}
 
-        <section id="assistant" ref={assistantRef} className="card">
-          <div className="assistantHeader">
-            <h2>Assistant (par étapes)</h2>
+     <section id="assistant" ref={assistantRef} className="card">
+  <div className="assistantHeader">
+    <div>
+      <h2>Assistant fiscal</h2>
+      <p className="muted assistantIntro">
+        Configure ton profil et comprends simplement ta situation fiscale.
+      </p>
+    </div>
 
-            <div className="progress">
-              <div className="progressBar">
-                <div
-                  className="progressFill"
-                  style={{
-                    width: `${((stepIndex + 1) / STEPS.length) * 100}%`,
-                  }}
-                />
+    <div className="progress">
+      <div className="progressBar">
+        <div
+          className="progressFill"
+          style={{
+            width: `${((stepIndex + 1) / STEPS.length) * 100}%`,
+          }}
+        />
+      </div>
+
+      {(hasDraft || lastSavedAt) && (
+        <div className="savedHint">
+          💾{" "}
+          {lastSavedAt
+            ? `Sauvegardé à ${new Date(lastSavedAt).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}`
+            : "Sauvegarde trouvée"}
+          {restoredAt && " — restauré ✅"}
+
+          <div className="savedActions">
+            <button className="btn btnGhost" onClick={handleNewSession} type="button">
+              Nouveau
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div>
+        Étape <strong>{Math.min(stepIndex + 1, STEPS.length)}</strong> / {STEPS.length}
+      </div>
+    </div>
+  </div>
+
+  <div className="chat">
+    <div className="chatLog">
+      {messages.map((m, idx) => (
+        <div key={idx} className={`msg ${m.role}`}>
+          {m.text.split("\n").map((line, i) => (
+            <div key={i}>{line}</div>
+          ))}
+        </div>
+      ))}
+
+      {isTyping && (
+        <div className="msg bot typing">
+          <span className="typingDots">
+            <span className="dot" />
+            <span className="dot" />
+            <span className="dot" />
+          </span>
+          <span className="typingText">L’assistant écrit…</span>
+        </div>
+      )}
+
+      <div ref={chatEndRef} />
+    </div>
+
+    {step?.mode === "choice" ? (
+      <div className="choiceZone">
+        <div className="stepMiniHeader">
+          <span className="stepMiniBadge">Étape {stepIndex + 1}</span>
+          <span className="stepMiniTitle">{step?.title}</span>
+        </div>
+
+        <div className="choiceRow">
+          {step.options?.map((opt) => (
+            <button
+              key={opt.value}
+              className="btn btnChoice"
+              onClick={() => handleSelectOption(opt)}
+              disabled={isTyping}
+              type="button"
+            >
+              {opt.label}
+            </button>
+          ))}
+
+          {step.help && (
+            <button
+              className="btn btnGhost btnHelp"
+              onClick={() => setHelpOpen((v) => !v)}
+              type="button"
+            >
+              ❓
+            </button>
+          )}
+        </div>
+
+        {helpOpen && step.help && (
+          <div className="helpBox" role="note">
+            {step.help}
+          </div>
+        )}
+      </div>
+    ) : step?.mode === "dashboard" ? (
+      <div className="dashboardZone">
+        <div className="simulatorBox">
+          <div className="simulatorTitle">📊 Simulation rapide</div>
+
+          <div className="simulatorControls">
+            <input
+              type="number"
+              placeholder="Ex: 4000"
+              value={simulatedCA ?? ""}
+              onChange={(e) =>
+                setSimulatedCA(e.target.value ? Number(e.target.value) : null)
+              }
+              className="simInput"
+            />
+
+            {simulatedCA !== null && (
+              <button
+                className="btn btnGhost btnSmall"
+                onClick={() => setSimulatedCA(null)}
+                type="button"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="cards">
+          {step.cards?.map((c) => (
+            <div
+              key={c.key}
+              className={[
+                "dashCard",
+                c.key === "deadline" && computed?.urgency === "soon" ? "isSoon" : "",
+                c.key === "deadline" && computed?.urgency === "late" ? "isLate" : "",
+                c.key === "tva" && computed?.tvaUrgency === "soon" ? "isSoon" : "",
+                c.key === "tva" && computed?.tvaUrgency === "late" ? "isLate" : "",
+              ]
+                .join(" ")
+                .trim()}
+            >
+              <div className="dashLabel">
+                {c.label}
+
+                {c.key === "tva" && computed?.tvaUrgency && (
+                  <span
+                    className={`badge ${
+                      computed.tvaUrgency === "late" ? "badgeLate" : "badgeSoon"
+                    }`}
+                  >
+                    {computed.tvaUrgency === "late" ? "🚨 Dépassé" : "⚠️ Bientôt"}
+                  </span>
+                )}
               </div>
 
-              {(hasDraft || lastSavedAt) && (
-                <div className="savedHint">
-                  💾{" "}
-                  {lastSavedAt
-                    ? `Sauvegardé à ${new Date(lastSavedAt).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}`
-                    : "Sauvegarde trouvée"}
-                  {restoredAt && " — restauré ✅"}
+              <div className="dashValue">
+                {c.key === "reminders" && (
+                  <button
+                    className="btn btnGhost"
+                    type="button"
+                    onClick={() =>
+                      setAnswers((prev) => ({
+                        ...prev,
+                        reminders_enabled: !prev.reminders_enabled,
+                      }))
+                    }
+                  >
+                    {answers?.reminders_enabled ? "Désactiver" : "Activer"}
+                  </button>
+                )}
 
-                  <div className="savedActions">
-                    <button className="btn btnGhost" onClick={handleNewSession}>
-                      Nouveau
-                    </button>
-                  </div>
+                <div
+                  className={[
+                    "dashValueText",
+                    c.key === "deadline" && computed?.urgency === "soon" ? "valueSoon" : "",
+                    c.key === "deadline" && computed?.urgency === "late" ? "valueLate" : "",
+                  ]
+                    .join(" ")
+                    .trim()}
+                >
+                  {getDashValue(c.key, answers, computed) ?? "—"}
                 </div>
-              )}
 
-              <div>
-                Étape <strong>{Math.min(stepIndex + 1, STEPS.length)}</strong> / {STEPS.length}
+                {c.key === "tva" && computed?.tvaHint && (
+                  <div className="dashHint">{computed.tvaHint}</div>
+                )}
+
+                {c.key === "deadline" && typeof computed?.daysLeft === "number" && (
+                  <div className="dashHint">
+                    {computed.daysLeft < 0
+                      ? `En retard de ${Math.abs(computed.daysLeft)} jour(s)`
+                      : computed.daysLeft === 0
+                      ? "Aujourd’hui"
+                      : `Dans ${computed.daysLeft} jour(s)`}
+                  </div>
+                )}
               </div>
             </div>
-          </div>
+          ))}
+        </div>
 
-          <div className="chat">
-            <div className="chatLog">
-              {messages.map((m, idx) => (
-                <div key={idx} className={`msg ${m.role}`}>
-                  {m.text.split("\n").map((line, i) => (
-                    <div key={i}>{line}</div>
-                  ))}
+        {computed?.recommendations?.length > 0 && (
+          <div className="dashRecs">
+            <div className="dashRecsTitle">✅ Recommandations</div>
+
+            <div className="dashRecsList">
+              {computed.recommendations.map((r) => (
+                <div
+                  key={r.key}
+                  className={[
+                    "dashRecItem",
+                    r.level === "danger" ? "recDanger" : "",
+                    r.level === "warning" ? "recWarning" : "",
+                    r.level === "ok" ? "recOk" : "",
+                  ]
+                    .join(" ")
+                    .trim()}
+                >
+                  <div className="dashRecTitle">{r.title}</div>
+                  <div className="dashRecText">{r.text}</div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
 
-              {isTyping && (
-                <div className="msg bot typing">
-                  <span className="typingDots">
-                    <span className="dot" />
-                    <span className="dot" />
-                    <span className="dot" />
-                  </span>
-                  <span className="typingText">L’assistant écrit…</span>
-                </div>
-              )}
+        <div className="disclaimer">
+          ⚠️ Estimation MVP : ce tableau donne des repères (charges/TVA/échéances) et ne
+          remplace pas un expert-comptable.
+        </div>
 
-              <div ref={chatEndRef} />
+        <div className="miniActions">
+          <button className="btn btnGhost" type="button" onClick={() => setStepIndex(0)}>
+            ← Retour
+          </button>
+          <button className="btn btnGhost" type="button" onClick={handleReset}>
+            Recommencer
+          </button>
+        </div>
+      </div>
+    ) : (
+      <>
+        <div className="chatInput">
+          <input
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={step?.placeholder || "Écris ici…"}
+            aria-label="Message"
+            disabled={isTyping}
+          />
+          <button
+            className="btn"
+            onClick={handleSend}
+            disabled={!canSend || isTyping}
+            type="button"
+          >
+            Envoyer
+          </button>
+        </div>
+
+        <div className="autoSaveHint" aria-live="polite">
+          💾 Tes réponses sont sauvegardées automatiquement dans ton navigateur.
+        </div>
+      </>
+    )}
+
+    {(step?.mode === "dashboard" || stepIndex >= STEPS.length) && (
+      <div className="miniActions">
+        <button className="btn btnGhost" onClick={handleCopySummary} type="button">
+          Copier le résumé
+        </button>
+
+        <button className="btn btnGhost" onClick={handleDownloadTxt} type="button">
+          Télécharger le plan (.txt)
+        </button>
+      </div>
+    )}
+  </div>
+</section>
+
+  <section className="card">
+
+  <div className="sectionHead">
+    <h2>Mon espace fiscal</h2>
+
+    <button
+      className="btn btnPrimary btnSmall"
+      type="button"
+      onClick={handleOpenRevenuePopup}
+    >
+      + Ajouter revenu
+    </button>
+  </div>
+
+
+  <div className="fiscalDashboard">
+
+    <div className="fiscalCard">
+      <div className="fiscalLabel">Total du mois</div>
+      <div className="fiscalValue">
+        {currentMonthTotal.toLocaleString("fr-FR")} €
+      </div>
+    </div>
+
+    <div className="fiscalCard">
+      <div className="fiscalLabel">Charges estimées</div>
+      <div className="fiscalValue">
+        {Math.round(currentMonthTotal * 0.22).toLocaleString("fr-FR")} €
+      </div>
+    </div>
+
+    <div className="fiscalCard">
+      <div className="fiscalLabel">Disponible estimé</div>
+      <div className="fiscalValue">
+        {Math.round(currentMonthTotal * 0.78).toLocaleString("fr-FR")} €
+      </div>
+    </div>
+
+  </div>
+
+
+  <div className="journalHeader">
+    <h3>Journal des revenus</h3>
+  </div>
+
+  {revenues.length === 0 ? (
+    <p className="muted" style={{ marginTop: 10 }}>
+      Aucun revenu enregistré pour le moment.
+    </p>
+  ) : (
+    <div className="revenuesList">
+      {revenues.map((item) => (
+        <div key={item.id} className="revenueItem">
+
+          <div className="revenueMain">
+            <div className="revenueAmount">
+              {Number(item.amount).toLocaleString("fr-FR")} €
             </div>
 
-            {step?.mode === "choice" ? (
-              <div className="choiceZone">
-                <div className="stepMiniHeader">
-                  <span className="stepMiniBadge">Étape {stepIndex + 1}</span>
-                  <span className="stepMiniTitle">{step?.title}</span>
-                </div>
+            <div className="revenueDate">
+              {formatRevenueDate(item.date)}
+            </div>
+          </div>
 
-                <div className="choiceRow">
-                  {step.options?.map((opt) => (
-                    <button
-                      key={opt.value}
-                      className="btn btnChoice"
-                      onClick={() => handleSelectOption(opt)}
-                      disabled={isTyping}
-                      type="button"
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-
-                  {step.help && (
-                    <button
-                      className="btn btnGhost btnHelp"
-                      onClick={() => setHelpOpen((v) => !v)}
-                      type="button"
-                    >
-                      ❓
-                    </button>
-                  )}
-                </div>
-
-                {helpOpen && step.help && (
-                  <div className="helpBox" role="note">
-                    {step.help}
-                  </div>
-                )}
+          <div className="revenueMeta">
+            {item.client && (
+              <div>
+                <strong>Client :</strong> {item.client}
               </div>
-            ) : step?.mode === "dashboard" ? (
-              <div className="dashboardZone">
-                <div className="simulatorBox">
-                  <div className="simulatorTitle">📊 Simuler un autre CA</div>
-
-                  <div className="simulatorControls">
-                    <input
-                      type="number"
-                      placeholder="Ex: 4000"
-                      value={simulatedCA ?? ""}
-                      onChange={(e) =>
-                        setSimulatedCA(e.target.value ? Number(e.target.value) : null)
-                      }
-                      className="simInput"
-                    />
-
-                    {simulatedCA !== null && (
-                      <button
-                        className="btn btnGhost btnSmall"
-                        onClick={() => setSimulatedCA(null)}
-                        type="button"
-                      >
-                        Reset
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div className="cards">
-                  {step.cards?.map((c) => (
-                    <div
-                      key={c.key}
-                      className={[
-                        "dashCard",
-                        c.key === "deadline" && computed?.urgency === "soon" ? "isSoon" : "",
-                        c.key === "deadline" && computed?.urgency === "late" ? "isLate" : "",
-                        c.key === "tva" && computed?.tvaUrgency === "soon" ? "isSoon" : "",
-                        c.key === "tva" && computed?.tvaUrgency === "late" ? "isLate" : "",
-                      ]
-                        .join(" ")
-                        .trim()}
-                    >
-                      <div className="dashLabel">
-                        {c.label}
-
-                        {c.key === "tva" && computed?.tvaUrgency && (
-                          <span
-                            className={`badge ${
-                              computed.tvaUrgency === "late" ? "badgeLate" : "badgeSoon"
-                            }`}
-                          >
-                            {computed.tvaUrgency === "late" ? "🚨 Dépassé" : "⚠️ Bientôt"}
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="dashValue">
-                        {c.key === "reminders" && (
-                          <button
-                            className="btn btnGhost"
-                            type="button"
-                            onClick={() =>
-                              setAnswers((prev) => ({
-                                ...prev,
-                                reminders_enabled: !prev.reminders_enabled,
-                              }))
-                            }
-                          >
-                            {answers?.reminders_enabled ? "Désactiver" : "Activer"}
-                          </button>
-                        )}
-
-                        <div
-                          className={[
-                            "dashValueText",
-                            c.key === "deadline" && computed?.urgency === "soon" ? "valueSoon" : "",
-                            c.key === "deadline" && computed?.urgency === "late" ? "valueLate" : "",
-                          ]
-                            .join(" ")
-                            .trim()}
-                        >
-                          {getDashValue(c.key, answers, computed) ?? "—"}
-                        </div>
-
-                        {c.key === "tva" && computed?.tvaHint && (
-                          <div className="dashHint">{computed.tvaHint}</div>
-                        )}
-
-                        {c.key === "deadline" && typeof computed?.daysLeft === "number" && (
-                          <div className="dashHint">
-                            {computed.daysLeft < 0
-                              ? `En retard de ${Math.abs(computed.daysLeft)} jour(s)`
-                              : computed.daysLeft === 0
-                              ? "Aujourd’hui"
-                              : `Dans ${computed.daysLeft} jour(s)`}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {computed?.recommendations?.length > 0 && (
-                  <div className="dashRecs">
-                    <div className="dashRecsTitle">✅ Recommandations</div>
-
-                    <div className="dashRecsList">
-                      {computed.recommendations.map((r) => (
-                        <div
-                          key={r.key}
-                          className={[
-                            "dashRecItem",
-                            r.level === "danger" ? "recDanger" : "",
-                            r.level === "warning" ? "recWarning" : "",
-                            r.level === "ok" ? "recOk" : "",
-                          ]
-                            .join(" ")
-                            .trim()}
-                        >
-                          <div className="dashRecTitle">{r.title}</div>
-                          <div className="dashRecText">{r.text}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div className="disclaimer">
-                  ⚠️ Estimation MVP : ce tableau donne des repères (charges/TVA/échéances) et ne
-                  remplace pas un expert-comptable.
-                </div>
-
-                <div className="miniActions">
-                  <button className="btn btnGhost" type="button" onClick={() => setStepIndex(0)}>
-                    ← Retour
-                  </button>
-                  <button className="btn btnGhost" type="button" onClick={handleReset}>
-                    Recommencer
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="chatInput">
-                  <input
-                    ref={inputRef}
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder={step?.placeholder || "Écris ici…"}
-                    aria-label="Message"
-                    disabled={isTyping}
-                  />
-                  <button
-                    className="btn"
-                    onClick={handleSend}
-                    disabled={!canSend || isTyping}
-                    type="button"
-                  >
-                    Envoyer
-                  </button>
-                </div>
-
-                <div className="autoSaveHint" aria-live="polite">
-                  💾 Tes réponses sont sauvegardées automatiquement dans ton navigateur.
-                </div>
-              </>
             )}
 
-            {(step?.mode === "dashboard" || stepIndex >= STEPS.length) && (
-              <div className="miniActions">
-                <button className="btn btnGhost" onClick={handleCopySummary} type="button">
-                  Copier le résumé
-                </button>
+            {item.invoice && (
+              <div>
+                <strong>Facture :</strong> {item.invoice}
+              </div>
+            )}
 
-                <button className="btn btnGhost" onClick={handleDownloadTxt} type="button">
-                  Télécharger le plan (.txt)
-                </button>
+            {item.note && (
+              <div>
+                <strong>Note :</strong> {item.note}
               </div>
             )}
           </div>
-        </section>
+
+          <div className="revenueActions">
+            <button
+              className="btn btnGhost btnSmall"
+              type="button"
+              onClick={() => handleDeleteRevenue(item.id)}
+            >
+              Supprimer
+            </button>
+          </div>
+
+        </div>
+      ))}
+    </div>
+  )}
+
+  
+
+{monthlyHistory.length > 0 && (
+  <div className="monthlyHistory">
+
+    <h3>Historique mensuel</h3>
+
+    <div className="historyList">
+      {monthlyHistory.map((m) => {
+        const date = new Date(m.year, m.month);
+
+        const label = date.toLocaleDateString("fr-FR", {
+          month: "long",
+          year: "numeric",
+        });
+
+        return (
+          <div key={`${m.year}-${m.month}`} className="historyItem">
+            <span className="historyMonth">{label}</span>
+
+            <strong className="historyTotal">
+              {m.total.toLocaleString("fr-FR")} €
+            </strong>
+          </div>
+        );
+      })}
+    </div>
+
+  </div>
+)}
+
+</section>
+
 
         {visibleSections.security && (
           <section id="security" ref={securityRef} className="card security">
@@ -1237,6 +1578,128 @@ function handleNewSession() {
           </section>
         )}
       </main>
+
+      {showAddRevenue && (
+  <div className="modalOverlay" onClick={handleCloseRevenuePopup}>
+    <div
+      className="modalCard"
+      onClick={(e) => e.stopPropagation()}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="add-revenue-title"
+    >
+      <div className="sectionHead">
+        <h3 id="add-revenue-title">Ajouter revenu</h3>
+
+        <button
+          className="iconBtn"
+          type="button"
+          onClick={handleCloseRevenuePopup}
+          aria-label="Fermer"
+        >
+          ✕
+        </button>
+      </div>
+
+      <div className="formGrid">
+        <label className="field">
+          <span>Montant (€)</span>
+          <input
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="0.01"
+            value={revenueForm.amount}
+            onChange={(e) => handleRevenueFieldChange("amount", e.target.value)}
+            placeholder="Ex : 200"
+          />
+        </label>
+
+        <label className="field">
+          <span>Date</span>
+          <input
+            type="date"
+            value={revenueForm.date}
+            onChange={(e) => handleRevenueFieldChange("date", e.target.value)}
+          />
+        </label>
+      </div>
+
+      <button
+        className="btn btnGhost btnSmall"
+        type="button"
+        onClick={() => setShowRevenueDetails((v) => !v)}
+        style={{ marginTop: 12 }}
+      >
+        {showRevenueDetails ? "Masquer les détails" : "+ Ajouter détails"}
+      </button>
+
+      {showRevenueDetails && (
+        <div className="formGrid" style={{ marginTop: 12 }}>
+          <label className="field">
+            <span>Client</span>
+            <input
+              type="text"
+              value={revenueForm.client}
+              onChange={(e) => handleRevenueFieldChange("client", e.target.value)}
+              placeholder="Optionnel"
+            />
+          </label>
+
+          <label className="field">
+            <span>Facture</span>
+            <input
+              type="text"
+              value={revenueForm.invoice}
+              onChange={(e) => handleRevenueFieldChange("invoice", e.target.value)}
+              placeholder="Optionnel"
+            />
+          </label>
+
+          <label className="field fieldFull">
+            <span>Note</span>
+            <input
+              type="text"
+              value={revenueForm.note}
+              onChange={(e) => handleRevenueFieldChange("note", e.target.value)}
+              placeholder="Optionnel"
+            />
+          </label>
+        </div>
+      )}
+
+{revenueAmount > 0 && (
+  <div className="revenuePreview">
+    <div className="previewTitle">Estimation rapide</div>
+
+    <div className="previewRow">
+      <span>Charges estimées</span>
+      <strong>
+        {Math.round(revenueAmount * 0.22).toLocaleString("fr-FR")} €
+      </strong>
+    </div>
+
+    <div className="previewRow">
+      <span>Disponible estimé</span>
+      <strong>
+        {Math.round(revenueAmount * 0.78).toLocaleString("fr-FR")} €
+      </strong>
+    </div>
+  </div>
+)}
+
+      <div className="miniActions" style={{ marginTop: 16 }}>
+        <button className="btn btnGhost" type="button" onClick={handleCloseRevenuePopup}>
+          Annuler
+        </button>
+
+        <button className="btn btnPrimary" type="button" onClick={handleSaveRevenue}>
+          Enregistrer
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 
       <footer className="footer">© {new Date().getFullYear()} Microassist</footer>
     </div>
