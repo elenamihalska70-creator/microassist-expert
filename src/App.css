@@ -9,6 +9,7 @@
   top: 0;
   z-index: 10;
   background: #fff;
+  box-shadow:0 2px 10px rgba(0,0,0,0.04);
   border-bottom: 1px solid #eee;
   padding: 12px 18px;
   display: flex;
@@ -605,6 +606,7 @@
 }
 
 .btnPrimary {
+  border-radius:10px;
   font-weight: 600;
 }
 
@@ -613,8 +615,10 @@
   color:#fff;
   border:1px solid #111;
 }
+
 .btnPrimary:hover{
-  opacity:.92;
+  transform:translateY(-1px);
+  box-shadow:0 4px 10px rgba(0,0,0,0.08);
 }
 
 .heroFineprint {
@@ -1215,43 +1219,152 @@ font-size:18px;
 }
 
 .timelineList{
-display:grid;
-gap:12px;
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0, 1fr));
+  gap:12px;
+  margin-top:10px;
 }
 
 .timelineItem{
-padding:14px 16px;
-border:1px solid rgba(0,0,0,0.08);
-border-radius:14px;
-background:#fff;
+  border:1px solid rgba(0,0,0,0.08);
+  border-radius:14px;
+  padding:14px 14px 12px;
+  background:#fff;
+  box-shadow:0 2px 10px rgba(0,0,0,0.03);
 }
 
 .timelineTop{
-display:flex;
-align-items:center;
-gap:8px;
-margin-bottom:6px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-bottom:8px;
 }
 
 .timelineIcon{
-font-size:16px;
+  font-size:15px;
 }
 
 .timelineLabel{
-font-weight:600;
-font-size:14px;
-color:#333;
+  font-size:13px;
+  font-weight:600;
+  color:#555;
 }
 
 .timelineValue{
-font-size:16px;
-font-weight:700;
-margin-bottom:4px;
+  font-size:18px;
+  font-weight:700;
+  line-height:1.2;
+  color:#111;
+  margin-bottom:4px;
 }
 
 .timelineHint{
-font-size:13px;
-color:#666;
-line-height:1.4;
+  font-size:12px;
+  line-height:1.4;
+  color:#777;
 }
 
+@media (max-width: 900px){
+  .timelineList{
+    grid-template-columns:1fr;
+  }
+}
+
+.fiscalDashboard{
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0, 1fr));
+  gap:14px;
+  margin-top:14px;
+}
+
+.fiscalCard{
+  padding:16px 18px;
+  border:1px solid rgba(0,0,0,0.08);
+  border-radius:16px;
+  background:#fff;
+  box-shadow:0 2px 10px rgba(0,0,0,0.03);
+}
+
+.fiscalLabel{
+  font-size:13px;
+  color:#666;
+  margin-bottom:8px;
+}
+
+.fiscalValue{
+  font-size:28px;
+  font-weight:700;
+  line-height:1.1;
+  color:#111;
+}
+
+@media (max-width: 900px){
+  .fiscalDashboard{
+    grid-template-columns:1fr;
+  }
+
+  .fiscalValue{
+    font-size:24px;
+  }
+}
+
+.monthStatus{
+  margin-top:12px;
+  font-size:13px;
+  color:#666;
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
+
+.journalHeader{
+  margin-top:18px;
+  margin-bottom:10px;
+}
+
+.journalHeader h3{
+  margin:0;
+  font-size:22px;
+}
+
+.timelineList{
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0,1fr));
+  gap:12px;
+  margin-top:10px;
+}
+
+.timelineItem{
+  border:1px solid rgba(0,0,0,0.08);
+  border-radius:12px;
+  padding:12px;
+  background:#fff;
+}
+
+.timelineTop{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  font-size:13px;
+  color:#555;
+  margin-bottom:6px;
+}
+
+.timelineValue{
+  font-weight:600;
+  font-size:16px;
+}
+
+.timelineHint{
+  font-size:12px;
+  color:#777;
+  margin-top:4px;
+}
+
+.assistantTitleRow{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  flex-wrap:wrap;
+}

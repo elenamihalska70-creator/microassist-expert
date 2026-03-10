@@ -111,6 +111,7 @@ function buildFiscalChecklist(answers, computed) {
 
 export default function App() {
   const [stepIndex, setStepIndex] = useState(0);
+  const [assistantCollapsed, setAssistantCollapsed] = useState(false);
   const [answers, setAnswers] = useState({});
   const [input, setInput] = useState("");
   const [saveNotice, setSaveNotice] = useState(null);
@@ -469,6 +470,12 @@ useEffect(() => {
   }
 }, [revenues, revenuesHydrated]);
 
+useEffect(() => {
+  if (revenues.length === 1) {
+    setAssistantCollapsed(true);
+  }
+}, [revenues.length]);
+
   const computed = useMemo(() => {
     if (simulatedCA !== null) {
       return computeObligations({ ...answers, ca_month: simulatedCA });
@@ -551,7 +558,7 @@ const fiscalTimeline = useMemo(() => {
       icon: "📅",
       label: "Prochaine déclaration",
       value: computed?.nextDeclarationLabel || "À définir",
-      hint: computed?.deadlineLabel || "Choisis une périodicité pour voir l’échéance",
+      hint: computed?.deadlineLabel || "Sélectionne ta périodicité.",
     },
     {
       key: "charges",
@@ -581,11 +588,19 @@ const fiscalAlert = useMemo(() => {
     };
   }
 
+  if (!answers?.declaration_frequency) {
+    return {
+      level: "warning",
+      title: "Périodicité à compléter",
+      text: "Choisis ta périodicité pour voir ta prochaine déclaration URSSAF.",
+    };
+  }
+
   if (computed?.urgency === "late") {
     return {
       level: "danger",
       title: "Déclaration en retard",
-      text: "Ta déclaration semble en retard. Vérifie rapidement ton échéance URSSAF.",
+      text: "Vérifie rapidement ton échéance URSSAF et prépare ta déclaration.",
     };
   }
 
@@ -593,7 +608,7 @@ const fiscalAlert = useMemo(() => {
     return {
       level: "warning",
       title: "Déclaration proche",
-      text: `Ta prochaine déclaration arrive bientôt${computed?.deadlineLabel ? ` : ${computed.deadlineLabel}` : ""}.`,
+      text: "Prépare ta déclaration URSSAF dans les prochains jours.",
     };
   }
 
@@ -601,7 +616,7 @@ const fiscalAlert = useMemo(() => {
     return {
       level: "danger",
       title: "Seuil TVA dépassé",
-      text: computed?.tvaHint || "Vérifie ton régime de TVA.",
+      text: computed?.tvaHint || "Vérifie ton régime de TVA dès maintenant.",
     };
   }
 
@@ -609,19 +624,16 @@ const fiscalAlert = useMemo(() => {
     return {
       level: "warning",
       title: "Seuil TVA proche",
-      text: computed?.tvaHint || "Surveille ton chiffre d’affaires.",
+      text: computed?.tvaHint || "Surveille ton chiffre d’affaires pour anticiper la TVA.",
     };
   }
 
   return {
     level: "ok",
     title: "Situation stable",
-    text: computed?.deadlineLabel
-      ? `Prochaine déclaration : ${computed.deadlineLabel}.`
-      : "Aucune alerte particulière pour le moment.",
+    text: "Aucune action urgente pour le moment.",
   };
-}, [revenues, computed]);
-
+}, [revenues, computed, answers?.declaration_frequency]);
 
 const revenueAmount = Number(String(revenueForm.amount || "").replace(",", "."));
 
@@ -1159,10 +1171,22 @@ function handleNewSession() {
           </div>
         )}
 
-     <section id="assistant" ref={assistantRef} className="card">
+<section id="assistant" ref={assistantRef} className="card">
   <div className="assistantHeader">
     <div>
-      <h2>Assistant fiscal</h2>
+     <div className="assistantTitleRow">
+  <h2>Assistant fiscal</h2>
+
+{revenues.length > 0 && (
+  <button
+    className="btn btnGhost btnSmall"
+    onClick={() => setAssistantCollapsed((v) => !v)}
+    type="button"
+  >
+    {assistantCollapsed ? "Afficher l'assistant" : "Réduire"}
+  </button>
+)}
+</div>
       <p className="muted assistantIntro">
         Configure ton profil et comprends simplement ta situation fiscale.
       </p>
@@ -1203,6 +1227,7 @@ function handleNewSession() {
     </div>
   </div>
 
+  {!assistantCollapsed && (
   <div className="chat">
     <div className="chatLog">
       {messages.map((m, idx) => (
@@ -1212,6 +1237,7 @@ function handleNewSession() {
           ))}
         </div>
       ))}
+      
 
       {isTyping && (
         <div className="msg bot typing">
@@ -1445,6 +1471,7 @@ function handleNewSession() {
       </div>
     )}
   </div>
+  )}
 </section>
 
 <section ref={fiscalRef} className="card">
@@ -1522,12 +1549,6 @@ function handleNewSession() {
 >
   <div className="fiscalAlertTitle">{fiscalAlert.title}</div>
   <div className="fiscalAlertText">{fiscalAlert.text}</div>
-
-  {computed?.nextDeclarationLabel && (
-    <div className="fiscalAlertMeta">
-      Prochaine déclaration : <strong>{computed.nextDeclarationLabel}</strong>
-    </div>
-  )}
 </div>
 
   <div className="monthStatus">
