@@ -157,6 +157,13 @@ export default function App() {
     }
   });
 
+  const viewLabel =
+  appView === "landing"
+    ? "Découverte"
+    : appView === "assistant"
+      ? "Configuration du profil"
+      : "Espace fiscal prêt";
+
   const [messages, setMessages] = useState([
     {
       role: "bot",
@@ -212,6 +219,8 @@ export default function App() {
   useEffect(() => {
     showConsoleSignature();
   }, []);
+
+
   useEffect(() => {
     try {
       const raw = localStorage.getItem(REVENUES_KEY);
@@ -907,6 +916,9 @@ export default function App() {
   return (
     <div className="page">
       <header className="topbar">
+        <div className="appStatusBar">
+  <span className="appStatusBadge">{viewLabel}</span>
+</div>
         <div className="topbarLeft">
           <div className="brand">Entrepreneurs Assistant</div>
 
@@ -1784,7 +1796,7 @@ Cela prend moins d'une minute.
           <div className="dataTrustLine">
             🔒 Données locales uniquement — aucun compte requis pour tester.
           </div>
-          
+
         </section>
         )}
 

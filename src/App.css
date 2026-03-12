@@ -1506,3 +1506,21 @@ section {
   }
 }
 
+.appStatusBar {
+  max-width: 1120px;
+  margin: 10px auto 0;
+  padding: 0 16px;
+}
+
+.appStatusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  background: #f4f1ff;
+  color: #5b3cc4;
+}
+
