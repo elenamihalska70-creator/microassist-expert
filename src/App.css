@@ -1467,3 +1467,42 @@ section[id] {
   flex-wrap: wrap;
 }
 
+section {
+  scroll-margin-top: 80px;
+}
+
+.assistantIntro{
+  margin-bottom:14px;
+  color:#555;
+  font-size:14px;
+}
+
+.btnAssistant{
+  background:#000;
+  color:white;
+  border-radius:6px;
+  padding:6px 12px;
+  font-size:13px;
+}
+
+.msg {
+  animation: fadeSlideIn 0.28s ease;
+}
+
+.dashRecItem,
+.assistantSummaryBox,
+.assistantNextStep {
+  animation: fadeSlideIn 0.32s ease;
+}
+
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+

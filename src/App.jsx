@@ -130,6 +130,7 @@ export default function App() {
   const [restoredAt, setRestoredAt] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [appView, setAppView] = useState("landing");
   const [userName, setUserName] = useState("");
   const [simulatedCA, setSimulatedCA] = useState(null);
   const [hydrated, setHydrated] = useState(false);
@@ -244,6 +245,20 @@ export default function App() {
       console.warn("Revenues save failed:", e);
     }
   }, [revenues, revenuesHydrated]);
+
+  useEffect(() => {
+  if (!chatEndRef.current) return;
+  if (appView !== "assistant") return;
+
+  const timer = setTimeout(() => {
+    chatEndRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, 120);
+
+  return () => clearTimeout(timer);
+}, [messages, stepIndex, isTyping, appView]);
 
   const step = STEPS[stepIndex];
 
@@ -964,13 +979,19 @@ export default function App() {
                 <li>✅ Alertes : échéance proche / seuil TVA</li>
                 <li>✅ Export : résumé + plan d’action</li>
               </ul>
+              <p className="assistantIntro">
+Réponds simplement aux questions ci-dessous.
+Cela prend moins d'une minute.
+</p>
 
               <div className="heroActions">
                 <button
                   className="btn btnPrimary"
                   onClick={() => {
                     track("click_tester_demo");
+                    setAppView("assistant");
                     setFocusMode(true);
+
                     setTimeout(() => {
                       scrollToRef(assistantRef);
                     }, 80);
@@ -1038,7 +1059,7 @@ export default function App() {
           </div>
         </section>
 
-        {!focusMode && (
+        {!focusMode && appView === "landing" && (
           <div className="sectionTools">
             <button
               className="btn btnGhost btnSmall"
@@ -1050,7 +1071,7 @@ export default function App() {
           </div>
         )}
 
-        {!focusMode && visibleSections.about && (
+        {!focusMode && appView === "landing" && visibleSections.services && (
           <section className="card">
             <div className="sectionHead">
               <h2>À propos de Microassist</h2>
@@ -1086,7 +1107,7 @@ export default function App() {
           </section>
         )}
 
-        {!focusMode && visibleSections.services && (
+        {!focusMode && appView === "landing" && visibleSections.howItWorks && (
           <section id="services" className="card">
             <div className="sectionHead">
               <h2>Services</h2>
@@ -1228,7 +1249,10 @@ export default function App() {
 
               <button
                 className="btn btnGhost btnSmall"
-                onClick={() => setFocusMode(false)}
+                onClick={() => {
+                  setFocusMode(false);
+                  setAppView("landing");
+                }}
               >
                 Page complète
               </button>
@@ -1491,12 +1515,13 @@ export default function App() {
                     <button
                       className="btn btnPrimary"
                       type="button"
-                      onClick={() =>
+                      onClick={() => {
+                        setAppView("dashboard");
                         fiscalRef.current?.scrollIntoView({
                           behavior: "smooth",
                           block: "start",
-                        })
-                      }
+                        });
+                      }}
                     >
                       Voir mon espace fiscal
                     </button>
@@ -1577,6 +1602,7 @@ export default function App() {
           )}
         </section>
 
+        {appView === "dashboard" && (
         <section ref={fiscalRef} className="card">
           <div className="sectionHead">
             <h2>Mon espace fiscal</h2>
@@ -1585,12 +1611,14 @@ export default function App() {
               <button
                 className="btn btnGhost btnSmall"
                 type="button"
-                onClick={() =>
+                onClick={() => {
+                  setAppView("assistant");
+                  setAssistantCollapsed(false);
                   assistantRef.current?.scrollIntoView({
                     behavior: "smooth",
                     block: "start",
-                  })
-                }
+                  });
+                }}
               >
                 Modifier mon profil
               </button>
@@ -1756,7 +1784,9 @@ export default function App() {
           <div className="dataTrustLine">
             🔒 Données locales uniquement — aucun compte requis pour tester.
           </div>
+          
         </section>
+        )}
 
         {visibleSections.security && (
           <section id="security" ref={securityRef} className="card security">
