@@ -1,3 +1,5 @@
+import { supabase } from "./lib/supabase";
+import AuthGate from "./components/AuthGate";
 import { useState, useEffect, useMemo, useRef, useLayoutEffect } from "react";
 import "./App.css";
 import { FISCAL_STEPS as STEPS } from "./config/steps.fiscal";
@@ -138,6 +140,7 @@ export default function App() {
   const [showAddRevenue, setShowAddRevenue] = useState(false);
   const [revenues, setRevenues] = useState([]);
   const [revenuesHydrated, setRevenuesHydrated] = useState(false);
+
   const [revenueForm, setRevenueForm] = useState({
     amount: "",
     date: new Date().toISOString().slice(0, 10),
@@ -186,15 +189,6 @@ export default function App() {
   useLayoutEffect(() => {
     if ("scrollRestoration" in window.history) {
       window.history.scrollRestoration = "manual";
-    }
-
-    // если вдруг в URL остался hash, убираем его
-    if (window.location.hash) {
-      window.history.replaceState(
-        null,
-        "",
-        window.location.pathname + window.location.search,
-      );
     }
 
     const forceTop = () => {
@@ -447,6 +441,24 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(UI_KEY, JSON.stringify(visibleSections));
   }, [visibleSections]);
+  
+  useEffect(() => {
+  const canSaveFiscalProfile =
+    answers?.entry_status &&
+    answers?.activity_type &&
+    answers?.declaration_frequency;
+
+  if (!canSaveFiscalProfile) return;
+
+  saveFiscalProfileToSupabase(answers);
+
+}, [
+  answers,
+  answers?.entry_status,
+  answers?.activity_type,
+  answers?.declaration_frequency,
+]);
+
 
   useEffect(() => {
     if (!userName) return;
@@ -901,6 +913,39 @@ export default function App() {
     }, 120);
   }
 
+  async function saveFiscalProfileToSupabase(profileAnswers) {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    console.error("User not found:", userError?.message);
+    return;
+  }
+
+  const payload = {
+    user_id: user.id,
+    business_status:
+      profileAnswers.entry_status === "micro_yes"
+        ? "micro_entreprise"
+        : "other",
+    activity_type: profileAnswers.activity_type,
+    declaration_frequency: profileAnswers.declaration_frequency,
+    tva_mode: "franchise_en_base",
+  };
+
+  const { error } = await supabase
+    .from("fiscal_profiles")
+    .upsert(payload, { onConflict: "user_id" });
+
+  if (error) {
+    console.error("Fiscal profile upsert error:", error.message);
+  } else {
+    console.log("Fiscal profile saved ✅");
+  }
+}
+
   function handleNewSession() {
     localStorage.removeItem(LS_KEY);
     localStorage.removeItem(REVENUES_KEY);
@@ -914,6 +959,7 @@ export default function App() {
     handleReset();
   }
   return (
+     <AuthGate>
     <div className="page">
       <header className="topbar">
         <div className="appStatusBar">
@@ -2011,5 +2057,6 @@ Cela prend moins d'une minute.
         © {new Date().getFullYear()} Microassist
       </footer>
     </div>
+    </AuthGate>
   );
 }

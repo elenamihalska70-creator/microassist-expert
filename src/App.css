@@ -1524,3 +1524,211 @@ section {
   color: #5b3cc4;
 }
 
+/* ===== Responsive mobile ===== */
+.topbarLeft,
+.topbarRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.topActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.nameInput {
+  min-width: 140px;
+  max-width: 180px;
+}
+
+.appStatusBar {
+  display: flex;
+  align-items: center;
+}
+
+.appStatusBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #f4f1ff;
+  color: #6b46c1;
+  white-space: nowrap;
+}
+
+.assistantHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.fiscalDashboard,
+.timelineList {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 980px) {
+  .topbar {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    padding: 10px 14px;
+  }
+
+  .topbarLeft,
+  .topbarRight {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+
+  .nav {
+    width: 100%;
+    justify-content: center;
+    gap: 10px;
+  }
+
+  .topActions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .nameInput {
+    max-width: 100%;
+    flex: 1 1 180px;
+  }
+
+  .heroGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .heroActions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .heroActions .btn {
+    width: 100%;
+  }
+
+  .fiscalDashboard,
+  .timelineList {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .container {
+    padding: 16px 12px;
+    gap: 12px;
+  }
+
+  .card {
+    padding: 14px;
+    border-radius: 12px;
+  }
+
+  .hero h1 {
+    font-size: 24px;
+    line-height: 1.2;
+  }
+
+  .heroLead {
+    font-size: 0.98rem;
+  }
+
+  .heroPanel {
+    padding: 12px;
+  }
+
+  .heroTrust {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .sectionHead {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .assistantHeader {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .progress {
+    width: 100%;
+  }
+
+  .chatLog {
+    max-height: 420px;
+  }
+
+  .choiceRow {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .choiceRow .btn {
+    width: 100%;
+  }
+
+  .msg {
+    max-width: 92%;
+  }
+
+  .sectionHeadActions {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .sectionHeadActions .btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  .topbar {
+    padding: 8px 10px;
+    gap: 10px;
+  }
+
+  .brand {
+    font-size: 15px;
+  }
+
+  .nav {
+    font-size: 14px;
+    justify-content: flex-start;
+  }
+
+  .hero h1 {
+    font-size: 21px;
+  }
+
+  .heroBadge {
+    font-size: 0.8rem;
+    padding: 5px 8px;
+  }
+
+  .btn {
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+
+  .appStatusBadge {
+    font-size: 11px;
+    padding: 5px 8px;
+  }
+}
