@@ -3,12 +3,11 @@ import AuthGate from "./components/AuthGate";
 import { useState, useEffect, useMemo, useRef, useLayoutEffect } from "react";
 import "./App.css";
 import { FISCAL_STEPS as STEPS } from "./config/steps.fiscal";
-import { computeObligations, getDashValue } from "./utils/obligations";
+import { computeObligations } from "./utils/obligations";
 import { showConsoleSignature } from "./consoleSignature";
 
 const LS_KEY = "microassist_v1";
 const LS_VERSION = 1;
-const REVENUES_KEY = "microassist_revenues_v1";
 const UI_KEY = "microassist_ui_sections";
 
 const DEFAULT_VISIBLE_SECTIONS = {
@@ -139,8 +138,7 @@ export default function App() {
   const [focusMode, setFocusMode] = useState(false);
   const [showAddRevenue, setShowAddRevenue] = useState(false);
   const [revenues, setRevenues] = useState([]);
-  const [revenuesHydrated, setRevenuesHydrated] = useState(false);
-
+ 
   const [revenueForm, setRevenueForm] = useState({
     amount: "",
     date: new Date().toISOString().slice(0, 10),
@@ -159,6 +157,38 @@ export default function App() {
       return DEFAULT_VISIBLE_SECTIONS;
     }
   });
+ 
+  const [fiscalProfile, setFiscalProfile] = useState(null);
+  
+  async function refreshFiscalProfile() {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    setFiscalProfile(null);
+    return;
+  }
+
+  const { data, error } = await supabase
+    .from("fiscal_profiles")
+    .select("*")
+    .eq("user_id", user.id)
+    .single();
+
+  if (error) {
+    console.error("Load fiscal profile error:", error.message);
+    setFiscalProfile(null);
+    return;
+  }
+
+  setFiscalProfile(data);
+}
+
+useEffect(() => {
+  refreshFiscalProfile();
+}, []);
 
   const viewLabel =
   appView === "landing"
@@ -177,6 +207,42 @@ export default function App() {
       text: `Étape 1 — ${STEPS[0].title}\n${STEPS[0].question}`,
     },
   ]);
+
+  async function refreshRevenues() {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    setRevenues([]);
+    return;
+  }
+
+  const { data, error } = await supabase
+    .from("revenues")
+    .select("*")
+    .eq("user_id", user.id)
+    .order("revenue_date", { ascending: false });
+
+  if (error) {
+    console.error("Load revenues error:", error.message);
+    return;
+  }
+
+  const normalized = (data || []).map((item) => ({
+    id: item.id,
+    amount: Number(item.amount || 0),
+    date: item.revenue_date,
+    client: item.client || "",
+    invoice: item.invoice || "",
+    note: item.note || "",
+    createdAt: item.created_at || null,
+  }));
+
+  setRevenues(normalized);
+}
+
 
   const inputRef = useRef(null);
   const chatEndRef = useRef(null);
@@ -214,7 +280,84 @@ export default function App() {
     showConsoleSignature();
   }, []);
 
+useEffect(() => {
+  refreshRevenues();
+}, []);
 
+useEffect(() => {
+  let channel;
+
+  async function setupRealtime() {
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) return;
+
+    channel = supabase
+      .channel(`revenues-${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "revenues",
+          filter: `user_id=eq.${user.id}`,
+        },
+        async () => {
+          await refreshRevenues();
+        }
+      )
+      .subscribe();
+  }
+
+  setupRealtime();
+
+  return () => {
+    if (channel) {
+      supabase.removeChannel(channel);
+    }
+  };
+}, []);
+
+useEffect(() => {
+  let channel;
+
+  async function setupFiscalProfileRealtime() {
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) return;
+
+    channel = supabase
+      .channel(`fiscal-profile-${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "fiscal_profiles",
+          filter: `user_id=eq.${user.id}`,
+        },
+        async () => {
+          await refreshFiscalProfile();
+        }
+      )
+      .subscribe();
+  }
+
+  setupFiscalProfileRealtime();
+
+  return () => {
+    if (channel) {
+      supabase.removeChannel(channel);
+    }
+  };
+}, []);
+/*
   useEffect(() => {
     try {
       const raw = localStorage.getItem(REVENUES_KEY);
@@ -238,7 +381,8 @@ export default function App() {
       setRevenuesHydrated(true);
     }
   }, []);
-
+  */
+/*
   useEffect(() => {
     if (!revenuesHydrated) return;
 
@@ -248,6 +392,7 @@ export default function App() {
       console.warn("Revenues save failed:", e);
     }
   }, [revenues, revenuesHydrated]);
+  */
 
   useEffect(() => {
   if (!chatEndRef.current) return;
@@ -414,29 +559,6 @@ export default function App() {
     }
   }, []);
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(REVENUES_KEY);
-
-      if (raw) {
-        const parsed = JSON.parse(raw);
-
-        if (Array.isArray(parsed)) {
-          const normalized = parsed.map((item) => ({
-            ...item,
-            amount: Number(String(item.amount || 0).replace(",", ".")),
-            date: item.date || new Date().toISOString().slice(0, 10),
-          }));
-
-          setRevenues(normalized);
-        }
-      }
-    } catch (e) {
-      console.warn("Revenues restore failed:", e);
-    } finally {
-      setRevenuesHydrated(true);
-    }
-  }, []);
 
   useEffect(() => {
     localStorage.setItem(UI_KEY, JSON.stringify(visibleSections));
@@ -509,15 +631,6 @@ export default function App() {
     }
   }, [hydrated, stepIndex, answers, messages, userName]);
 
-  useEffect(() => {
-    if (!revenuesHydrated) return;
-
-    try {
-      localStorage.setItem(REVENUES_KEY, JSON.stringify(revenues));
-    } catch (e) {
-      console.warn("Revenues save failed:", e);
-    }
-  }, [revenues, revenuesHydrated]);
 
   useEffect(() => {
     if (revenues.length === 1) {
@@ -525,57 +638,86 @@ export default function App() {
     }
   }, [revenues.length]);
 
-  const computed = useMemo(() => {
-    if (simulatedCA !== null) {
-      return computeObligations({ ...answers, ca_month: simulatedCA });
-    }
-    return computeObligations(answers);
-  }, [answers, simulatedCA]);
+  const dashboardAnswers = useMemo(() => {
+  return {
+    ...answers,
+    activity_type:
+      answers.activity_type || fiscalProfile?.activity_type || "",
+    declaration_frequency:
+      answers.declaration_frequency ||
+      fiscalProfile?.declaration_frequency ||
+      "",
+  };
+}, [answers, fiscalProfile]);
 
-  const activityLabel = useMemo(
-    () => labelFromOptions("activity_type", answers.activity_type),
-    [answers.activity_type],
-  );
+const computed = useMemo(() => {
+  if (simulatedCA !== null) {
+    return computeObligations({ ...dashboardAnswers, ca_month: simulatedCA });
+  }
+  return computeObligations(dashboardAnswers);
+}, [dashboardAnswers, simulatedCA]);
 
-  const freqLabel = useMemo(
-    () =>
-      labelFromOptions("declaration_frequency", answers.declaration_frequency),
-    [answers.declaration_frequency],
-  );
+const activityLabel = useMemo(
+  () => labelFromOptions("activity_type", dashboardAnswers.activity_type),
+  [dashboardAnswers.activity_type],
+);
 
-  const profileLine = useMemo(() => {
-    const a = answers.activity_type ? activityLabel : "";
-    const f = answers.declaration_frequency ? freqLabel : "";
+const freqLabel = useMemo(
+  () =>
+    labelFromOptions(
+      "declaration_frequency",
+      dashboardAnswers.declaration_frequency,
+    ),
+  [dashboardAnswers.declaration_frequency],
+);
+
+const profileLine = useMemo(() => {
+  const a = dashboardAnswers.activity_type ? activityLabel : "";
+  const f = dashboardAnswers.declaration_frequency ? freqLabel : "";
     if (!a && !f) return "";
     if (a && f) return `${a} • ${f}`;
     return a || f;
-  }, [
-    answers.activity_type,
-    answers.declaration_frequency,
-    activityLabel,
-    freqLabel,
-  ]);
+}, [
+  dashboardAnswers.activity_type,
+  dashboardAnswers.declaration_frequency,
+  activityLabel,
+  freqLabel,
+]);
 
   const canSend = useMemo(() => input.trim().length > 0, [input]);
 
-  const currentMonthTotal = useMemo(() => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
+ const currentMonthTotal = useMemo(() => {
+  return revenues.reduce((sum, item) => {
+    return sum + Number(item.amount || 0);
+  }, 0);
+}, [revenues]);
 
-    return revenues.reduce((sum, item) => {
-      if (!item?.date) return sum;
+function getEstimatedRate(activityType) {
+  switch (activityType) {
+    case "vente":
+      return 0.123;
+    case "services":
+      return 0.22;
+    case "mixte":
+      return 0.18;
+    default:
+      return 0.22;
+  }
+}
 
-      const d = new Date(`${item.date}T00:00:00`);
-      if (Number.isNaN(d.getTime())) return sum;
+const estimatedRate = useMemo(() => {
+  return getEstimatedRate(dashboardAnswers.activity_type);
+}, [dashboardAnswers.activity_type]);
 
-      if (d.getFullYear() === year && d.getMonth() === month) {
-        return sum + Number(item.amount || 0);
-      }
+const estimatedCharges = useMemo(() => {
+  return Math.round(currentMonthTotal * estimatedRate);
+}, [currentMonthTotal, estimatedRate]);
 
-      return sum;
-    }, 0);
-  }, [revenues]);
+const availableAmount = useMemo(() => {
+  return Math.max(0, currentMonthTotal - estimatedCharges);
+}, [currentMonthTotal, estimatedCharges]);
+
+
 
   const monthlyHistory = useMemo(() => {
     const map = {};
@@ -619,7 +761,8 @@ export default function App() {
         key: "charges",
         icon: "💰",
         label: "Charges estimées",
-        value: `${Math.round(currentMonthTotal * 0.22).toLocaleString("fr-FR")} €`,
+        value: `${estimatedCharges.toLocaleString("fr-FR")} €`,
+
         hint:
           revenues.length > 0
             ? "Montant estimatif à mettre de côté"
@@ -633,7 +776,8 @@ export default function App() {
         hint: computed?.tvaHint || "Le suivi TVA apparaîtra ici",
       },
     ];
-  }, [computed, currentMonthTotal, revenues.length]);
+  }, [computed, revenues.length, estimatedCharges]);
+
 
   const fiscalAlert = useMemo(() => {
     if (revenues.length === 0) {
@@ -725,59 +869,126 @@ export default function App() {
     }));
   }
 
-  function handleSaveRevenue() {
-    const amount = Number(String(revenueForm.amount).replace(",", "."));
+async function saveRevenueToSupabase(revenue) {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
 
-    if (!Number.isFinite(amount) || amount <= 0) {
-      alert("Merci d’indiquer un montant valide.");
-      return;
-    }
-
-    const entry = {
-      id: Date.now().toString(),
-      amount,
-      date: revenueForm.date || new Date().toISOString().slice(0, 10),
-      client: revenueForm.client.trim(),
-      invoice: revenueForm.invoice.trim(),
-      note: revenueForm.note.trim(),
-      createdAt: new Date().toISOString(),
-    };
-
-    setRevenues((prev) => [entry, ...prev]);
-
-    setSaveNotice(
-      `Revenu enregistré • charges estimées : ${Math.round(amount * 0.22).toLocaleString("fr-FR")} € • disponible estimé : ${Math.round(amount * 0.78).toLocaleString("fr-FR")} €`,
-    );
-
-    setShowAddRevenue(false);
-    resetRevenueForm();
-
-    setTimeout(() => {
-      setSaveNotice(null);
-    }, 2500);
-
-    setTimeout(() => {
-      fiscalRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    }, 200);
-  }
-  function handleDeleteRevenue(id) {
-    setRevenues((prev) => prev.filter((item) => item.id !== id));
+  if (userError || !user) {
+    console.error("User not authenticated:", userError?.message);
+    return null;
   }
 
-  function formatRevenueDate(dateStr) {
-    try {
-      return new Date(dateStr).toLocaleDateString("fr-FR", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      });
-    } catch {
-      return dateStr;
-    }
+  const payload = {
+    user_id: user.id,
+    amount: Number(revenue.amount),
+    revenue_date: revenue.date,
+    client: revenue.client || null,
+    invoice: revenue.invoice || null,
+    note: revenue.note || null,
+  };
+
+  const { data, error } = await supabase
+    .from("revenues")
+    .insert(payload)
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Revenue insert error:", error.message);
+    return null;
   }
+
+  console.log("Revenue saved ✅");
+  return data;
+}
+
+async function deleteRevenueFromSupabase(id) {
+  const { error } = await supabase.from("revenues").delete().eq("id", id);
+
+  if (error) {
+    console.error("Revenue delete error:", error.message);
+    return false;
+  }
+
+  return true;
+}
+
+
+async function handleSaveRevenue() {
+  const amount = Number(String(revenueForm.amount).replace(",", "."));
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    alert("Merci d’indiquer un montant valide.");
+    return;
+  }
+
+  const entry = {
+    amount,
+    date: revenueForm.date || new Date().toISOString().slice(0, 10),
+    client: revenueForm.client.trim(),
+    invoice: revenueForm.invoice.trim(),
+    note: revenueForm.note.trim(),
+  };
+
+  const savedEntry = await saveRevenueToSupabase(entry);
+
+  if (!savedEntry) {
+    alert("Impossible d’enregistrer ce revenu.");
+    return;
+  }
+
+
+  await refreshRevenues();
+  
+const charges = Math.round(amount * estimatedRate);
+const disponible = Math.max(0, amount - charges);
+
+
+setSaveNotice(
+  `Revenu enregistré • charges estimées : ${charges.toLocaleString("fr-FR")} € • disponible estimé : ${disponible.toLocaleString("fr-FR")} €`
+);
+
+
+  setShowAddRevenue(false);
+  resetRevenueForm();
+
+  setTimeout(() => {
+    setSaveNotice(null);
+  }, 2500);
+
+  setTimeout(() => {
+    fiscalRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, 200);
+}
+  async function handleDeleteRevenue(id) {
+  const ok = await deleteRevenueFromSupabase(id);
+
+  if (!ok) {
+    alert("Impossible de supprimer ce revenu.");
+    return;
+  }
+
+  await refreshRevenues();
+}
+
+function formatRevenueDate(dateStr) {
+  if (!dateStr) return "";
+
+  const d = new Date(`${dateStr}T00:00:00`);
+
+  if (Number.isNaN(d.getTime())) return "";
+
+  return d.toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
 
   function handleSend() {
     if (!canSend || isTyping) return;
@@ -880,38 +1091,38 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
-  function handleReset() {
-    localStorage.removeItem(LS_KEY);
-    localStorage.removeItem(REVENUES_KEY);
+function handleReset() {
+  localStorage.removeItem(LS_KEY);
 
-    setRevenues([]);
-    setStepIndex(0);
-    setAnswers({});
-    setInput("");
-    setUserName("");
-    setSimulatedCA(null);
-    setHelpOpen(false);
-    setIsTyping(false);
-    setFocusMode(false);
-    setHasDraft(false);
-    setLastSavedAt(null);
-    setRestoredAt(null);
+  setStepIndex(0);
+  setAnswers({});
+  setInput("");
+  setUserName("");
+  setSimulatedCA(null);
+  setHelpOpen(false);
+  setIsTyping(false);
+  setFocusMode(false);
+  setHasDraft(false);
+  setLastSavedAt(null);
+  setRestoredAt(null);
 
-    setMessages([
-      {
-        role: "bot",
-        text: "Bonjour 👋 On recommence. Réponds simplement.",
-      },
-      {
-        role: "bot",
-        text: `Étape 1 — ${STEPS[0].title}\n${STEPS[0].question}`,
-      },
-    ]);
+  setMessages([
+    {
+      role: "bot",
+      text: "Bonjour 👋 On recommence. Réponds simplement.",
+    },
+    {
+      role: "bot",
+      text: `Étape 1 — ${STEPS[0].title}\n${STEPS[0].question}`,
+    },
+  ]);
 
-    setTimeout(() => {
-      scrollToTopSection("assistant");
-    }, 120);
-  }
+  setTimeout(() => {
+    scrollToTopSection("assistant");
+  }, 120);
+}
+
+
 
   async function saveFiscalProfileToSupabase(profileAnswers) {
   const {
@@ -946,18 +1157,14 @@ export default function App() {
   }
 }
 
-  function handleNewSession() {
-    localStorage.removeItem(LS_KEY);
-    localStorage.removeItem(REVENUES_KEY);
+function handleNewSession() {
+  handleReset();
 
-    setRevenues([]);
+  setTimeout(() => {
+    scrollToTopSection("assistant");
+  }, 120);
+}
 
-    setHasDraft(false);
-    setLastSavedAt(null);
-    setRestoredAt(null);
-
-    handleReset();
-  }
   return (
      <AuthGate>
     <div className="page">
@@ -988,25 +1195,6 @@ export default function App() {
             <a href="#feedback">Contact</a>
           </nav>
 
-          <div className="topActions">
-            {hasDraft && (
-              <button
-                className="btn btnGhost btnSmall"
-                onClick={() => scrollToRef(assistantRef)}
-                type="button"
-              >
-                Reprendre
-              </button>
-            )}
-
-            <button
-              className="btn btnGhost btnSmall"
-              onClick={handleNewSession}
-              type="button"
-            >
-              Nouveau
-            </button>
-          </div>
         </div>
       </header>
 
@@ -1108,7 +1296,8 @@ Cela prend moins d'une minute.
                 </div>
 
                 <div className="heroTrust">
-                  <span>🔒 Sans compte</span>
+                  <span>🔒 Données sécurisées
+</span>
                   <span>🧠 Simple</span>
                   <span>⚡ Rapide</span>
                 </div>
@@ -1324,6 +1513,8 @@ Cela prend moins d'une minute.
               <div className="assistantTitleRow">
                 <h2>Créer mon profil fiscal</h2>
 
+                
+
                 {revenues.length > 0 && (
                   <button
                     className="btn btnGhost btnSmall"
@@ -1334,6 +1525,26 @@ Cela prend moins d'une minute.
                   </button>
                 )}
               </div>
+
+                        <div className="topActions">
+            {hasDraft && (
+              <button
+                className="btn btnGhost btnSmall"
+                onClick={() => scrollToRef(assistantRef)}
+                type="button"
+              >
+                Reprendre
+              </button>
+            )}
+
+            <button
+              className="btn btnGhost btnSmall"
+              onClick={handleNewSession}
+              type="button"
+            >
+              Recommencer
+            </button>
+          </div>
 
               <p className="muted assistantIntro">
                 Configure ton profil micro-entrepreneur en quelques questions
@@ -1383,7 +1594,7 @@ Cela prend moins d'une minute.
                       onClick={handleNewSession}
                       type="button"
                     >
-                      Nouveau
+                      Recommencer
                     </button>
                   </div>
                 </div>
@@ -1693,28 +1904,29 @@ Cela prend moins d'une minute.
 
           {saveNotice && <div className="saveNotice">✅ {saveNotice}</div>}
 
-          <div className="fiscalDashboard">
-            <div className="fiscalCard">
-              <div className="fiscalLabel">Total du mois</div>
-              <div className="fiscalValue">
-                {currentMonthTotal.toLocaleString("fr-FR")} €
-              </div>
-            </div>
+<div className="fiscalDashboard">
+  <div className="fiscalCard">
+    <div className="fiscalLabel">Total du mois</div>
+    <div className="fiscalValue">
+      {currentMonthTotal.toLocaleString("fr-FR")} €
+    </div>
+  </div>
 
-            <div className="fiscalCard">
-              <div className="fiscalLabel">Charges estimées</div>
-              <div className="fiscalValue">
-                {Math.round(currentMonthTotal * 0.22).toLocaleString("fr-FR")} €
-              </div>
-            </div>
+  <div className="fiscalCard">
+    <div className="fiscalLabel">Charges estimées</div>
+    <div className="fiscalValue">
+      {estimatedCharges.toLocaleString("fr-FR")} €
+    </div>
+  </div>
 
-            <div className="fiscalCard">
-              <div className="fiscalLabel">Disponible estimé</div>
-              <div className="fiscalValue">
-                {Math.round(currentMonthTotal * 0.78).toLocaleString("fr-FR")} €
-              </div>
-            </div>
-          </div>
+  <div className="fiscalCard">
+    <div className="fiscalLabel">Disponible estimé</div>
+    <div className="fiscalValue">
+      {availableAmount.toLocaleString("fr-FR")} €
+    </div>
+  </div>
+</div>
+
 
           <div className="fiscalTimeline">
             <h3>Prochaines étapes fiscales</h3>
@@ -1839,9 +2051,9 @@ Cela prend moins d'une minute.
             </div>
           )}
 
-          <div className="dataTrustLine">
-            🔒 Données locales uniquement — aucun compte requis pour tester.
-          </div>
+<div className="dataTrustLine">
+  🔒 Données enregistrées de façon sécurisée pour votre compte de test.
+</div>
 
         </section>
         )}
@@ -2019,14 +2231,14 @@ Cela prend moins d'une minute.
                 <div className="previewRow">
                   <span>Charges estimées</span>
                   <strong>
-                    {Math.round(revenueAmount * 0.22).toLocaleString("fr-FR")} €
+                    {estimatedCharges.toLocaleString("fr-FR")} €
                   </strong>
                 </div>
 
                 <div className="previewRow">
                   <span>Disponible estimé</span>
                   <strong>
-                    {Math.round(revenueAmount * 0.78).toLocaleString("fr-FR")} €
+                  {availableAmount.toLocaleString("fr-FR")} €
                   </strong>
                 </div>
               </div>
