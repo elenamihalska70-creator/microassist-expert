@@ -723,6 +723,10 @@
   cursor: pointer;
 }
 
+.iconBtn:hover {
+  opacity: 1;
+}
+
 .muted {
   opacity: 0.75;
   margin-top: 8px;
@@ -1807,5 +1811,95 @@ section {
   margin-top: 14px;
   color: #b91c1c;
   font-size: 14px;
+}
+
+.emptyRevenueState {
+  margin-top: 12px;
+  padding: 24px;
+  border: 1px dashed #d6d6dc;
+  border-radius: 16px;
+  background: #fafafc;
+  text-align: center;
+}
+
+.emptyRevenueIcon {
+  font-size: 28px;
+  margin-bottom: 10px;
+}
+
+.emptyRevenueTitle {
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.securityGrid {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.securityItem {
+  padding: 12px;
+  border-radius: 12px;
+  background: #f8f8fb;
+}
+
+.securityNoteBox {
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #fff4e5;
+  font-size: 14px;
+}
+
+.revenueChartCard {
+  margin-top: 20px;
+  padding: 18px;
+  border-radius: 16px;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.chartHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.revenueChart {
+  display: flex;
+  align-items: end;
+  gap: 14px;
+  min-height: 190px;
+}
+
+.chartCol {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.chartBar {
+  width: 100%;
+  max-width: 44px;
+  border-radius: 12px 12px 6px 6px;
+  background: linear-gradient(180deg, #8b5cf6 0%, #6d28d9 100%);
+  min-height: 12px;
+}
+
+.chartValue {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1f2937;
+  text-align: center;
+}
+
+.chartLabel {
+  font-size: 12px;
+  color: #6b7280;
+  text-transform: capitalize;
 }
 

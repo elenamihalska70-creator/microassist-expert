@@ -141,7 +141,7 @@ export default function App() {
   const [focusMode, setFocusMode] = useState(false);
   const [showAddRevenue, setShowAddRevenue] = useState(false);
   const [revenues, setRevenues] = useState([]);
-
+  const [resumeSaveAfterAuth, setResumeSaveAfterAuth] = useState(false);
   const [revenueForm, setRevenueForm] = useState({
     amount: "",
     date: new Date().toISOString().slice(0, 10),
@@ -160,6 +160,20 @@ export default function App() {
       return DEFAULT_VISIBLE_SECTIONS;
     }
   });
+
+  const [showChart, setShowChart] = useState(() => {
+  try {
+    const saved = localStorage.getItem("showChart");
+    return saved !== "false"; // по умолчанию показываем
+  } catch {
+    return true;
+  }
+});
+
+const hideChart = () => {
+  setShowChart(false);
+  localStorage.setItem("showChart", "false");
+};
 
   const [fiscalProfile, setFiscalProfile] = useState(null);
 
@@ -636,6 +650,17 @@ export default function App() {
     }
   }, [revenues.length]);
 
+useEffect(() => {
+  if (!user || !resumeSaveAfterAuth) return;
+
+  async function resumePendingSave() {
+    setResumeSaveAfterAuth(false);
+    await saveRevenueEntry();
+  }
+
+  resumePendingSave();
+}, [user, resumeSaveAfterAuth]);
+
   const dashboardAnswers = useMemo(() => {
     return {
       ...answers,
@@ -733,36 +758,46 @@ export default function App() {
   }, [currentMonthTotal]);
 
   const profileReady =
-    dashboardAnswers?.activity_type && dashboardAnswers?.declaration_frequency;
+  dashboardAnswers?.activity_type && dashboardAnswers?.declaration_frequency;
 
-  const monthlyHistory = useMemo(() => {
-    const map = {};
+const monthlyHistory = useMemo(() => {
+  const map = {};
 
-    revenues.forEach((item) => {
-      if (!item?.date) return;
+  revenues.forEach((item) => {
+    if (!item?.date) return;
 
-      const d = new Date(`${item.date}T00:00:00`);
-      if (Number.isNaN(d.getTime())) return;
+    const d = new Date(`${item.date}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return;
 
-      const key = `${d.getFullYear()}-${d.getMonth()}`;
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
 
-      if (!map[key]) {
-        map[key] = {
-          year: d.getFullYear(),
-          month: d.getMonth(),
-          total: 0,
-        };
-      }
+    if (!map[key]) {
+      map[key] = {
+        year: d.getFullYear(),
+        month: d.getMonth(),
+        total: 0,
+      };
+    }
 
-      map[key].total += Number(item.amount || 0);
-    });
+    map[key].total += Number(item.amount || 0);
+  });
 
-    return Object.values(map).sort((a, b) => {
-      const da = new Date(a.year, a.month, 1);
-      const db = new Date(b.year, b.month, 1);
-      return db - da;
-    });
-  }, [revenues]);
+  return Object.values(map).sort((a, b) => {
+    const da = new Date(a.year, a.month, 1);
+    const db = new Date(b.year, b.month, 1);
+    return db - da;
+  });
+}, [revenues]);
+
+const revenueChartData = useMemo(() => {
+  return monthlyHistory.slice().reverse().slice(-6);
+}, [monthlyHistory]);
+
+const maxRevenueValue = useMemo(() => {
+  if (revenueChartData.length === 0) return 1;
+  return Math.max(...revenueChartData.map((item) => item.total), 1);
+}, [revenueChartData]);
+
 
   const fiscalTimeline = useMemo(() => {
     return [
@@ -930,12 +965,7 @@ export default function App() {
     return true;
   }
 
-async function handleSaveRevenue() {
-  if (!user) {
-    setAuthOpen(true);
-    return;
-  }
-
+async function saveRevenueEntry() {
   const amount = Number(String(revenueForm.amount).replace(",", "."));
 
   if (!Number.isFinite(amount) || amount <= 0) {
@@ -981,6 +1011,17 @@ async function handleSaveRevenue() {
     });
   }, 200);
 }
+
+async function handleSaveRevenue() {
+  if (!user) {
+    setResumeSaveAfterAuth(true);
+    setAuthOpen(true);
+    return;
+  }
+
+  await saveRevenueEntry();
+}
+
   async function handleDeleteRevenue(id) {
     const ok = await deleteRevenueFromSupabase(id);
 
@@ -1214,286 +1255,274 @@ async function handleSaveRevenue() {
         </header>
 
         <main className={`container ${focusMode ? "focusMode" : ""}`}>
-          <section id="home" ref={heroRef} className="card hero heroSaaS">
-            <div className="heroGrid">
-              <div className="heroLeft">
-                <div className="heroBadge">
-                  🟣 MVP en test — version bêta gratuite
-                </div>
-                <h1>Assistant fiscal pour micro-entrepreneurs</h1>
+        <section id="home" ref={heroRef} className="card hero heroSaaS">
+  <div className="heroGrid">
+    <div className="heroLeft">
+      <div className="heroBadge">
+        🟣 MVP en test
+      </div>
 
-                <div className="heroLead">
-                  <p>Micro-entrepreneur ?</p>
-                  <p>Tu ne sais jamais combien déclarer ni quand ?</p>
-                  <p>
-                    En 1 minute, cet assistant te donne une réponse claire :
-                    <strong>
-                      {" "}
-                      quoi déclarer, quand, et combien garder de côté.
-                    </strong>
-                  </p>
-                </div>
+      <h1>Assistant fiscal pour micro-entrepreneurs</h1>
 
-                <ul className="heroBullets">
-                  <li>✅ Prochaine action concrète (URSSAF)</li>
-                  <li>✅ Montant estimé + date limite</li>
-                  <li>✅ Alertes : échéance proche / seuil TVA</li>
-                  <li>✅ Export : résumé + plan d’action</li>
-                </ul>
-                <p className="assistantIntro">
-                  Réponds simplement aux questions ci-dessous. Cela prend moins
-                  d'une minute.
-                </p>
+      <div className="heroLead">
+        <p>Tu ne sais pas quoi déclarer, quand, ni combien mettre de côté ?</p>
+        <p>Microassist te donne un repère clair en moins d’une minute.</p>
+      </div>
 
-                <div className="heroActions">
-                  <button
-                    className="btn btnPrimary"
-                    onClick={() => {
-                      track("click_tester_demo");
-                      setAppView("assistant");
-                      setFocusMode(true);
+      <ul className="heroBullets">
+        <li>✅ Prochaine échéance URSSAF</li>
+        <li>✅ Estimation des charges</li>
+        <li>✅ Alertes TVA</li>
+        <li>✅ Plan d’action simple</li>
+      </ul>
 
-                      setTimeout(() => {
-                        scrollToRef(assistantRef);
-                      }, 80);
-                    }}
-                    type="button"
-                  >
-                    Tester la démo
-                  </button>
+      <p className="assistantIntro">
+        Réponds à quelques questions pour obtenir une vision rapide et utile.
+      </p>
 
-                  <button
-                    className="btn btnGhost"
-                    onClick={openSecuritySection}
-                    type="button"
-                  >
-                    Sécurité & confidentialité
-                  </button>
+      <div className="heroActions">
+        <button
+          className="btn btnPrimary"
+          onClick={() => {
+            track("click_tester_demo");
+            setAppView("assistant");
+            setFocusMode(true);
 
-                  <button
-                    className="btn btnGhost"
-                    onClick={handleReset}
-                    type="button"
-                  >
-                    Réinitialiser
-                  </button>
-                </div>
+            setTimeout(() => {
+              scrollToRef(assistantRef);
+            }, 80);
+          }}
+          type="button"
+        >
+          Tester l’outil
+        </button>
 
-                <p className="heroFineprint">
-                  ⚠️ Estimation MVP : repères pratiques — ne remplace pas un
-                  expert-comptable.
-                </p>
-              </div>
+        <button
+          className="btn btnGhost"
+          onClick={openSecuritySection}
+          type="button"
+        >
+          Sécurité & confidentialité
+        </button>
 
-              <div className="heroRight">
-                <div className="heroPanel">
-                  <div className="heroPanelTitle">
-                    Aperçu (ce que tu vas obtenir)
-                  </div>
+        <button
+          className="btn btnGhost"
+          onClick={handleReset}
+          type="button"
+        >
+          Réinitialiser
+        </button>
+      </div>
+    </div>
 
-                  <div className="heroKpis">
-                    <div className="kpi">
-                      <div className="kpiLabel">Prochaine déclaration</div>
-                      <div className="kpiValue">Mensuelle / Trimestrielle</div>
-                    </div>
-                    <div className="kpi">
-                      <div className="kpiLabel">Date limite</div>
-                      <div className="kpiValue">Dans X jours</div>
-                    </div>
-                    <div className="kpi">
-                      <div className="kpiLabel">TVA</div>
-                      <div className="kpiValue">OK / Bientôt / Dépassé</div>
-                    </div>
-                    <div className="kpi">
-                      <div className="kpiLabel">Plan d’action</div>
-                      <div className="kpiValue">1–3 actions claires</div>
-                    </div>
-                  </div>
+    <div className="heroRight">
+      <div className="heroPanel">
+        <div className="heroPanelTitle">
+          Aperçu (ce que tu vas obtenir)
+        </div>
 
-                  <div className="heroTrust">
-                    <span>🔒 Données sécurisées</span>
-                    <span>🧠 Simple</span>
-                    <span>⚡ Rapide</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
+        <div className="heroKpis">
+          <div className="kpi">
+            <div className="kpiLabel">Prochaine déclaration</div>
+            <div className="kpiValue">Mensuelle / Trimestrielle</div>
+          </div>
 
-          {!focusMode && appView === "landing" && (
-            <div className="sectionTools">
-              <button
-                className="btn btnGhost btnSmall"
-                type="button"
-                onClick={showAllSections}
-              >
-                Afficher toutes les sections
-              </button>
-            </div>
-          )}
+          <div className="kpi">
+            <div className="kpiLabel">Date limite</div>
+            <div className="kpiValue">Dans X jours</div>
+          </div>
 
-          {!focusMode && appView === "landing" && visibleSections.services && (
-            <section className="card">
-              <div className="sectionHead">
-                <h2>À propos de Microassist</h2>
-                <button
-                  className="iconBtn"
-                  type="button"
-                  onClick={() => hideSection("about")}
-                  aria-label="Masquer cette section"
-                >
-                  ✕
-                </button>
-              </div>
+          <div className="kpi">
+            <div className="kpiLabel">TVA</div>
+            <div className="kpiValue">OK / Bientôt / Dépassé</div>
+          </div>
 
-              <p>
-                Microassist est un outil conçu pour aider les
-                micro-entrepreneurs à comprendre simplement leurs obligations
-                fiscales.
-              </p>
+          <div className="kpi">
+            <div className="kpiLabel">Plan d’action</div>
+            <div className="kpiValue">1–3 actions claires</div>
+          </div>
+        </div>
 
-              <p>
-                L’objectif est de réduire le temps et le stress liés aux
-                démarches administratives : déclarations, charges, TVA et
-                échéances.
-              </p>
+        <div className="heroTrust">
+          <span>🔒 Données sécurisées</span>
+          <span>🧠 Simple</span>
+          <span>⚡ Rapide</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
 
-              <p>
-                En quelques étapes, l’assistant donne une vision claire de ce
-                qu’il faut déclarer, quand le faire et combien mettre de côté.
-              </p>
+{!focusMode && (
+  <div className="sectionTools">
+    <button
+      className="btn btnGhost btnSmall"
+      type="button"
+      onClick={showAllSections}
+    >
+      Afficher toutes les sections
+    </button>
+  </div>
+)}
 
-              <p>
-                L’entrepreneur peut ainsi se concentrer sur l’essentiel :
-                développer son activité et ses clients.
-              </p>
-            </section>
-          )}
+{!focusMode && appView === "landing" && visibleSections.about && (
+  <section className="card">
+    <div className="sectionHead">
+      <h2>À propos de Microassist</h2>
+      <button
+        className="iconBtn"
+        type="button"
+        onClick={() => hideSection("about")}
+        aria-label="Masquer cette section"
+      >
+        ✕
+      </button>
+    </div>
 
-          {!focusMode &&
-            appView === "landing" &&
-            visibleSections.howItWorks && (
-              <section id="services" className="card">
-                <div className="sectionHead">
-                  <h2>Services</h2>
-                  <button
-                    className="iconBtn"
-                    type="button"
-                    onClick={() => hideSection("services")}
-                    aria-label="Masquer cette section"
-                  >
-                    ✕
-                  </button>
-                </div>
+    <p>
+      Microassist aide les micro-entrepreneurs à mieux comprendre leurs obligations
+      fiscales et à suivre leur activité plus sereinement.
+    </p>
 
-                <ul className="roadmaplist">
-                  <li>Idée → MVP : étapes simples</li>
-                  <li>Organisation : checklists & priorités</li>
-                  <li>Modèles : pitch, email, Notion</li>
-                </ul>
-              </section>
-            )}
+    <p>
+      L’objectif est simple : gagner du temps, réduire le stress administratif et
+      rendre les échéances plus lisibles.
+    </p>
 
-          {!focusMode && visibleSections.howItWorks && (
-            <section className="card">
-              <div className="sectionHead">
-                <h2>Comment ça marche</h2>
-                <button
-                  className="iconBtn"
-                  type="button"
-                  onClick={() => hideSection("howItWorks")}
-                  aria-label="Masquer cette section"
-                >
-                  ✕
-                </button>
-              </div>
+    <p>
+      En quelques étapes, l’outil fournit un repère clair sur les charges,
+      les obligations à venir et le suivi du chiffre d’affaires.
+    </p>
+  </section>
+)}
 
-              <div className="steps">
-                <div className="step">
-                  <strong>1. Réponds à quelques questions</strong>
-                  <p>
-                    L’assistant comprend ta situation de micro-entrepreneur.
-                  </p>
-                </div>
+{!focusMode && appView === "landing" && visibleSections.services && (
+  <section id="services" className="card">
+    <div className="sectionHead">
+      <h2>Services</h2>
+      <button
+        className="iconBtn"
+        type="button"
+        onClick={() => hideSection("services")}
+        aria-label="Masquer cette section"
+      >
+        ✕
+      </button>
+    </div>
 
-                <div className="step">
-                  <strong>2. Analyse automatique</strong>
-                  <p>Calcul simple des échéances et estimations.</p>
-                </div>
+    <ul className="roadmaplist">
+      <li>Estimation simple des charges</li>
+      <li>Suivi du chiffre d’affaires</li>
+      <li>Repères sur les échéances fiscales</li>
+      <li>Alertes TVA et points de vigilance</li>
+    </ul>
+  </section>
+)}
 
-                <div className="step">
-                  <strong>3. Tableau clair</strong>
-                  <p>
-                    Tu vois quoi déclarer, quand, et combien garder de côté.
-                  </p>
-                </div>
-              </div>
-            </section>
-          )}
+{!focusMode && visibleSections.howItWorks && (
+  <section className="card">
+    <div className="sectionHead">
+      <h2>Comment ça marche</h2>
+      <button
+        className="iconBtn"
+        type="button"
+        onClick={() => hideSection("howItWorks")}
+        aria-label="Masquer cette section"
+      >
+        ✕
+      </button>
+    </div>
 
-          {!focusMode && visibleSections.roadmap && (
-            <section id="prochainement" className="card">
-              <div className="sectionHead">
-                <h2>Pour qui & Prochainement</h2>
-                <button
-                  className="iconBtn"
-                  type="button"
-                  onClick={() => hideSection("roadmap")}
-                  aria-label="Masquer cette section"
-                >
-                  ✕
-                </button>
-              </div>
+    <div className="steps">
+      <div className="step">
+        <strong>1. Tu renseignes ton profil</strong>
+        <p>Activité, rythme de déclaration et chiffre d’affaires.</p>
+      </div>
 
-              <p className="muted">
-                Microassist est une démo en cours de test, conçue aujourd’hui
-                pour la micro-entreprise (URSSAF).
-              </p>
+      <div className="step">
+        <strong>2. L’assistant analyse</strong>
+        <p>Il estime les charges et identifie les prochaines étapes utiles.</p>
+      </div>
 
-              <h3 style={{ marginTop: 12 }}>✅ Pour qui ?</h3>
-              <ul className="targetList">
-                <li>Micro-entrepreneurs</li>
-                <li>Freelances</li>
-                <li>Créateurs d’activité</li>
-                <li>Indépendants qui veulent clarifier leurs obligations</li>
-              </ul>
+      <div className="step">
+        <strong>3. Tu suis ton espace fiscal</strong>
+        <p>Tu visualises tes revenus, tes alertes et tes repères clés.</p>
+      </div>
+    </div>
+  </section>
+)}
 
-              <h3 style={{ marginTop: 12 }}>
-                🚧 Prochainement (feuille de route)
-              </h3>
-              <ul className="roadmaplist">
-                <li>📌 Compte + historique des déclarations</li>
-                <li>📅 Rappels automatiques (email) avant l’échéance</li>
-                <li>📄 Export PDF du plan d’action</li>
-              </ul>
+{!focusMode && visibleSections.roadmap && (
+  <section id="prochainement" className="card">
+    <div className="sectionHead">
+      <h2>Pour qui & Prochainement</h2>
+      <button
+        className="iconBtn"
+        type="button"
+        onClick={() => hideSection("roadmap")}
+        aria-label="Masquer cette section"
+      >
+        ✕
+      </button>
+    </div>
 
-              <div
-                style={{
-                  marginTop: 12,
-                  paddingTop: 12,
-                  borderTop: "1px solid rgba(0,0,0,0.08)",
-                }}
-              >
-                <p>
-                  <strong>Tu n’es pas en micro-entreprise</strong> (SAS/SARL/EI)
-                  ? Une version dédiée est en préparation.
-                </p>
-                <p className="muted" style={{ marginTop: 6 }}>
-                  Laisse ton besoin → ça m’aide à prioriser les prochaines
-                  versions.
-                </p>
+    <p className="muted">
+      Microassist est un MVP en cours de test, conçu pour aider les
+      micro-entrepreneurs à mieux piloter leurs obligations fiscales.
+    </p>
 
-                <a
-                  className="btn btnPrimary"
-                  href="https://docs.google.com/forms/d/e/1FAIpQLSfFLqWZajP6Dy0Zm5-bS9cnE5-joWecfCgfyIhzGRMbsk-jqA/viewform"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Ouvrir le formulaire
-                </a>
-              </div>
-            </section>
-          )}
+    <h3 style={{ marginTop: 12 }}>✅ Pour qui ?</h3>
+    <ul className="targetList">
+      <li>Micro-entrepreneurs</li>
+      <li>Freelances</li>
+      <li>Créateurs d’activité</li>
+      <li>Indépendants qui veulent mieux anticiper</li>
+    </ul>
+
+    <h3 style={{ marginTop: 12 }}>🚧 Prochainement</h3>
+    <ul className="roadmaplist">
+      <li>📌 Historique enrichi</li>
+      <li>📅 Rappels automatiques</li>
+      <li>📄 Export amélioré du plan</li>
+    </ul>
+  </section>
+)}
+
+{!focusMode && visibleSections.roadmap && (
+  <section id="prochainement" className="card">
+    <div className="sectionHead">
+      <h2>Pour qui & Prochainement</h2>
+      <button
+        className="iconBtn"
+        type="button"
+        onClick={() => hideSection("roadmap")}
+        aria-label="Masquer cette section"
+      >
+        ✕
+      </button>
+    </div>
+
+    <p className="muted">
+      Microassist est un MVP en cours de test, conçu pour aider les
+      micro-entrepreneurs à mieux piloter leurs obligations fiscales.
+    </p>
+
+    <h3 style={{ marginTop: 12 }}>✅ Pour qui ?</h3>
+    <ul className="targetList">
+      <li>Micro-entrepreneurs</li>
+      <li>Freelances</li>
+      <li>Créateurs d’activité</li>
+      <li>Indépendants qui veulent mieux anticiper</li>
+    </ul>
+
+    <h3 style={{ marginTop: 12 }}>🚧 Prochainement</h3>
+    <ul className="roadmaplist">
+      <li>📌 Historique enrichi</li>
+      <li>📅 Rappels automatiques</li>
+      <li>📄 Export amélioré du plan</li>
+    </ul>
+  </section>
+)}
 
           {focusMode && (
             <div className="focusBar">
@@ -1911,6 +1940,19 @@ async function handleSaveRevenue() {
             <section ref={fiscalRef} className="card">
               <div className="sectionHead">
                 <h2>Mon espace fiscal</h2>
+                {!showChart && (
+  <div style={{ marginTop: 10 }}>
+    <button
+      className="btn btnGhost btnSmall"
+      onClick={() => {
+        setShowChart(true);
+        localStorage.setItem("showChart", "true");
+      }}
+    >
+      Afficher le graphique
+    </button>
+  </div>
+)}
 
                 <div className="sectionHeadActions">
                   <button
@@ -2008,9 +2050,22 @@ async function handleSaveRevenue() {
               </div>
 
               {revenues.length === 0 ? (
-                <p className="muted" style={{ marginTop: 10 }}>
-                  Aucun revenu enregistré pour le moment.
-                </p>
+              <div className="emptyRevenueState">
+  <div className="emptyRevenueIcon">🧾</div>
+  <div className="emptyRevenueTitle">Aucun revenu enregistré</div>
+  <p className="muted">
+    Ajoute ton premier revenu pour suivre ton chiffre d’affaires,
+    tes charges estimées et ton historique mensuel.
+  </p>
+
+  <button
+    className="btn btnPrimary btnSmall"
+    type="button"
+    onClick={handleOpenRevenuePopup}
+  >
+    + Ajouter mon premier revenu
+  </button>
+</div>
               ) : (
                 <div className="revenuesList">
                   {revenues.map((item) => (
@@ -2061,6 +2116,51 @@ async function handleSaveRevenue() {
 
               {monthlyHistory.length > 0 && (
                 <div className="monthlyHistory">
+
+                  {showChart && revenueChartData.length > 0 && (
+  <div className="revenueChartCard">
+<div className="chartHeader">
+  <div>
+    <h3>Évolution du chiffre d’affaires</h3>
+    <span className="muted">6 derniers mois</span>
+  </div>
+
+  <button
+    className="iconBtn"
+    onClick={hideChart}
+    aria-label="Masquer le graphique"
+  >
+    ✕
+  </button>
+</div>
+
+    <div className="revenueChart">
+      {revenueChartData.map((item) => {
+        const date = new Date(item.year, item.month);
+        const label = date.toLocaleDateString("fr-FR", {
+          month: "short",
+        });
+
+        const height = Math.max(12, (item.total / maxRevenueValue) * 140);
+
+        return (
+          <div key={`${item.year}-${item.month}`} className="chartCol">
+            <div
+              className="chartBar"
+              style={{ height: `${height}px` }}
+              title={`${item.total.toLocaleString("fr-FR")} €`}
+            />
+            <div className="chartValue">
+              {item.total.toLocaleString("fr-FR")} €
+            </div>
+            <div className="chartLabel">{label}</div>
+          </div>
+        );
+      })}
+    </div>
+  </div>
+)}
+
                   <h3>Historique mensuel</h3>
 
                   <div className="historyList">
@@ -2090,43 +2190,63 @@ return (
               )}
 
               <div className="dataTrustLine">
-                🔒 Données enregistrées de façon sécurisée pour votre compte de
-                test.
+              🔒 Données enregistrées de façon sécurisée dans votre espace personnel.
               </div>
             </section>
           )}
 
-          {visibleSections.security && (
-            <section id="security" ref={securityRef} className="card security">
-              <div className="sectionHead">
-                <h2>🔒 Sécurité & confidentialité (démo)</h2>
+        {!focusMode && visibleSections.security && (
+  <section className="card">
+    <div className="sectionHead">
+      <h2>🔒 Sécurité & confidentialité</h2>
+      <button
+        className="iconBtn"
+        type="button"
+        onClick={() => hideSection("security")}
+        aria-label="Masquer cette section"
+      >
+        ✕
+      </button>
+    </div>
 
-                <button
-                  className="iconBtn"
-                  type="button"
-                  onClick={() => hideSection("security")}
-                  aria-label="Masquer cette section"
-                >
-                  ✕
-                </button>
-              </div>
+    <div className="securityGrid">
+  <div className="securityItem">
+    <strong>🔐 Accès sécurisé</strong>
+    <p className="muted">
+      Connexion par lien magique envoyé par email.
+    </p>
+  </div>
 
-              <ul className="securityList">
-                <li>✔ Aucun téléchargement ni installation</li>
-                <li>✔ Aucune création de compte</li>
-                <li>✔ Aucune donnée bancaire demandée</li>
-                <li>
-                  ✔ Les données restent dans votre navigateur (localStorage)
-                </li>
-                <li>✔ Aucun accès à votre compte URSSAF ou impôts</li>
-              </ul>
+  <div className="securityItem">
+    <strong>🛡️ Données protégées</strong>
+    <p className="muted">
+      Les informations sont enregistrées dans un espace personnel sécurisé.
+    </p>
+  </div>
 
-              <p className="securityNote">
-                Cet assistant fonctionne 100% côté navigateur. Aucune donnée
-                n’est envoyée vers un serveur.
-              </p>
-            </section>
-          )}
+  <div className="securityItem">
+    <strong>💳 Aucune donnée bancaire</strong>
+    <p className="muted">
+      Aucune carte bancaire ni IBAN ne sont demandés.
+    </p>
+  </div>
+
+  <div className="securityItem">
+    <strong>🚫 Pas d’accès direct aux services administratifs</strong>
+    <p className="muted">
+      Microassist ne se connecte pas automatiquement à l’URSSAF ni aux impôts.
+    </p>
+  </div>
+</div>
+
+<div className="securityNoteBox">
+  <p>
+    Microassist fournit des repères pratiques et un espace de suivi. Il ne
+    remplace pas un expert-comptable.
+  </p>
+</div>
+  </section>
+)}
 
           {visibleSections.feedback && (
             <section

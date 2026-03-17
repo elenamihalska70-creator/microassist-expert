@@ -1,150 +1,107 @@
-import { useEffect, useRef, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { useEffect, useState } from "react";
+import { supabase } from "../lib/supabase.js";
 
-export default function AuthGate({ children }) {
-  const [session, setSession] = useState(null);
+export default function AuthGate({ onClose, onSuccess }) {
   const [email, setEmail] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState("");
-  const profileSyncRef = useRef(false);
-
-  async function ensureProfile(user) {
-    if (!user) return;
-    if (profileSyncRef.current) return;
-
-    profileSyncRef.current = true;
-
-    const { error } = await supabase.from("profiles").upsert(
-      {
-        id: user.id,
-        email: user.email,
-        full_name: user.user_metadata?.full_name ?? "",
-      },
-      { onConflict: "id" }
-    );
-
-    if (error) {
-      console.error("Profile upsert error:", error.message);
-    }
-
-    profileSyncRef.current = false;
-  }
+  const [sending, setSending] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    let mounted = true;
-
-    async function initAuth() {
-      const { data, error } = await supabase.auth.getSession();
-
-      if (error) {
-        console.error("Get session error:", error.message);
-      }
-
-      const currentSession = data?.session ?? null;
-
-      if (!mounted) return;
-
-      setSession(currentSession);
-
-      if (currentSession?.user) {
-        await ensureProfile(currentSession.user);
-      }
-
-      if (mounted) {
-        setLoading(false);
-      }
-    }
-
-    initAuth();
-
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, newSession) => {
-      setSession(newSession ?? null);
-
-      if (event === "SIGNED_IN" && newSession?.user) {
-        ensureProfile(newSession.user);
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_IN" && session) {
+        onSuccess?.();
       }
-
-      setLoading(false);
     });
 
     return () => {
-      mounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [onSuccess]);
 
-  async function handleMagicLink(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
-    setMessage("");
+    setError("");
+    setNotice("");
+
+    const cleanEmail = email.trim();
+
+    if (!cleanEmail) {
+      setError("Merci d’indiquer votre email.");
+      return;
+    }
+
+    setSending(true);
 
     const { error } = await supabase.auth.signInWithOtp({
-      email,
+      email: cleanEmail,
       options: {
         emailRedirectTo: window.location.origin,
       },
     });
 
+    setSending(false);
+
     if (error) {
-      setMessage(error.message);
+      setError(error.message || "Impossible d’envoyer le lien.");
       return;
     }
 
-    setMessage("Lien de connexion envoyé par email.");
-  }
-
-  async function handleLogout() {
-    await supabase.auth.signOut();
-  }
-
-  if (loading) return <p>Chargement…</p>;
-
-  if (!session) {
-    return (
-      <div className="card" style={{ maxWidth: 480, margin: "24px auto" }}>
-        <h2>Créer un compte</h2>
-        <p className="muted">
-          Sauvegarde ton profil fiscal et ton historique.
-        </p>
-
-        <form onSubmit={handleMagicLink}>
-          <input
-            type="email"
-            placeholder="Ton email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            style={{ width: "100%", marginBottom: 12 }}
-            required
-          />
-          <button className="btn btnPrimary" type="submit">
-            Recevoir un lien de connexion
-          </button>
-        </form>
-
-        {message && <p style={{ marginTop: 12 }}>{message}</p>}
-      </div>
-    );
+    setNotice("Lien envoyé. Vérifie ta boîte mail.");
   }
 
   return (
-    <>
+    <div className="authOverlay" onClick={onClose}>
       <div
-        style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          marginBottom: 12,
-        }}
+        className="authModal"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="auth-title"
       >
         <button
-          className="btn btnGhost btnSmall"
-          onClick={handleLogout}
           type="button"
+          className="authClose"
+          onClick={onClose}
+          aria-label="Fermer"
         >
-          Se déconnecter
+          ✕
         </button>
+
+        <h2 id="auth-title">Créer un compte</h2>
+
+        <p className="muted">
+          Crée un compte gratuit pour sauvegarder ton profil fiscal et ton
+          historique.
+        </p>
+
+        <form onSubmit={handleSubmit} className="authForm">
+          <label className="field">
+            <span>Email</span>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="ton@email.com"
+              autoComplete="email"
+              required
+            />
+          </label>
+
+          <button
+            type="submit"
+            className="btn btnPrimary"
+            disabled={sending}
+          >
+            {sending ? "Envoi..." : "Recevoir un lien de connexion"}
+          </button>
+        </form>
+
+        {notice && <p className="authNotice">{notice}</p>}
+        {error && <p className="authError">{error}</p>}
       </div>
-      {children}
-    </>
+    </div>
   );
 }
