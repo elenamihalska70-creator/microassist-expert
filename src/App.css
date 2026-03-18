@@ -1903,3 +1903,112 @@ section {
   text-transform: capitalize;
 }
 
+
+.primaryActionBox {
+  margin: 16px 0 20px;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.primaryActionBox.highlight {
+  background: #f6f3ff;
+  padding: 12px;
+  border-radius: 10px;
+}
+
+.smartTips {
+  margin: 18px 0 22px;
+}
+
+.smartTips h3 {
+  margin-bottom: 10px;
+}
+
+.smartTipsList {
+  display: grid;
+  gap: 10px;
+}
+
+.smartTipCard {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: #fff;
+}
+
+.smartTipTitle {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.smartTipText {
+  font-size: 14px;
+  color: #555;
+}
+
+.tipOk {
+  background: #f4fbf6;
+  border-color: rgba(44, 131, 73, 0.18);
+}
+
+.tipWarning {
+  background: #fffaf1;
+  border-color: rgba(214, 146, 31, 0.22);
+}
+
+.tipDanger {
+  background: #fff5f5;
+  border-color: rgba(214, 69, 69, 0.22);
+}
+
+.smartTips {
+  margin: 18px 0 22px;
+}
+
+.smartTips h3 {
+  margin-bottom: 10px;
+}
+
+.smartTipsList {
+  display: grid;
+  gap: 10px;
+}
+
+.smartTipCard {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: #fff;
+}
+
+.smartTipTitle {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.smartTipText {
+  font-size: 14px;
+  color: #555;
+}
+
+.smartTipActions {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.tipOk {
+  background: #f4fbf6;
+  border-color: rgba(44, 131, 73, 0.18);
+}
+
+.tipWarning {
+  background: #fffaf1;
+  border-color: rgba(214, 146, 31, 0.22);
+}
+
+.tipDanger {
+  background: #fff5f5;
+  border-color: rgba(214, 69, 69, 0.22);
+}
+
