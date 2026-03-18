@@ -802,6 +802,25 @@ const maxRevenueValue = useMemo(() => {
   return Math.max(...revenueChartData.map((item) => item.total), 1);
 }, [revenueChartData]);
 
+const revenueStats = useMemo(() => {
+  const count = revenues.length;
+
+  const lastRevenue = count > 0 ? Number(revenues[0]?.amount || 0) : 0;
+
+  const monthlyAverage =
+    monthlyHistory.length > 0
+      ? Math.round(
+          monthlyHistory.reduce((sum, item) => sum + item.total, 0) /
+            monthlyHistory.length,
+        )
+      : 0;
+
+  return {
+    count,
+    lastRevenue,
+    monthlyAverage,
+  };
+}, [revenues, monthlyHistory]);
 
 const fiscalTimeline = useMemo(() => {
   return [
@@ -955,6 +974,45 @@ const smartTips = useMemo(() => {
 
   return tips.slice(0, 3);
 }, [currentMonthTotal, estimatedCharges, computed, revenues.length]);
+
+const mainAction = useMemo(() => {
+  if (revenues.length === 0) {
+    return {
+      title: "Commence ton suivi",
+      text: "Ajoute ton premier revenu pour démarrer.",
+      cta: "Ajouter un revenu",
+      action: "add",
+      level: "neutral",
+    };
+  }
+
+  if (computed?.urgency === "late") {
+    return {
+      title: "Déclaration urgente",
+      text: "Ta déclaration semble en retard.",
+      cta: "Voir mes échéances",
+      action: "deadline",
+      level: "danger",
+    };
+  }
+
+  if (computed?.urgency === "soon") {
+    return {
+      title: "À faire bientôt",
+      text: "Une déclaration approche.",
+      cta: "Voir mes échéances",
+      action: "deadline",
+      level: "warning",
+    };
+  }
+
+  return {
+    title: "Situation stable",
+    text: "Rien d’urgent pour le moment.",
+    cta: null,
+    level: "ok",
+  };
+}, [revenues.length, computed]);
 
 const primaryAction = useMemo(() => {
   if (revenues.length === 0) {
@@ -2159,6 +2217,27 @@ async function handleSaveRevenue() {
       </div>
     </div>
 
+<div className="miniStatsGrid">
+  <div className="miniStatCard">
+    <div className="miniStatLabel">Moyenne mensuelle</div>
+    <div className="miniStatValue">
+      {revenueStats.monthlyAverage.toLocaleString("fr-FR")} €
+    </div>
+  </div>
+
+  <div className="miniStatCard">
+    <div className="miniStatLabel">Dernier revenu</div>
+    <div className="miniStatValue">
+      {revenueStats.lastRevenue.toLocaleString("fr-FR")} €
+    </div>
+  </div>
+
+  <div className="miniStatCard">
+    <div className="miniStatLabel">Entrées</div>
+    <div className="miniStatValue">{revenueStats.count}</div>
+  </div>
+</div>
+
     <div className="fiscalTimeline">
       <h3>Repères fiscaux</h3>
 
@@ -2177,6 +2256,28 @@ async function handleSaveRevenue() {
       </div>
     </div>
 
+<div
+  className={[
+    "mainActionBox",
+    mainAction.level === "danger" ? "danger" : "",
+    mainAction.level === "warning" ? "warning" : "",
+    mainAction.level === "ok" ? "ok" : "",
+  ]
+    .join(" ")
+    .trim()}
+>
+  <div className="mainActionTitle">{mainAction.title}</div>
+  <div className="mainActionText">{mainAction.text}</div>
+
+  {mainAction.cta && (
+    <button
+      className="btn btnPrimary"
+      onClick={() => handleTipAction(mainAction.action)}
+    >
+      {mainAction.cta}
+    </button>
+  )}
+</div>
     <div
       className={[
         "fiscalAlert",

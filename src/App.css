@@ -2012,3 +2012,65 @@ section {
   border-color: rgba(214, 69, 69, 0.22);
 }
 
+.mainActionBox {
+  border-radius: 14px;
+  padding: 16px;
+  margin: 14px 0 18px;
+  background: #f8f9fb;
+  border: 1px solid rgba(0,0,0,0.06);
+}
+
+.mainActionTitle {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.mainActionText {
+  font-size: 14px;
+  color: #555;
+  margin-bottom: 10px;
+}
+
+.mainActionBox.ok {
+  background: #f4fbf6;
+}
+
+.mainActionBox.warning {
+  background: #fffaf1;
+}
+
+.mainActionBox.danger {
+  background: #fff5f5;
+}
+
+.miniStatsGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 14px 0 18px;
+}
+
+.miniStatCard {
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.miniStatLabel {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 6px;
+}
+
+.miniStatValue {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+@media (max-width: 768px) {
+  .miniStatsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
