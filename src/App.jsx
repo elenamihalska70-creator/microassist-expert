@@ -1,16 +1,17 @@
 import { supabase } from "./lib/supabase.js";
 import AuthGate from "./components/AuthGate.jsx";
-import { useState, useEffect, useMemo, useRef, useLayoutEffect } from "react";
+import { useState, useEffect, useMemo, useRef, useLayoutEffect, useCallback } from "react"; // ✅ Добавляем useCallback
 import "./App.css";
 import { FISCAL_STEPS } from "./config/steps.fiscal";
 import { computeObligations } from "./utils/obligations.js";
 import { showConsoleSignature } from "./consoleSignature.js";
 import { useAuth } from "./context/AuthContext.jsx";
 
+// Добавьте после других констант:
 const LS_KEY = "microassist_v1";
 const LS_VERSION = 1;
 const UI_KEY = "microassist_ui_sections";
-
+const CHART_KEY = "microassist_show_chart";
 const DEFAULT_VISIBLE_SECTIONS = {
   about: true,
   services: true,
@@ -20,6 +21,7 @@ const DEFAULT_VISIBLE_SECTIONS = {
   feedback: true,
 };
 
+// ... константы ...
 function labelFromOptions(stepKey, value) {
   const configStep = FISCAL_STEPS.find((s) => s.key === stepKey);
   const opt = configStep?.options?.find((o) => o.value === value);
@@ -27,13 +29,15 @@ function labelFromOptions(stepKey, value) {
 }
 
 function track(eventName, params = {}) {
-  if (window.gtag) window.gtag("event", eventName, params);
+  if (window.gtag) {
+    window.gtag("event", eventName, params);
+  }
 }
 
 function buildFiscalSummary(answers = {}, computed = {}) {
   const lines = [];
 
-  lines.push("✅ Résumé fiscal (MVP)");
+  lines.push("✅ Résumé fiscal");
   lines.push(
     `• Situation : ${labelFromOptions("entry_status", answers.entry_status)}`,
   );
@@ -62,59 +66,43 @@ function buildFiscalSummary(answers = {}, computed = {}) {
   }
 
   lines.push("");
-  lines.push("⚠️ Note : estimation MVP — ne remplace pas un expert-comptable.");
+  lines.push("⚠️ Indication simplifiée. Ne remplace pas un expert-comptable.");
 
   return lines.join("\n");
 }
 
-function buildFiscalChecklist(answers, computed) {
+function buildFiscalChecklist( computed = {}) {
   const items = [];
 
-  items.push("🧭 Plan d’action (simple)");
+  items.push("🧭 Plan d’action");
 
   if (typeof computed?.treasuryRecommended === "number") {
     items.push(
-      `0) 💰 À garder de côté : ${computed.treasuryRecommended.toLocaleString("fr-FR")} € minimum.`,
+      `• À garder de côté : ${computed.treasuryRecommended.toLocaleString("fr-FR")} € minimum.`,
     );
   }
 
   if (computed?.urgency === "late") {
-    items.push(
-      "1) Déclarer sur autoentrepreneur.urssaf.fr dès que possible (retard).",
-    );
+    items.push("• Déclarer dès que possible sur autoentrepreneur.urssaf.fr.");
   } else if (computed?.urgency === "soon") {
-    items.push(
-      "1) Bloquer 10 minutes cette semaine pour déclarer sur autoentrepreneur.urssaf.fr.",
-    );
+    items.push("• Prévoir un moment pour déclarer prochainement.");
   } else {
-    items.push(
-      "1) Garder ton CA à jour, puis déclarer à l’approche de l’échéance.",
-    );
+    items.push("• Continuer à enregistrer le chiffre d’affaires régulièrement.");
   }
 
   if (computed?.tvaStatus === "exceeded") {
-    items.push(
-      "2) TVA : vérifier ton régime (seuil dépassé) et anticiper facturation/déclaration.",
-    );
+    items.push("• Vérifier le régime TVA et anticiper la facturation.");
   } else if (computed?.tvaStatus === "soon") {
-    items.push(
-      "2) TVA : surveiller ton CA (seuil proche) et préparer les mentions/paramétrages.",
-    );
+    items.push("• Surveiller le seuil TVA.");
   } else {
-    items.push("2) TVA : OK (franchise). Continuer à suivre ton CA.");
+    items.push("• TVA : franchise en base a priori OK.");
   }
-
-  items.push(
-    `3) Rappels : ${
-      answers?.reminders_enabled ? "activés ✅" : "désactivés ⏸"
-    } (recommandé : 48h avant).`,
-  );
 
   if (computed?.recommendations?.length) {
     items.push("");
     items.push("✅ Recommandations");
-    computed.recommendations.forEach((r, idx) => {
-      items.push(`${idx + 1}) ${r.title} — ${r.text}`);
+    computed.recommendations.forEach((r) => {
+      items.push(`• ${r.title} — ${r.text}`);
     });
   }
 
@@ -122,6 +110,7 @@ function buildFiscalChecklist(answers, computed) {
 }
 
 export default function App() {
+  // Основные состояния
   const [stepIndex, setStepIndex] = useState(0);
   const [assistantCollapsed, setAssistantCollapsed] = useState(false);
   const [answers, setAnswers] = useState({});
@@ -131,17 +120,20 @@ export default function App() {
   const [hasDraft, setHasDraft] = useState(false);
   const [restoredAt, setRestoredAt] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
-  const [helpOpen, setHelpOpen] = useState(false);
+  
+  // UI состояния
+  const [helpOpen, setHelpOpen] = useState(false);        // ✅ ДОБАВИТЬ
   const [authOpen, setAuthOpen] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);      // ✅ ДОБАВИТЬ
   const { user } = useAuth();
   const [appView, setAppView] = useState("landing");
   const [userName, setUserName] = useState("");
-  const [simulatedCA, setSimulatedCA] = useState(null);
   const [hydrated, setHydrated] = useState(false);
-  const [focusMode, setFocusMode] = useState(false);
+  
+  // Состояния для доходов
   const [showAddRevenue, setShowAddRevenue] = useState(false);
   const [revenues, setRevenues] = useState([]);
-  const [resumeSaveAfterAuth, setResumeSaveAfterAuth] = useState(false);
+  const [resumeSaveAfterAuth, setResumeSaveAfterAuth] = useState(false); // ✅ ДОБАВИТЬ
   const [revenueForm, setRevenueForm] = useState({
     amount: "",
     date: new Date().toISOString().slice(0, 10),
@@ -149,7 +141,9 @@ export default function App() {
     invoice: "",
     note: "",
   });
-  const [showRevenueDetails, setShowRevenueDetails] = useState(false);
+  const [showRevenueDetails, setShowRevenueDetails] = useState(false); // ✅ ДОБАВИТЬ
+  
+  // Состояния для отображения
   const [visibleSections, setVisibleSections] = useState(() => {
     try {
       const raw = localStorage.getItem(UI_KEY);
@@ -162,54 +156,112 @@ export default function App() {
   });
 
   const [showChart, setShowChart] = useState(() => {
-  try {
-    const saved = localStorage.getItem("showChart");
-    return saved !== "false"; // по умолчанию показываем
-  } catch {
-    return true;
-  }
-});
+    try {
+      const saved = localStorage.getItem(CHART_KEY);
+      return saved !== "false";
+    } catch {
+      return true;
+    }
+  });
 
-const hideChart = () => {
+  const hideChart = () => {
   setShowChart(false);
-  localStorage.setItem("showChart", "false");
+  localStorage.setItem(CHART_KEY, "false");
 };
 
+  const [selectedMonth, setSelectedMonth] = useState("all");
   const [fiscalProfile, setFiscalProfile] = useState(null);
 
-  async function refreshFiscalProfile() {
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+  const refreshRevenues = useCallback(async () => {
+    if (!user) {
+      setRevenues([]);
+      return;
+    }
 
-    if (userError || !user) {
+    try {
+      const { data, error } = await supabase
+        .from("revenues")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("revenue_date", { ascending: false });
+
+      if (error) {
+        console.error("Load revenues error:", error.message);
+        setRevenues([]);
+        return;
+      }
+
+      const normalized = (data || []).map((item) => ({
+        id: item.id,
+        amount: Number(item.amount || 0),
+        date: item.revenue_date,
+        client: item.client || "",
+        invoice: item.invoice || "",
+        note: item.note || "",
+        createdAt: item.created_at || null,
+      }));
+
+      setRevenues(normalized);
+    } catch (error) {
+      console.error("Unexpected error in refreshRevenues:", error);
+      setRevenues([]);
+    }
+  }, [user]);
+
+  // useCallback для refreshFiscalProfile
+  const refreshFiscalProfile = useCallback(async () => {
+    if (!user) {
       setFiscalProfile(null);
       return;
     }
 
-    const { data, error } = await supabase
-      .from("fiscal_profiles")
-      .select("*")
-      .eq("user_id", user.id)
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from("fiscal_profiles")
+        .select("*")
+        .eq("user_id", user.id)
+        .single();
 
-    if (error) {
-      console.error("Load fiscal profile error:", error.message);
+      if (error) {
+        if (error.code === 'PGRST116') {
+          setFiscalProfile(null);
+          return;
+        }
+        console.error("Load fiscal profile error:", error.message);
+        setFiscalProfile(null);
+        return;
+      }
+
+      setFiscalProfile(data);
+    } catch (error) {
+      console.error("Unexpected error in refreshFiscalProfile:", error);
+      setFiscalProfile(null);
+    }
+  }, [user]);
+
+  // Эффекты с правильными зависимостями
+  useEffect(() => {
+    if (!user) {
       setFiscalProfile(null);
       return;
     }
-
-    setFiscalProfile(data);
-  }
+    refreshFiscalProfile();
+  }, [user, refreshFiscalProfile]);
 
   useEffect(() => {
-    refreshFiscalProfile();
-  }, []);
+    if (!user) {
+      setRevenues([]);
+      return;
+    }
+    refreshRevenues();
+  }, [user, refreshRevenues]);
+
+
+
 
 const viewLabel =
   appView === "landing"
-    ? "Simulateur"
+    ? "Assistant fiscal"
     : appView === "assistant"
       ? "Profil fiscal"
       : "Espace fiscal";
@@ -228,40 +280,7 @@ const [messages, setMessages] = useState([
 ]);
 
 const step = steps[stepIndex];
-  async function refreshRevenues() {
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
 
-    if (userError || !user) {
-      setRevenues([]);
-      return;
-    }
-
-    const { data, error } = await supabase
-      .from("revenues")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("revenue_date", { ascending: false });
-
-    if (error) {
-      console.error("Load revenues error:", error.message);
-      return;
-    }
-
-    const normalized = (data || []).map((item) => ({
-      id: item.id,
-      amount: Number(item.amount || 0),
-      date: item.revenue_date,
-      client: item.client || "",
-      invoice: item.invoice || "",
-      note: item.note || "",
-      createdAt: item.created_at || null,
-    }));
-
-    setRevenues(normalized);
-  }
 
   const inputRef = useRef(null);
   const chatEndRef = useRef(null);
@@ -299,21 +318,18 @@ const step = steps[stepIndex];
     showConsoleSignature();
   }, []);
 
-  useEffect(() => {
-    refreshRevenues();
-  }, []);
 
-  useEffect(() => {
-    let channel;
+// ОПТИМИЗИРОВАННЫЙ Эффект для Realtime подписки на доходы
+useEffect(() => {
+  // Если нет пользователя - не подписываемся
+  if (!user) return;
+  
+  let channel;
+  let isSubscribed = true;
 
-    async function setupRealtime() {
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
-
-      if (userError || !user) return;
-
+  const setupRealtime = async () => {
+    try {
+      // Используем user из хука, не делаем лишний запрос
       channel = supabase
         .channel(`revenues-${user.id}`)
         .on(
@@ -324,33 +340,47 @@ const step = steps[stepIndex];
             table: "revenues",
             filter: `user_id=eq.${user.id}`,
           },
-          async () => {
-            await refreshRevenues();
+          async (payload) => {
+            console.log("Revenue change detected:", payload);
+            if (isSubscribed) {
+              await refreshRevenues();
+            }
           },
         )
-        .subscribe();
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            console.log('Realtime subscription active for revenues');
+          } else if (status === 'CHANNEL_ERROR') {
+            console.error('Realtime subscription error');
+          }
+        });
+    } catch (error) {
+      console.error("Error setting up realtime:", error);
     }
+  };
 
-    setupRealtime();
+  setupRealtime();
 
-    return () => {
-      if (channel) {
-        supabase.removeChannel(channel);
-      }
-    };
-  }, []);
+  // Очистка при размонтировании или смене пользователя
+  return () => {
+    isSubscribed = false;
+    if (channel) {
+      supabase.removeChannel(channel);
+    }
+  };
+}, [user]); // ДОБАВЛЯЕМ user в зависимости!
 
-  useEffect(() => {
-    let channel;
+// ОПТИМИЗИРОВАННЫЙ Эффект для Realtime подписки на профиль
+useEffect(() => {
+  // Если нет пользователя - не подписываемся
+  if (!user) return;
+  
+  let channel;
+  let isSubscribed = true;
 
-    async function setupFiscalProfileRealtime() {
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
-
-      if (userError || !user) return;
-
+  const setupFiscalProfileRealtime = async () => {
+    try {
+      // Используем user из хука
       channel = supabase
         .channel(`fiscal-profile-${user.id}`)
         .on(
@@ -361,57 +391,35 @@ const step = steps[stepIndex];
             table: "fiscal_profiles",
             filter: `user_id=eq.${user.id}`,
           },
-          async () => {
-            await refreshFiscalProfile();
+          async (payload) => {
+            console.log("Fiscal profile change detected:", payload);
+            if (isSubscribed) {
+              await refreshFiscalProfile();
+            }
           },
         )
-        .subscribe();
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            console.log('Realtime subscription active for fiscal profile');
+          } else if (status === 'CHANNEL_ERROR') {
+            console.error('Realtime subscription error for fiscal profile');
+          }
+        });
+    } catch (error) {
+      console.error("Error setting up fiscal profile realtime:", error);
     }
+  };
 
-    setupFiscalProfileRealtime();
+  setupFiscalProfileRealtime();
 
-    return () => {
-      if (channel) {
-        supabase.removeChannel(channel);
-      }
-    };
-  }, []);
-  /*
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(REVENUES_KEY);
-
-      if (raw) {
-        const parsed = JSON.parse(raw);
-
-        if (Array.isArray(parsed)) {
-          const normalized = parsed.map((item) => ({
-            ...item,
-            amount: Number(String(item.amount || 0).replace(",", ".")),
-            date: item.date || new Date().toISOString().slice(0, 10),
-          }));
-
-          setRevenues(normalized);
-        }
-      }
-    } catch (e) {
-      console.warn("Revenues restore failed:", e);
-    } finally {
-      setRevenuesHydrated(true);
+  // Очистка при размонтировании или смене пользователя
+  return () => {
+    isSubscribed = false;
+    if (channel) {
+      supabase.removeChannel(channel);
     }
-  }, []);
-  */
-  /*
-  useEffect(() => {
-    if (!revenuesHydrated) return;
-
-    try {
-      localStorage.setItem(REVENUES_KEY, JSON.stringify(revenues));
-    } catch (e) {
-      console.warn("Revenues save failed:", e);
-    }
-  }, [revenues, revenuesHydrated]);
-  */
+  };
+}, [user]); // ДОБАВЛЯЕМ user в зависимости!
 
   useEffect(() => {
     if (!chatEndRef.current) return;
@@ -525,80 +533,85 @@ function openSecuritySection() {
     }, 600);
   }
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
+useEffect(() => {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
 
-      if (!raw) {
-        setHydrated(true);
-        return;
-      }
-
-      setHasDraft(true);
-
-      const data = JSON.parse(raw);
-      if (!data || data.version !== LS_VERSION) {
-        setHydrated(true);
-        return;
-      }
-
-      if (data.savedAt) setLastSavedAt(data.savedAt);
-
-      const a = data.answers || {};
-      if (a && typeof a === "object") setAnswers(a);
-
-      if (Array.isArray(data.messages) && data.messages.length > 0) {
-        setMessages(data.messages);
-      }
-
-      if (typeof data.userName === "string") {
-        setUserName(data.userName);
-      }
-
-      let nextIndex = 0;
-      if (typeof data.stepIndex === "number") nextIndex = data.stepIndex;
-
-      const hasProfile = !!a.activity_type && !!a.declaration_frequency;
-
-      if (hasProfile) {
-        if (typeof a.ca_month === "number" && a.ca_month > 0) {
-          const dashIndex = getIndexByKey("fiscal_dashboard");
-          if (dashIndex !== -1) nextIndex = dashIndex;
-        } else {
-          const caIndex = getIndexByKey("ca_preset");
-          if (caIndex !== -1) nextIndex = caIndex;
-        }
-      }
-
-      setStepIndex(nextIndex);
-      setRestoredAt(new Date().toISOString());
-    } catch (e) {
-      console.warn("Restore failed:", e);
-    } finally {
+    if (!raw) {
       setHydrated(true);
+      return;
     }
-  }, []);
+
+    const data = JSON.parse(raw);
+    if (!data || data.version !== LS_VERSION) {
+  localStorage.removeItem(LS_KEY);
+  setHydrated(true);
+  return;
+}
+
+    setHasDraft(true);
+
+    if (data.savedAt) setLastSavedAt(data.savedAt);
+
+    const a = data.answers || {};
+    if (a && typeof a === "object") setAnswers(a);
+
+    if (Array.isArray(data.messages) && data.messages.length > 0) {
+      setMessages(data.messages);
+    }
+
+    if (typeof data.userName === "string") {
+      setUserName(data.userName);
+    }
+
+    let nextIndex = 0;
+    if (typeof data.stepIndex === "number") {
+      nextIndex = data.stepIndex;
+    }
+
+    const hasProfile = !!a.activity_type && !!a.declaration_frequency;
+
+    if (hasProfile) {
+      setAppView("dashboard");
+      const dashIndex = getIndexByKey("fiscal_dashboard");
+      if (dashIndex !== -1) nextIndex = dashIndex;
+    } else {
+      setAppView("assistant");
+    }
+
+    setStepIndex(nextIndex);
+    setRestoredAt(new Date().toISOString());
+} catch (e) {
+  console.warn("Restore failed:", e);
+  localStorage.removeItem(LS_KEY);
+} finally {
+    setHydrated(true);
+  }
+}, []);
 
   useEffect(() => {
     localStorage.setItem(UI_KEY, JSON.stringify(visibleSections));
   }, [visibleSections]);
 
   useEffect(() => {
-    const canSaveFiscalProfile =
-      answers?.entry_status &&
-      answers?.activity_type &&
-      answers?.declaration_frequency;
+  const canSaveFiscalProfile =
+    answers?.entry_status &&
+    answers?.activity_type &&
+    answers?.declaration_frequency;
 
-    if (!canSaveFiscalProfile) return;
+  if (!canSaveFiscalProfile) return;
 
+  // Добавляем debounce
+  const timeoutId = setTimeout(() => {
     saveFiscalProfileToSupabase(answers);
-  }, [
-    answers,
-    answers?.entry_status,
-    answers?.activity_type,
-    answers?.declaration_frequency,
-  ]);
+  }, 2000);
 
+  return () => clearTimeout(timeoutId);
+}, [
+  answers?.entry_status,
+  answers?.activity_type,
+  answers?.declaration_frequency,
+]); // Убираем answers из зависимостей
   useEffect(() => {
     if (!userName) return;
 
@@ -639,6 +652,7 @@ function openSecuritySection() {
         answers,
         userName,
         messages,
+        appView,
         savedAt: now,
       };
       localStorage.setItem(LS_KEY, JSON.stringify(payload));
@@ -646,7 +660,7 @@ function openSecuritySection() {
     } catch (e) {
       console.warn("Save failed:", e);
     }
-  }, [hydrated, stepIndex, answers, messages, userName]);
+  }, [hydrated, stepIndex, answers, messages, userName, appView]);
 
   useEffect(() => {
     if (revenues.length === 1) {
@@ -665,39 +679,83 @@ useEffect(() => {
   resumePendingSave();
 }, [user, resumeSaveAfterAuth]);
 
-  const dashboardAnswers = useMemo(() => {
+const dashboardAnswers = useMemo(() => {
+  // Проверяем наличие данных
+  const hasActivity = answers?.activity_type || fiscalProfile?.activity_type;
+  const hasFrequency = answers?.declaration_frequency || fiscalProfile?.declaration_frequency;
+  
+  // Если нет критических данных - возвращаем минимальный объект
+  if (!hasActivity && !hasFrequency) {
     return {
-      ...answers,
-      activity_type:
-        answers.activity_type || fiscalProfile?.activity_type || "",
-      declaration_frequency:
-        answers.declaration_frequency ||
-        fiscalProfile?.declaration_frequency ||
-        "",
+      activity_type: null,
+      declaration_frequency: null,
+      _isComplete: false,
     };
-  }, [answers, fiscalProfile]);
+  }
+  
+  return {
+    ...answers,
+    activity_type: answers?.activity_type || fiscalProfile?.activity_type || null,
+    declaration_frequency: answers?.declaration_frequency || fiscalProfile?.declaration_frequency || null,
+    _isComplete: !!(hasActivity && hasFrequency),
+  };
+}, [answers, fiscalProfile]);
 
-  const computed = useMemo(() => {
-    if (simulatedCA !== null) {
-      return computeObligations({ ...dashboardAnswers, ca_month: simulatedCA });
-    }
-    return computeObligations(dashboardAnswers);
-  }, [dashboardAnswers, simulatedCA]);
+  const currentMonthTotal = useMemo(() => {
+    return revenues.reduce((sum, item) => {
+      return sum + Number(item.amount || 0);
+    }, 0);
+  }, [revenues]);
 
-  const activityLabel = useMemo(
-    () => labelFromOptions("activity_type", dashboardAnswers.activity_type),
-    [dashboardAnswers.activity_type],
-  );
+const computed = useMemo(() => {
+  // Проверяем, что профиль полный
+  if (!dashboardAnswers?.activity_type || !dashboardAnswers?.declaration_frequency) {
+    return {
+      nextDeclarationLabel: "Profil à compléter",
+      amountEstimatedLabel: "—",
+      deadlineLabel: "—",
+      tvaStatusLabel: "—",
+      tvaHint: "Renseigne ton activité et ta périodicité",
+      urgency: null,
+      tvaUrgency: null,
+      recommendations: [],
+      treasuryRecommended: null,
+    };
+  }
 
-  const freqLabel = useMemo(
-    () =>
-      labelFromOptions(
-        "declaration_frequency",
-        dashboardAnswers.declaration_frequency,
-      ),
-    [dashboardAnswers.declaration_frequency],
-  );
+  try {
+    return computeObligations({
+      ...dashboardAnswers,
+      ca_month: currentMonthTotal,
+    });
+  } catch (error) {
+    console.error("Compute error:", error);
+    return {
+      nextDeclarationLabel: "Erreur",
+      amountEstimatedLabel: "—",
+      deadlineLabel: "—",
+      tvaStatusLabel: "Erreur",
+      tvaHint: "Une erreur est survenue",
+      urgency: null,
+      tvaUrgency: null,
+      recommendations: [],
+      treasuryRecommended: null,
+    };
+  }
+}, [dashboardAnswers, currentMonthTotal]);
 
+const activityLabel = useMemo(
+  () => labelFromOptions("activity_type", dashboardAnswers.activity_type),
+  [dashboardAnswers.activity_type]
+);
+
+const freqLabel = useMemo(
+  () => labelFromOptions(
+    "declaration_frequency",  // <- исправлено название
+    dashboardAnswers.declaration_frequency
+  ),
+  [dashboardAnswers.declaration_frequency]
+);
   const profileLine = useMemo(() => {
     const a = dashboardAnswers.activity_type ? activityLabel : "";
     const f = dashboardAnswers.declaration_frequency ? freqLabel : "";
@@ -713,11 +771,11 @@ useEffect(() => {
 
   const canSend = useMemo(() => input.trim().length > 0, [input]);
 
-  const currentMonthTotal = useMemo(() => {
-    return revenues.reduce((sum, item) => {
-      return sum + Number(item.amount || 0);
-    }, 0);
-  }, [revenues]);
+
+
+  const revenueAmount = Number(
+  String(revenueForm.amount || "").replace(",", ".")
+);
 
   function getEstimatedRate(activityType) {
     switch (activityType) {
@@ -793,6 +851,32 @@ const monthlyHistory = useMemo(() => {
   });
 }, [revenues]);
 
+const monthOptions = useMemo(() => {
+  return monthlyHistory.map((m) => {
+    const date = new Date(m.year, m.month);
+    return {
+      value: `${m.year}-${m.month}`,
+      label: date.toLocaleDateString("fr-FR", {
+        month: "long",
+        year: "numeric",
+      }),
+    };
+  });
+}, [monthlyHistory]);
+
+const filteredRevenues = useMemo(() => {
+  if (selectedMonth === "all") return revenues;
+
+  return revenues.filter((item) => {
+    if (!item?.date) return false;
+
+    const d = new Date(`${item.date}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return false;
+
+    return `${d.getFullYear()}-${d.getMonth()}` === selectedMonth;
+  });
+}, [revenues, selectedMonth]);
+
 const revenueChartData = useMemo(() => {
   return monthlyHistory.slice().reverse().slice(-6);
 }, [monthlyHistory]);
@@ -851,75 +935,20 @@ const fiscalTimeline = useMemo(() => {
   ];
 }, [computed, revenues.length, estimatedCharges]);
 
-const fiscalAlert = useMemo(() => {
-  if (revenues.length === 0) {
-    return {
-      level: "neutral",
-      title: "Prêt à démarrer",
-      text: "Ajoute un revenu pour lancer ton suivi.",
-    };
-  }
-
-  if (!answers?.declaration_frequency) {
-    return {
-      level: "warning",
-      title: "Périodicité manquante",
-      text: "Choisis ton rythme de déclaration.",
-    };
-  }
-
-  if (computed?.urgency === "late") {
-    return {
-      level: "danger",
-      title: "À faire maintenant",
-      text: "Ta déclaration demande une vérification rapide.",
-    };
-  }
-
-  if (computed?.urgency === "soon") {
-    return {
-      level: "warning",
-      title: "À surveiller",
-      text: "Une échéance approche.",
-    };
-  }
-
-  if (computed?.tvaUrgency === "late") {
-    return {
-      level: "danger",
-      title: "TVA à vérifier",
-      text: computed?.tvaHint || "Le seuil TVA demande une action rapide.",
-    };
-  }
-
-  if (computed?.tvaUrgency === "soon") {
-    return {
-      level: "warning",
-      title: "TVA à surveiller",
-      text: computed?.tvaHint || "Le seuil TVA approche.",
-    };
-  }
-
-  return {
-    level: "ok",
-    title: "Situation stable",
-    text: "Rien d’urgent pour le moment.",
-  };
-}, [revenues, computed, answers?.declaration_frequency]);
 
 const smartTips = useMemo(() => {
   const tips = [];
 
   if (currentMonthTotal > 0) {
-    tips.push({
-      key: "reserve",
-      title: "Montant à mettre de côté",
-      text: `Prévois environ ${estimatedCharges.toLocaleString("fr-FR")} € pour éviter les surprises.`,
-      level: "ok",
-      cta: "Ajouter un revenu",
-      action: "add",
-    });
-  }
+  tips.push({
+    key: "reserve",
+    title: "Montant à mettre de côté",
+    text: `Prévois environ ${estimatedCharges.toLocaleString("fr-FR")} € pour éviter les surprises.`,
+    level: "ok",
+    cta: null,
+    action: null,
+  });
+}
 
   if (computed?.urgency === "late") {
     tips.push({
@@ -961,16 +990,16 @@ const smartTips = useMemo(() => {
     });
   }
 
-  if (revenues.length === 0) {
-    tips.push({
-      key: "first-revenue",
-      title: "Premier revenu",
-      text: "Ajoute un revenu pour commencer ton suivi réel.",
-      level: "neutral",
-      cta: "Ajouter un revenu",
-      action: "add",
-    });
-  }
+if (revenues.length === 0) {
+  tips.push({
+    key: "first-revenue",
+    title: "Premier revenu",
+    text: "Ajoute un revenu pour commencer ton suivi réel.",
+    level: "neutral",
+    cta: null,
+    action: null,
+  });
+}
 
   return tips.slice(0, 3);
 }, [currentMonthTotal, estimatedCharges, computed, revenues.length]);
@@ -979,17 +1008,27 @@ const mainAction = useMemo(() => {
   if (revenues.length === 0) {
     return {
       title: "Commence ton suivi",
-      text: "Ajoute ton premier revenu pour démarrer.",
+      text: "Ajoute ton premier revenu pour voir tes charges et ton disponible en temps réel.",
       cta: "Ajouter un revenu",
       action: "add",
       level: "neutral",
     };
   }
 
+  if (!dashboardAnswers?.declaration_frequency) {
+    return {
+      title: "Profil à compléter",
+      text: "Renseigne ta périodicité pour afficher des repères plus précis.",
+      cta: "Modifier mon profil",
+      action: "profile",
+      level: "warning",
+    };
+  }
+
   if (computed?.urgency === "late") {
     return {
       title: "Déclaration urgente",
-      text: "Ta déclaration semble en retard.",
+      text: "Ta déclaration semble en retard. Vérifie ton échéance dès maintenant.",
       cta: "Voir mes échéances",
       action: "deadline",
       level: "danger",
@@ -999,7 +1038,7 @@ const mainAction = useMemo(() => {
   if (computed?.urgency === "soon") {
     return {
       title: "À faire bientôt",
-      text: "Une déclaration approche.",
+      text: "Une déclaration approche. Prévois un moment pour la préparer.",
       cta: "Voir mes échéances",
       action: "deadline",
       level: "warning",
@@ -1008,47 +1047,12 @@ const mainAction = useMemo(() => {
 
   return {
     title: "Situation stable",
-    text: "Rien d’urgent pour le moment.",
+    text: "Ton suivi est à jour. Continue à enregistrer tes revenus régulièrement.",
     cta: null,
+    action: null,
     level: "ok",
   };
-}, [revenues.length, computed]);
-
-const primaryAction = useMemo(() => {
-  if (revenues.length === 0) {
-    return {
-      label: "Ajouter un revenu",
-      action: "add",
-    };
-  }
-
-  if (!dashboardAnswers?.declaration_frequency) {
-    return {
-      label: "Compléter mon profil",
-      action: "profile",
-    };
-  }
-
-  if (computed?.urgency === "late") {
-    return {
-      label: "Déclarer maintenant",
-      action: "declare",
-    };
-  }
-
-  if (computed?.urgency === "soon") {
-    return {
-      label: "Préparer ma déclaration",
-      action: "declare",
-    };
-  }
-
-  return {
-    label: "Voir mes revenus",
-    action: "view",
-  };
 }, [revenues.length, dashboardAnswers?.declaration_frequency, computed]);
-
 
   function resetRevenueForm() {
     setRevenueForm({
@@ -1070,41 +1074,6 @@ const primaryAction = useMemo(() => {
     setShowAddRevenue(false);
     resetRevenueForm();
   }
-
-  function handlePrimaryAction() {
-  if (primaryAction.action === "add") {
-    handleOpenRevenuePopup();
-    return;
-  }
-
-  if (primaryAction.action === "profile") {
-    setAppView("assistant");
-    setAssistantCollapsed(false);
-
-    setTimeout(() => {
-      assistantRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    }, 100);
-    return;
-  }
-
-  if (primaryAction.action === "declare") {
-    fiscalRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
-    return;
-  }
-
-  if (primaryAction.action === "view") {
-    fiscalRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
-  }
-}
 
 function handleTipAction(action) {
   if (action === "add") {
@@ -1267,6 +1236,41 @@ async function handleSaveRevenue() {
     });
   }
 
+  function handleExportCSV() {
+  if (filteredRevenues.length === 0) return;
+
+  const headers = ["Date", "Montant", "Client", "Facture", "Note"];
+
+  const rows = filteredRevenues.map((item) => [
+    item.date || "",
+    item.amount || "",
+    item.client || "",
+    item.invoice || "",
+    item.note || "",
+  ]);
+
+  const csvContent = [headers, ...rows]
+    .map((row) => row.join(";"))
+    .join("\n");
+
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+  link.href = url;
+
+  const fileName =
+    selectedMonth === "all"
+      ? "revenus_microassist.csv"
+      : `revenus_${selectedMonth}.csv`;
+
+  link.setAttribute("download", fileName);
+
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
   function handleSend() {
     if (!canSend || isTyping) return;
 
@@ -1276,58 +1280,43 @@ async function handleSaveRevenue() {
     submitAnswer({ chatText: userText, value: userText });
   }
 
-  function submitAnswer({ chatText, value }) {
-    addMessage("user", chatText);
+function submitAnswer({ chatText, value }) {
+  addMessage("user", chatText);
 
-    const key = step?.key;
-    let updatedAnswers = key ? { ...answers, [key]: value } : { ...answers };
-    let forcedNextIndex = null;
+  const key = step?.key;
+  let updatedAnswers = key ? { ...answers, [key]: value } : { ...answers };
+  let forcedNextIndex = null;
 
-    if (key === "entry_status" && value === "micro_no") {
-      setAnswers(updatedAnswers);
-
-      addAssistant(
-        "Pour l’instant, Microassist couvre surtout la micro-entreprise (URSSAF). " +
-          "Une version SAS/EI/EURL est en préparation. " +
-          "Tu peux laisser ton besoin dans la section “Prochainement”.",
-      );
-
-      scrollToSection("prochainement");
-      return;
-    }
-
-    if (key === "entry_status" && value === "micro_yes") {
-      updatedAnswers = { ...updatedAnswers, status: "auto_entrepreneur" };
-    }
-
-    if (key === "ca_preset") {
-      if (value !== "other") {
-        updatedAnswers = { ...updatedAnswers, ca_month: Number(value) || 0 };
-        const dashIndex = getIndexByKey("fiscal_dashboard");
-        if (dashIndex !== -1) forcedNextIndex = dashIndex;
-      }
-    }
-
-    if (key === "ca_month") {
-      const cleaned = String(value)
-        .replace(/[^\d.,]/g, "")
-        .replace(",", ".");
-      const num = Number(cleaned);
-      updatedAnswers = {
-        ...updatedAnswers,
-        ca_month: Number.isFinite(num) ? num : 0,
-      };
-
-      const dashIndex = getIndexByKey("fiscal_dashboard");
-      if (dashIndex !== -1) forcedNextIndex = dashIndex;
-    }
-
+  if (key === "entry_status" && value === "micro_no") {
     setAnswers(updatedAnswers);
 
-    setTimeout(() => {
-      goNext(forcedNextIndex);
-    }, 250);
+    addAssistant(
+      "Pour l’instant, Microassist couvre surtout la micro-entreprise (URSSAF). " +
+        "Une version SAS/EI/EURL est en préparation. " +
+        "Tu peux laisser ton besoin dans la section “Prochainement”.",
+    );
+
+    scrollToSection("prochainement");
+    return;
   }
+
+  if (key === "entry_status" && value === "micro_yes") {
+    updatedAnswers = { ...updatedAnswers, status: "auto_entrepreneur" };
+  }
+
+  setAnswers(updatedAnswers);
+
+  if (key === "declaration_frequency") {
+    const dashIndex = getIndexByKey("fiscal_dashboard");
+    if (dashIndex !== -1) {
+      forcedNextIndex = dashIndex;
+    }
+  }
+
+  setTimeout(() => {
+    goNext(forcedNextIndex);
+  }, 250);
+}
 
   function handleSelectOption(opt) {
     if (isTyping) return;
@@ -1345,7 +1334,7 @@ async function handleSaveRevenue() {
     const summary =
       buildFiscalSummary(answers, computed) +
       "\n\n" +
-      buildFiscalChecklist(answers, computed);
+      buildFiscalChecklist(computed);
 
     navigator.clipboard.writeText(summary);
     alert("Résumé copié dans le presse-papiers ✅");
@@ -1355,7 +1344,7 @@ async function handleSaveRevenue() {
     const content =
       buildFiscalSummary(answers, computed) +
       "\n\n" +
-      buildFiscalChecklist(answers, computed);
+      buildFiscalChecklist(computed);
 
     const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -1368,114 +1357,225 @@ async function handleSaveRevenue() {
     URL.revokeObjectURL(url);
   }
 
-  function handleReset() {
-    localStorage.removeItem(LS_KEY);
+function handleReset() {
+  localStorage.removeItem(LS_KEY);
 
-    setStepIndex(0);
-    setAnswers({});
-    setInput("");
-    setUserName("");
-    setSimulatedCA(null);
-    setHelpOpen(false);
-    setIsTyping(false);
-    setFocusMode(false);
-    setHasDraft(false);
-    setLastSavedAt(null);
-    setRestoredAt(null);
+  setAppView("assistant");
+  setStepIndex(0);
+  setAnswers({});
+  setInput("");
+  setUserName("");
+  setHelpOpen(false);
+  setIsTyping(false);
+  setFocusMode(false);
+  setHasDraft(false);
+  setLastSavedAt(null);
+  setRestoredAt(null);
 
-    setMessages([
-      {
-        role: "bot",
-        text: "Bonjour 👋 On recommence. Réponds simplement.",
-      },
-      {
-        role: "bot",
-        text: `Étape 1 — ${FISCAL_STEPS[0].title}\n${FISCAL_STEPS[0].question}`,
-      },
-    ]);
+  setMessages([
+    {
+      role: "bot",
+      text: "Bonjour 👋 On recommence. Réponds simplement.",
+    },
+    {
+      role: "bot",
+      text: `Étape 1 — ${FISCAL_STEPS[0].title}\n${FISCAL_STEPS[0].question}`,
+    },
+  ]);
 
-    setTimeout(() => {
-      scrollToTopSection("assistant");
-    }, 120);
+  setTimeout(() => {
+    scrollToTopSection("assistant");
+  }, 120);
+}
+
+async function saveFiscalProfileToSupabase(profileAnswers) {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    console.error("User not found:", userError?.message);
+    return;
   }
 
-  async function saveFiscalProfileToSupabase(profileAnswers) {
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+  const payload = {
+    user_id: user.id,
+    business_status:
+      profileAnswers.entry_status === "micro_yes"
+        ? "micro_entreprise"
+        : "other",
+    activity_type: profileAnswers.activity_type,
+    declaration_frequency: profileAnswers.declaration_frequency,
+    tva_mode: "franchise_en_base",
+  };
 
-    if (userError || !user) {
-      console.error("User not found:", userError?.message);
+  const { error } = await supabase
+    .from("fiscal_profiles")
+    .upsert(payload, { onConflict: "user_id" });
+
+  if (error) {
+    console.error("Fiscal profile upsert error:", error.message);
+  } else {
+    console.log("Fiscal profile saved ✅");
+  }
+}
+
+function handleNewSession() {
+  handleReset();
+  setTimeout(() => {
+    scrollToTopSection("assistant");
+  }, 120);
+}
+
+function goToLandingSection(sectionId = "home") {
+  setAppView("landing");
+  setFocusMode(false);
+
+  setTimeout(() => {
+    if (sectionId === "home") {
+      heroRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
       return;
     }
 
-    const payload = {
-      user_id: user.id,
-      business_status:
-        profileAnswers.entry_status === "micro_yes"
-          ? "micro_entreprise"
-          : "other",
-      activity_type: profileAnswers.activity_type,
-      declaration_frequency: profileAnswers.declaration_frequency,
-      tva_mode: "franchise_en_base",
-    };
+    document.getElementById(sectionId)?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, 120);
+}
 
-    const { error } = await supabase
-      .from("fiscal_profiles")
-      .upsert(payload, { onConflict: "user_id" });
+function goToAssistant() {
+  setAppView("assistant");
+  setFocusMode(false);
 
-    if (error) {
-      console.error("Fiscal profile upsert error:", error.message);
-    } else {
-      console.log("Fiscal profile saved ✅");
-    }
+  setTimeout(() => {
+    assistantRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, 120);
+}
+
+function goToFeedback() {
+  setAppView("landing");
+  setFocusMode(false);
+
+  setTimeout(() => {
+    feedbackRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, 120);
+}
+
+function handleEditProfile() {
+  setAppView("assistant");
+  setAssistantCollapsed(false);
+  setStepIndex(0);
+  setHelpOpen(false);
+
+  setMessages([
+    {
+      role: "bot",
+      text: "Bonjour 👋 On va mettre à jour ton profil fiscal. Réponds simplement.",
+    },
+    {
+      role: "bot",
+      text: `Étape 1 — ${FISCAL_STEPS[0].title}\n${FISCAL_STEPS[0].question}`,
+    },
+  ]);
+
+  setTimeout(() => {
+    assistantRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, 120);
+}
+
+
+const previewCharges = useMemo(() => {
+  if (!Number.isFinite(revenueAmount) || revenueAmount <= 0) return 0;
+  return Math.round(revenueAmount * estimatedRate);
+}, [revenueAmount, estimatedRate]);
+
+const previewAvailable = useMemo(() => {
+  if (!Number.isFinite(revenueAmount) || revenueAmount <= 0) return 0;
+  return Math.max(0, revenueAmount - previewCharges);
+}, [revenueAmount, previewCharges]);
+
+const previewRateLabel = useMemo(() => {
+  return `${Math.round(estimatedRate * 1000) / 10} %`;
+}, [estimatedRate]);
+
+const previewAdvice = useMemo(() => {
+  if (!Number.isFinite(revenueAmount) || revenueAmount <= 0) return "";
+
+  if (previewCharges === 0) {
+    return "Ajoute un montant pour voir une estimation.";
   }
 
-  function handleNewSession() {
-    handleReset();
-
-    setTimeout(() => {
-      scrollToTopSection("assistant");
-    }, 120);
+  if (previewCharges <= 50) {
+    return "Petit revenu : garde ce repère simple pour éviter les oublis.";
   }
 
-  return (
-  
-      <div className="page">
-        <header className="topbar">
-          <div className="appStatusBar">
-            <span className="appStatusBadge">{viewLabel}</span>
-          </div>
-          <div className="topbarLeft">
-            <div className="brand">Entrepreneurs Assistant</div>
+  if (previewCharges <= 300) {
+    return "Pense à mettre ce montant de côté dès maintenant.";
+  }
 
-            <input
-              className="nameInput"
-              value={userName}
-              onChange={(e) => setUserName(e.target.value)}
-              placeholder="Ton prénom"
-              aria-label="Ton prénom"
-            />
+  return "Bon réflexe : sépare cette somme tout de suite pour éviter les surprises.";
+}, [revenueAmount, previewCharges]);
 
-            {userName && (
-              <div className="helloMini">Bonjour, {userName} 👋</div>
-            )}
-            {profileLine && <div className="profileMini">{profileLine}</div>}
-          </div>
 
-          <div className="topbarRight">
-            <nav className="nav">
-              <a href="#home">Accueil</a>
-              <a href="#services">Services</a>
-              <a href="#assistant">Assistant</a>
-              <a href="#feedback">Contact</a>
-            </nav>
-          </div>
-        </header>
+return (
+  <div className="page">
+    <header className="topbar">
+      <div className="appStatusBar">
+        <span className="appStatusBadge">{viewLabel}</span>
+      </div>
+      <div className="topbarLeft">
+        <div className="brand">Entrepreneurs Assistant</div>
+
+        <input
+          className="nameInput"
+          value={userName}
+          onChange={(e) => setUserName(e.target.value)}
+          placeholder="Ton prénom"
+          aria-label="Ton prénom"
+        />
+
+        {userName && (
+          <div className="helloMini">Bonjour, {userName} 👋</div>
+        )}
+        {profileLine && <div className="profileMini">{profileLine}</div>}
+      </div>
+
+      <div className="topbarRight">
+      <nav className="nav">
+  <button type="button" className="navLink" onClick={() => goToLandingSection("home")}>
+    Accueil
+  </button>
+  <button type="button" className="navLink" onClick={() => goToLandingSection("services")}>
+    Services
+  </button>
+  <button type="button" className="navLink" onClick={goToAssistant}>
+    Assistant
+  </button>
+  <button type="button" className="navLink" onClick={goToFeedback}>
+    Contact
+  </button>
+</nav>
+      </div>
+    </header>
+    
 
 <main className={`container ${focusMode ? "focusMode" : ""}`}>
-  <section id="home" ref={heroRef} className="card hero heroSaaS">
+  {appView === "landing" && (
+    <section id="home" ref={heroRef} className="card hero heroSaaS">
     <div className="heroGrid">
       <div className="heroLeft">
         <div className="heroBadge">🟣 MVP en test</div>
@@ -1561,7 +1661,9 @@ async function handleSaveRevenue() {
         </div>
       </div>
     </div>
-  </section>
+  </section> 
+  )}
+
 {!focusMode && (
   <div className="sectionTools">
     <button
@@ -1608,7 +1710,7 @@ async function handleSaveRevenue() {
 {!focusMode && appView === "landing" && visibleSections.services && (
   <section id="services" className="card">
     <div className="sectionHead">
-      <h2>Services</h2>
+      <h2>Ce que tu peux faire</h2>
       <button
         className="iconBtn"
         type="button"
@@ -1620,46 +1722,48 @@ async function handleSaveRevenue() {
     </div>
 
     <ul className="roadmaplist">
-      <li>Estimation simple des charges</li>
-      <li>Suivi du chiffre d’affaires</li>
-      <li>Repères sur les échéances fiscales</li>
-      <li>Alertes TVA et points de vigilance</li>
+      <li>📊 Estimer rapidement tes charges selon ton activité</li>
+      <li>💰 Suivre tes revenus et ton disponible estimé</li>
+      <li>📅 Visualiser ta prochaine échéance</li>
+      <li>🧾 Identifier les seuils et alertes TVA</li>
+      <li>🧠 Garder un repère simple pour éviter les oublis</li>
     </ul>
   </section>
 )}
 
 {!focusMode && visibleSections.howItWorks && (
-  <section className="card">
-    <div className="sectionHead">
-      <h2>Comment ça marche</h2>
-      <button
-        className="iconBtn"
-        type="button"
-        onClick={() => hideSection("howItWorks")}
-        aria-label="Masquer cette section"
-      >
-        ✕
-      </button>
+<section className="card">
+  <div className="sectionHead">
+    <h2>Comment ça marche</h2>
+    <button
+      className="iconBtn"
+      type="button"
+      onClick={() => hideSection("howItWorks")}
+      aria-label="Masquer cette section"
+    >
+      ✕
+    </button>
+  </div>
+
+  <div className="steps">
+    <div className="step">
+      <strong>1. Tu configures ton profil</strong>
+      <p>Tu indiques ton activité et ton rythme de déclaration.</p>
     </div>
 
-    <div className="steps">
-      <div className="step">
-        <strong>1. Tu renseignes ton profil</strong>
-        <p>Activité, rythme de déclaration et chiffre d’affaires.</p>
-      </div>
-
-      <div className="step">
-        <strong>2. L’assistant analyse</strong>
-        <p>Il estime les charges et identifie les prochaines étapes utiles.</p>
-      </div>
-
-      <div className="step">
-        <strong>3. Tu suis ton espace fiscal</strong>
-        <p>Tu visualises tes revenus, tes alertes et tes repères clés.</p>
-      </div>
+    <div className="step">
+      <strong>2. Tu accèdes à ton espace fiscal</strong>
+      <p>Tu obtiens un repère clair sur tes charges estimées, ta TVA et tes échéances.</p>
     </div>
-  </section>
+
+    <div className="step">
+      <strong>3. Tu ajoutes tes revenus</strong>
+      <p>Tu suis ton activité, ton disponible estimé et ton historique mensuel.</p>
+    </div>
+  </div>
+</section>
 )}
+
 
 {!focusMode && visibleSections.roadmap && (
   <section id="prochainement" className="card">
@@ -1676,59 +1780,23 @@ async function handleSaveRevenue() {
     </div>
 
     <p className="muted">
-      Microassist est un MVP en cours de test, conçu pour aider les
-      micro-entrepreneurs à mieux piloter leurs obligations fiscales.
+      Microassist est un MVP en cours d’évolution, pensé pour aider les micro-entrepreneurs à garder un repère fiscal simple, clair et rassurant.
     </p>
 
     <h3 style={{ marginTop: 12 }}>✅ Pour qui ?</h3>
     <ul className="targetList">
       <li>Micro-entrepreneurs</li>
-      <li>Freelances</li>
+      <li>Freelances et indépendants</li>
       <li>Créateurs d’activité</li>
-      <li>Indépendants qui veulent mieux anticiper</li>
+      <li>Profils qui veulent mieux anticiper leurs charges et échéances</li>
     </ul>
 
     <h3 style={{ marginTop: 12 }}>🚧 Prochainement</h3>
     <ul className="roadmaplist">
-      <li>📌 Historique enrichi</li>
-      <li>📅 Rappels automatiques</li>
-      <li>📄 Export amélioré du plan</li>
-    </ul>
-  </section>
-)}
-
-{!focusMode && visibleSections.roadmap && (
-  <section id="prochainement" className="card">
-    <div className="sectionHead">
-      <h2>Pour qui & Prochainement</h2>
-      <button
-        className="iconBtn"
-        type="button"
-        onClick={() => hideSection("roadmap")}
-        aria-label="Masquer cette section"
-      >
-        ✕
-      </button>
-    </div>
-
-    <p className="muted">
-      Microassist est un MVP en cours de test, conçu pour aider les
-      micro-entrepreneurs à mieux piloter leurs obligations fiscales.
-    </p>
-
-    <h3 style={{ marginTop: 12 }}>✅ Pour qui ?</h3>
-    <ul className="targetList">
-      <li>Micro-entrepreneurs</li>
-      <li>Freelances</li>
-      <li>Créateurs d’activité</li>
-      <li>Indépendants qui veulent mieux anticiper</li>
-    </ul>
-
-    <h3 style={{ marginTop: 12 }}>🚧 Prochainement</h3>
-    <ul className="roadmaplist">
-      <li>📌 Historique enrichi</li>
-      <li>📅 Rappels automatiques</li>
-      <li>📄 Export amélioré du plan</li>
+      <li>📌 Historique plus détaillé</li>
+      <li>📅 Rappels et repères automatiques</li>
+      <li>📄 Exports plus complets</li>
+      <li>🧠 Conseils plus personnalisés selon le profil</li>
     </ul>
   </section>
 )}
@@ -1767,7 +1835,8 @@ async function handleSaveRevenue() {
             </div>
           )}
 
-<section id="assistant" ref={assistantRef} className="card">
+{appView === "assistant" && (
+  <section id="assistant" ref={assistantRef} className="card">
   <div className="assistantHeader">
     <div>
       <div className="assistantTitleRow">
@@ -1804,15 +1873,16 @@ async function handleSaveRevenue() {
         )}
       </div>
 
-      <p className="muted assistantIntro">
-        Configure ton profil micro-entrepreneur en quelques questions simples.
-      </p>
+     <p className="muted assistantIntro">
+  Configure ton profil en quelques étapes pour obtenir un repère fiscal clair.
+</p>
 
-    <ul className="assistantBenefits">
-      <li>une estimation des charges</li>
-      <li>tes prochaines obligations (URSSAF, TVA)</li>
-      <li>un espace fiscal personnalisé pour suivre tes revenus</li>
-    </ul>
+<ul className="assistantBenefits">
+  <li>une estimation simple de tes charges</li>
+  <li>un repère sur ta prochaine échéance</li>
+  <li>une vision claire de ta TVA</li>
+  <li>un accès à ton espace fiscal pour suivre tes revenus</li>
+</ul>
 
     </div>
 
@@ -1932,116 +2002,109 @@ async function handleSaveRevenue() {
           )}
         </div>
       ) : step?.mode === "dashboard" ? (
-        <div className="dashboardZone">
-          <div className="assistantSummaryBox">
-            <h3>Ton repère</h3>
+      <div className="dashboardZone">
+  <div className="assistantSummaryBox">
+    <h3>Ton profil</h3>
 
-            <ul className="assistantSummaryList">
-              <li>
-                <strong>Activité :</strong>{" "}
-                {labelFromOptions("activity_type", answers.activity_type) || "—"}
-              </li>
-              <li>
-                <strong>Déclaration :</strong>{" "}
-                {labelFromOptions(
-                  "declaration_frequency",
-                  answers.declaration_frequency,
-                ) || "—"}
-              </li>
-            </ul>
+    <ul className="assistantSummaryList">
+      <li>
+        <strong>Activité :</strong>{" "}
+        {labelFromOptions("activity_type", answers.activity_type) || "—"}
+      </li>
+      <li>
+        <strong>Déclaration :</strong>{" "}
+        {labelFromOptions(
+          "declaration_frequency",
+          answers.declaration_frequency,
+        ) || "—"}
+      </li>
+    </ul>
+  </div>
+
+  {tvaWarning && <div className="tvaWarning">{tvaWarning}</div>}
+
+  {computed?.recommendations?.length > 0 && (
+    <div className="dashRecs">
+      <div className="dashRecsTitle">À retenir</div>
+
+      <div className="dashRecsList">
+        {computed.recommendations.map((r) => (
+          <div
+            key={r.key}
+            className={[
+              "dashRecItem",
+              r.level === "danger" ? "recDanger" : "",
+              r.level === "warning" ? "recWarning" : "",
+              r.level === "ok" ? "recOk" : "",
+            ]
+              .join(" ")
+              .trim()}
+          >
+            <div className="dashRecTitle">{r.title}</div>
+            <div className="dashRecText">{r.text}</div>
           </div>
+        ))}
+      </div>
+    </div>
+  )}
 
-          {tvaWarning && <div className="tvaWarning">{tvaWarning}</div>}
+  <div className="assistantNextStep">
+    <div className="assistantNextStepTitle">Ton profil est prêt</div>
 
-          {computed?.recommendations?.length > 0 && (
-            <div className="dashRecs">
-              <div className="dashRecsTitle">✅ À retenir</div>
+    <p className="muted">
+      Accède à ton espace fiscal pour suivre tes revenus et tes charges.
+    </p>
 
-              <div className="dashRecsList">
-                {computed.recommendations.map((r) => (
-                  <div
-                    key={r.key}
-                    className={[
-                      "dashRecItem",
-                      r.level === "danger" ? "recDanger" : "",
-                      r.level === "warning" ? "recWarning" : "",
-                      r.level === "ok" ? "recOk" : "",
-                    ]
-                      .join(" ")
-                      .trim()}
-                  >
-                    <div className="dashRecTitle">{r.title}</div>
-                    <div className="dashRecText">{r.text}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+    <div className="miniActions" style={{ marginTop: 12 }}>
+      <button
+        className="btn btnPrimary"
+        type="button"
+        onClick={() => {
+          setAppView("dashboard");
+          setTimeout(() => {
+            fiscalRef.current?.scrollIntoView({
+              behavior: "smooth",
+              block: "start",
+            });
+          }, 100);
+        }}
+      >
+        Accéder à mon espace fiscal
+      </button>
 
-          <div className="assistantNextStep">
-            <div className="assistantNextStepTitle">Résultat prêt ✅</div>
+      <button
+        className="btn btnGhost"
+        type="button"
+        onClick={() => {
+          setAppView("dashboard");
+          setTimeout(() => {
+            fiscalRef.current?.scrollIntoView({
+              behavior: "smooth",
+              block: "start",
+            });
+            setAuthOpen(true);
+          }, 100);
+        }}
+      >
+        Enregistrer mon suivi
+      </button>
+    </div>
+  </div>
 
-            <p className="muted">
-              Consulte ton résultat ou enregistre ton suivi.
-            </p>
+  <div className="disclaimer">
+    ⚠️ Indication simplifiée. Ne remplace pas un expert-comptable.
+  </div>
 
-            <div className="miniActions" style={{ marginTop: 12 }}>
-              <button
-                className="btn btnPrimary"
-                type="button"
-                onClick={() => {
-                  setAppView("dashboard");
-                  setTimeout(() => {
-                    fiscalRef.current?.scrollIntoView({
-                      behavior: "smooth",
-                      block: "start",
-                    });
-                  }, 100);
-                }}
-              >
-                Voir le résultat
-              </button>
-
-              <button
-                className="btn btnGhost"
-                type="button"
-                onClick={() => {
-                  setAppView("dashboard");
-                  setTimeout(() => {
-                    fiscalRef.current?.scrollIntoView({
-                      behavior: "smooth",
-                      block: "start",
-                    });
-                    setAuthOpen(true);
-                  }, 100);
-                }}
-              >
-                Enregistrer
-              </button>
-            </div>
-          </div>
-
-          <div className="disclaimer">
-            ⚠️ Repère simple. Ne remplace pas un expert-comptable.
-          </div>
-
-          <div className="miniActions">
-            <button
-              className="btn btnGhost"
-              type="button"
-              onClick={() => setStepIndex(0)}
-            >
-              ← Retour
-            </button>
-            <button
-              className="btn btnGhost"
-              type="button"
-              onClick={handleReset}
-            >
-              Recommencer
-            </button>
-          </div>
-        </div>
+  <div className="miniActions">
+    <button
+      className="btn btnGhost"
+      type="button"
+      onClick={handleReset}
+    >
+      Recommencer
+    </button>
+  </div>
+</div>
       ) : (
         <>
           <div className="chatInput">
@@ -2092,6 +2155,7 @@ async function handleSaveRevenue() {
     </div>
   )}
 </section>
+)}
 
 {appView === "dashboard" && (
   <section ref={fiscalRef} className="card">
@@ -2110,29 +2174,20 @@ async function handleSaveRevenue() {
             type="button"
             onClick={() => {
               setShowChart(true);
-              localStorage.setItem("showChart", "true");
+              localStorage.setItem(CHART_KEY, "true");
             }}
           >
             Afficher le graphique
           </button>
         )}
 
-        <button
-          className="btn btnGhost btnSmall"
-          type="button"
-          onClick={() => {
-            setAppView("assistant");
-            setAssistantCollapsed(false);
-            setTimeout(() => {
-              assistantRef.current?.scrollIntoView({
-                behavior: "smooth",
-                block: "start",
-              });
-            }, 100);
-          }}
-        >
-          Modifier mon profil
-        </button>
+<button
+  className="btn btnGhost btnSmall"
+  type="button"
+  onClick={handleEditProfile}
+>
+  Modifier mon profil
+</button>
 
         <button
           className="btn btnPrimary btnSmall"
@@ -2145,21 +2200,11 @@ async function handleSaveRevenue() {
     </div>
 
     {saveNotice && <div className="saveNotice">✅ {saveNotice}</div>}
-    <div className="primaryActionBox highlight">
-  <button
-    className="btn btnPrimary"
-    type="button"
-    onClick={handlePrimaryAction}
-  >
-    {primaryAction.label}
-  </button>
-</div>
 
-    {!user && (
+
+   {!user && revenues.length > 0 && (
       <div className="assistantNextStep" style={{ marginBottom: 18 }}>
-        <div className="assistantNextStepTitle">
-          Enregistrer mon suivi
-        </div>
+        <div className="assistantNextStepTitle">Enregistrer mon suivi</div>
 
         <p className="muted">
           Retrouve tes revenus, ton historique et tes repères à tout moment.
@@ -2217,26 +2262,26 @@ async function handleSaveRevenue() {
       </div>
     </div>
 
-<div className="miniStatsGrid">
-  <div className="miniStatCard">
-    <div className="miniStatLabel">Moyenne mensuelle</div>
-    <div className="miniStatValue">
-      {revenueStats.monthlyAverage.toLocaleString("fr-FR")} €
-    </div>
-  </div>
+    <div className="miniStatsGrid">
+      <div className="miniStatCard">
+        <div className="miniStatLabel">Moyenne mensuelle</div>
+        <div className="miniStatValue">
+          {revenueStats.monthlyAverage.toLocaleString("fr-FR")} €
+        </div>
+      </div>
 
-  <div className="miniStatCard">
-    <div className="miniStatLabel">Dernier revenu</div>
-    <div className="miniStatValue">
-      {revenueStats.lastRevenue.toLocaleString("fr-FR")} €
-    </div>
-  </div>
+      <div className="miniStatCard">
+        <div className="miniStatLabel">Dernier revenu</div>
+        <div className="miniStatValue">
+          {revenueStats.lastRevenue.toLocaleString("fr-FR")} €
+        </div>
+      </div>
 
-  <div className="miniStatCard">
-    <div className="miniStatLabel">Entrées</div>
-    <div className="miniStatValue">{revenueStats.count}</div>
-  </div>
-</div>
+      <div className="miniStatCard">
+        <div className="miniStatLabel">Entrées</div>
+        <div className="miniStatValue">{revenueStats.count}</div>
+      </div>
+    </div>
 
     <div className="fiscalTimeline">
       <h3>Repères fiscaux</h3>
@@ -2256,126 +2301,105 @@ async function handleSaveRevenue() {
       </div>
     </div>
 
-<div
-  className={[
-    "mainActionBox",
-    mainAction.level === "danger" ? "danger" : "",
-    mainAction.level === "warning" ? "warning" : "",
-    mainAction.level === "ok" ? "ok" : "",
-  ]
-    .join(" ")
-    .trim()}
->
-  <div className="mainActionTitle">{mainAction.title}</div>
-  <div className="mainActionText">{mainAction.text}</div>
-
-  {mainAction.cta && (
-    <button
-      className="btn btnPrimary"
-      onClick={() => handleTipAction(mainAction.action)}
-    >
-      {mainAction.cta}
-    </button>
-  )}
-</div>
     <div
       className={[
-        "fiscalAlert",
-        fiscalAlert.level === "danger" ? "alertDanger" : "",
-        fiscalAlert.level === "warning" ? "alertWarning" : "",
-        fiscalAlert.level === "ok" ? "alertOk" : "",
+        "mainActionBox",
+        mainAction.level === "danger" ? "danger" : "",
+        mainAction.level === "warning" ? "warning" : "",
+        mainAction.level === "ok" ? "ok" : "",
       ]
         .join(" ")
         .trim()}
     >
-      <div className="fiscalAlertTitle">{fiscalAlert.title}</div>
-      <div className="fiscalAlertText">{fiscalAlert.text}</div>
-    </div>
+      <div className="mainActionTitle">{mainAction.title}</div>
+      <div className="mainActionText">{mainAction.text}</div>
 
-    {smartTips.length > 0 && (
-  <div className="smartTips">
-    <h3>Recommandations</h3>
-
-    <div className="smartTipsList">
-      {smartTips.map((tip) => (
-        <div
-          key={tip.key}
-          className={[
-            "smartTipCard",
-            tip.level === "danger" ? "tipDanger" : "",
-            tip.level === "warning" ? "tipWarning" : "",
-            tip.level === "ok" ? "tipOk" : "",
-          ]
-            .join(" ")
-            .trim()}
+      {mainAction.cta && (
+        <button
+          className="btn btnPrimary"
+          type="button"
+          onClick={() => handleTipAction(mainAction.action)}
         >
-          <div className="smartTipTitle">{tip.title}</div>
-          <div className="smartTipText">{tip.text}</div>
-
-          {tip.cta && (
-            <div className="smartTipActions">
-              <button
-                className="btn btnGhost btnSmall"
-                type="button"
-                onClick={() => handleTipAction(tip.action)}
-              >
-                {tip.cta}
-              </button>
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  </div>
-)}
-
-    <div className="monthStatus">
-      {revenues.length === 0 ? (
-        <span>⚠ Aucun revenu enregistré</span>
-      ) : (
-        <span>✔ Suivi en cours</span>
+          {mainAction.cta}
+        </button>
       )}
     </div>
 
-{smartTips.length > 0 && (
-  <div className="smartTips">
-    <h3>Recommandations</h3>
 
-    <div className="smartTipsList">
-      {smartTips.map((tip) => (
-        <div
-          key={tip.key}
-          className={[
-            "smartTipCard",
-            tip.level === "danger" ? "tipDanger" : "",
-            tip.level === "warning" ? "tipWarning" : "",
-            tip.level === "ok" ? "tipOk" : "",
-          ]
-            .join(" ")
-            .trim()}
-        >
-          <div className="smartTipTitle">{tip.title}</div>
-          <div className="smartTipText">{tip.text}</div>
+    {smartTips.length > 0 && (
+      <div className="smartTips">
+        <h3>Recommandations</h3>
+
+        <div className="smartTipsList">
+          {smartTips.map((tip) => (
+            <div
+              key={tip.key}
+              className={[
+                "smartTipCard",
+                tip.level === "danger" ? "tipDanger" : "",
+                tip.level === "warning" ? "tipWarning" : "",
+                tip.level === "ok" ? "tipOk" : "",
+              ]
+                .join(" ")
+                .trim()}
+            >
+              <div className="smartTipTitle">{tip.title}</div>
+              <div className="smartTipText">{tip.text}</div>
+
+              {tip.cta && (
+                <div className="smartTipActions">
+                  <button
+                    className="btn btnGhost btnSmall"
+                    type="button"
+                    onClick={() => handleTipAction(tip.action)}
+                  >
+                    {tip.cta}
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
-      ))}
-    </div>
-  </div>
-)}
-
-    <p className="muted" style={{ marginTop: 10 }}>
-      👉 Prochaine étape : ajoute un revenu pour démarrer ton suivi réel.
-    </p>
+      </div>
+    )}
 
     <div className="journalHeader">
       <h3>Mes revenus</h3>
+
+      <div className="journalFilters">
+        <button
+          className="btn btnGhost btnSmall"
+          type="button"
+          onClick={handleExportCSV}
+          disabled={filteredRevenues.length === 0}
+          title="Exporter les revenus affichés"
+        >
+          Export CSV
+        </button>
+
+        <select
+          value={selectedMonth}
+          onChange={(e) => setSelectedMonth(e.target.value)}
+          className="monthFilter"
+        >
+          <option value="all">Tous les mois</option>
+          {monthOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
     </div>
 
-    {revenues.length === 0 ? (
+    {filteredRevenues.length === 0 ? (
       <div className="emptyRevenueState">
         <div className="emptyRevenueIcon">🧾</div>
         <div className="emptyRevenueTitle">Aucun revenu</div>
         <p className="muted">
-          Ajoute ton premier revenu pour commencer ton suivi.
+          {selectedMonth === "all"
+            ? "Ajoute ton premier revenu pour commencer ton suivi."
+            : "Aucun revenu pour ce mois."}
         </p>
 
         <button
@@ -2388,16 +2412,14 @@ async function handleSaveRevenue() {
       </div>
     ) : (
       <div className="revenuesList">
-        {revenues.map((item) => (
+        {filteredRevenues.map((item) => (
           <div key={item.id} className="revenueItem">
             <div className="revenueMain">
               <div className="revenueAmount">
                 {Number(item.amount).toLocaleString("fr-FR")} €
               </div>
 
-              <div className="revenueDate">
-                {formatRevenueDate(item.date)}
-              </div>
+              <div className="revenueDate">{formatRevenueDate(item.date)}</div>
             </div>
 
             <div className="revenueMeta">
@@ -2460,7 +2482,10 @@ async function handleSaveRevenue() {
                   month: "short",
                 });
 
-                const height = Math.max(12, (item.total / maxRevenueValue) * 140);
+                const height = Math.max(
+                  12,
+                  (item.total / maxRevenueValue) * 140,
+                );
 
                 return (
                   <div key={`${item.year}-${item.month}`} className="chartCol">
@@ -2479,36 +2504,37 @@ async function handleSaveRevenue() {
             </div>
           </div>
         )}
-    <h3>Historique mensuel</h3>
 
-    <div className="historyList">
-      {monthlyHistory.map((m) => {
-        const date = new Date(m.year, m.month);
+        <h3>Historique mensuel</h3>
 
-        const label = date.toLocaleDateString("fr-FR", {
-          month: "long",
-          year: "numeric",
-        });
+        <div className="historyList">
+          {monthlyHistory.map((m) => {
+            const date = new Date(m.year, m.month);
 
-        return (
-          <div key={`${m.year}-${m.month}`} className="historyItem">
-            <span className="historyMonth">{label}</span>
+            const label = date.toLocaleDateString("fr-FR", {
+              month: "long",
+              year: "numeric",
+            });
 
-            <strong className="historyTotal">
-              {m.total.toLocaleString("fr-FR")} €
-            </strong>
-          </div>
-        );
-      })}
+            return (
+              <div key={`${m.year}-${m.month}`} className="historyItem">
+                <span className="historyMonth">{label}</span>
+
+                <strong className="historyTotal">
+                  {m.total.toLocaleString("fr-FR")} €
+                </strong>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    )}
+
+    <div className="dataTrustLine">
+      🔒 Les données enregistrées sont liées à votre espace personnel sécurisé.
     </div>
-  </div>
+  </section>
 )}
-
-<div className="dataTrustLine">
-  🔒 Les données enregistrées sont liées à votre espace personnel sécurisé.
-</div>
-            </section>
-          )}
 
       {!focusMode && visibleSections.security && (
   <section ref={securityRef} className="card">
@@ -2703,23 +2729,30 @@ async function handleSaveRevenue() {
                 </div>
               )}
 
-              {revenueAmount > 0 && (
-                <div className="revenuePreview">
-                  <div className="previewTitle">Estimation rapide</div>
+{revenueAmount > 0 && (
+  <div className="revenuePreview">
+    <div className="previewTitle">Estimation rapide</div>
 
-                  <div className="previewRow">
-                    <span>Charges estimées</span>
-                    <strong>
-                      {estimatedCharges.toLocaleString("fr-FR")} €
-                    </strong>
-                  </div>
+    <div className="previewRow">
+      <span>Taux estimé</span>
+      <strong>{previewRateLabel}</strong>
+    </div>
 
-                  <div className="previewRow">
-                    <span>Disponible estimé</span>
-                    <strong>{availableAmount.toLocaleString("fr-FR")} €</strong>
-                  </div>
-                </div>
-              )}
+    <div className="previewRow">
+      <span>Charges estimées</span>
+      <strong>{previewCharges.toLocaleString("fr-FR")} €</strong>
+    </div>
+
+    <div className="previewRow">
+      <span>Net estimé</span>
+      <strong>{previewAvailable.toLocaleString("fr-FR")} €</strong>
+    </div>
+
+    <div className="previewAdvice">
+      💡 {previewAdvice}
+    </div>
+  </div>
+)}
 
               <div className="miniActions" style={{ marginTop: 16 }}>
                 <button
@@ -2742,7 +2775,7 @@ async function handleSaveRevenue() {
           </div>
         )}
 
-        <footer className="footer">
+            <footer className="footer">
           © {new Date().getFullYear()} Microassist
         </footer>
 
