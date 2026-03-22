@@ -289,7 +289,7 @@ const step = steps[stepIndex];
   const feedbackRef = useRef(null);
   const heroRef = useRef(null);
   const fiscalRef = useRef(null);
-
+  const chartRef = useRef(null);
   useLayoutEffect(() => {
     if ("scrollRestoration" in window.history) {
       window.history.scrollRestoration = "manual";
@@ -667,6 +667,30 @@ useEffect(() => {
       setAssistantCollapsed(true);
     }
   }, [revenues.length]);
+
+  useEffect(() => {
+  const handlePopState = (event) => {
+    const state = event.state;
+
+    if (state?.appView) {
+      setAppView(state.appView);
+
+      if (state.appView === "landing") {
+        setFocusMode(false);
+      }
+
+      if (state.appView === "assistant") {
+        setAssistantCollapsed(false);
+      }
+    }
+  };
+
+  window.addEventListener("popstate", handlePopState);
+
+  return () => {
+    window.removeEventListener("popstate", handlePopState);
+  };
+}, []);
 
 useEffect(() => {
   if (!user || !resumeSaveAfterAuth) return;
@@ -1082,8 +1106,7 @@ function handleTipAction(action) {
   }
 
   if (action === "profile") {
-    setAppView("assistant");
-    setAssistantCollapsed(false);
+    goToView("assistant", { push: true, focus: true });
     setTimeout(() => {
       assistantRef.current?.scrollIntoView({
         behavior: "smooth",
@@ -1429,8 +1452,7 @@ function handleNewSession() {
 }
 
 function goToLandingSection(sectionId = "home") {
-  setAppView("landing");
-  setFocusMode(false);
+  goToView("landing", { push: true, focus: false });
 
   setTimeout(() => {
     if (sectionId === "home") {
@@ -1530,6 +1552,21 @@ const previewAdvice = useMemo(() => {
   return "Bon réflexe : sépare cette somme tout de suite pour éviter les surprises.";
 }, [revenueAmount, previewCharges]);
 
+function goToView(nextView, options = {}) {
+  const { push = true, focus = false } = options;
+
+  if (push) {
+    window.history.pushState({ appView: nextView }, "");
+  }
+
+  setAppView(nextView);
+  setFocusMode(focus);
+
+  if (nextView === "assistant") {
+    setAssistantCollapsed(false);
+  }
+}
+
 
 return (
   <div className="page">
@@ -1601,15 +1638,14 @@ return (
         <div className="heroActions">
           <button
             className="btn btnPrimary"
-            onClick={() => {
-              track("click_tester_simulateur");
-              setAppView("assistant");
-              setFocusMode(true);
+ onClick={() => {
+  track("click_tester_simulateur");
+  goToView("assistant", { push: true, focus: true });
 
-              setTimeout(() => {
-                scrollToRef(assistantRef);
-              }, 80);
-            }}
+  setTimeout(() => {
+    scrollToRef(assistantRef);
+  }, 80);
+}}
             type="button"
           >
             Commencer
@@ -2076,7 +2112,7 @@ return (
         className="btn btnGhost"
         type="button"
         onClick={() => {
-          setAppView("dashboard");
+          goToView("dashboard", { push: true, focus: false });
           setTimeout(() => {
             fiscalRef.current?.scrollIntoView({
               behavior: "smooth",
@@ -2172,10 +2208,17 @@ return (
           <button
             className="btn btnGhost btnSmall"
             type="button"
-            onClick={() => {
-              setShowChart(true);
-              localStorage.setItem(CHART_KEY, "true");
-            }}
+          onClick={() => {
+  setShowChart(true);
+  localStorage.setItem(CHART_KEY, "true");
+
+  setTimeout(() => {
+    chartRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, 120);
+}}
           >
             Afficher le graphique
           </button>
@@ -2459,7 +2502,7 @@ return (
     {monthlyHistory.length > 0 && (
       <div className="monthlyHistory">
         {showChart && revenueChartData.length > 0 && (
-          <div className="revenueChartCard">
+          <div ref={chartRef} className="revenueChartCard">
             <div className="chartHeader">
               <div>
                 <h3>Évolution</h3>
