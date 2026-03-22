@@ -1,5 +1,5 @@
 import { supabase } from "./lib/supabase.js";
-import AuthGate from "./components/AuthGate.jsx";
+/*import AuthGate from "./components/AuthGate.jsx";*/
 import { useState, useEffect, useMemo, useRef, useLayoutEffect, useCallback } from "react"; // ✅ Добавляем useCallback
 import "./App.css";
 import { FISCAL_STEPS } from "./config/steps.fiscal";
@@ -120,19 +120,21 @@ export default function App() {
   const [hasDraft, setHasDraft] = useState(false);
   const [restoredAt, setRestoredAt] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
-  
   // UI состояния
   const [helpOpen, setHelpOpen] = useState(false);        // ✅ ДОБАВИТЬ
-  const [authOpen, setAuthOpen] = useState(false);
+  /*const [authOpen, setAuthOpen] = useState(false);*/
   const [focusMode, setFocusMode] = useState(false);      // ✅ ДОБАВИТЬ
   const { user } = useAuth();
   const [appView, setAppView] = useState("landing");
   const [userName, setUserName] = useState("");
   const [hydrated, setHydrated] = useState(false);
-  
+  const [showSignupHint, setShowSignupHint] = useState(false);
   // Состояния для доходов
   const [showAddRevenue, setShowAddRevenue] = useState(false);
   const [revenues, setRevenues] = useState([]);
+  const [showBetaNotice, setShowBetaNotice] = useState(() => {
+  return !localStorage.getItem("beta_seen");
+});
   const [resumeSaveAfterAuth, setResumeSaveAfterAuth] = useState(false); // ✅ ДОБАВИТЬ
   const [revenueForm, setRevenueForm] = useState({
     amount: "",
@@ -693,6 +695,19 @@ useEffect(() => {
 }, []);
 
 useEffect(() => {
+  if (!user) {
+    const savedRevenues = localStorage.getItem("revenues_guest");
+    if (savedRevenues) {
+      try {
+        setRevenues(JSON.parse(savedRevenues));
+      } catch (e) {
+        console.error("Failed to load guest revenues:", e);
+      }
+    }
+  }
+}, [user]);
+
+useEffect(() => {
   if (!user || !resumeSaveAfterAuth) return;
 
   async function resumePendingSave() {
@@ -1078,6 +1093,22 @@ const mainAction = useMemo(() => {
   };
 }, [revenues.length, dashboardAnswers?.declaration_frequency, computed]);
 
+
+function goToView(nextView, options = {}) {
+  const { push = true, focus = false } = options;
+
+  if (push) {
+    window.history.pushState({ appView: nextView }, "");
+  }
+
+  setAppView(nextView);
+  setFocusMode(focus);
+
+  if (nextView === "assistant") {
+    setAssistantCollapsed(false);
+  }
+}
+
   function resetRevenueForm() {
     setRevenueForm({
       amount: "",
@@ -1099,28 +1130,63 @@ const mainAction = useMemo(() => {
     resetRevenueForm();
   }
 
+    // ==================== ФУНКЦИИ УДАЛЕНИЯ И СБРОСА ====================
+  const handleDeleteRevenue = useCallback(async (id) => {
+    const ok = await deleteRevenueFromSupabase(id);
+    if (!ok) {
+      alert("Impossible de supprimer ce revenu.");
+      return;
+    }
+    await refreshRevenues();
+  }, [deleteRevenueFromSupabase, refreshRevenues]);
+
+  const handleReset = useCallback(() => {
+    localStorage.removeItem(LS_KEY);
+    setAppView("assistant");
+    setStepIndex(0);
+    setAnswers({});
+    setInput("");
+    setUserName("");
+    setHelpOpen(false);
+    setIsTyping(false);
+    setFocusMode(false);
+    setHasDraft(false);
+    setLastSavedAt(null);
+    setRestoredAt(null);
+    setMessages([
+      { 
+        role: "bot", 
+        text: "Bonjour 👋 On recommence. Réponds simplement." 
+      },
+      { 
+        role: "bot", 
+        text: `Étape 1 — ${FISCAL_STEPS[0].title}\n${FISCAL_STEPS[0].question}` 
+      },
+    ]);
+    setTimeout(() => scrollToTopSection("assistant"), 120);
+  }, []);
+
+// Оставьте только goToView и используйте везде
+const goToAssistant = useCallback(() => {
+  goToView("assistant", { push: true, focus: false });
+  setTimeout(() => {
+    assistantRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, 100);
+}, [goToView]);
+
+// А в handleTipAction используйте goToAssistant
+// Вместо текущей неполной функции, вставьте эту:
 function handleTipAction(action) {
   if (action === "add") {
     handleOpenRevenuePopup();
     return;
   }
-
   if (action === "profile") {
-    goToView("assistant", { push: true, focus: true });
-    setTimeout(() => {
-      assistantRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    }, 100);
+    goToAssistant();
     return;
   }
-
   if (action === "deadline") {
-    fiscalRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
+    fiscalRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 }
 
@@ -1166,7 +1232,7 @@ function handleTipAction(action) {
     return data;
   }
 
-  async function deleteRevenueFromSupabase(id) {
+    async function deleteRevenueFromSupabase(id) {
     const { error } = await supabase.from("revenues").delete().eq("id", id);
 
     if (error) {
@@ -1175,7 +1241,7 @@ function handleTipAction(action) {
     }
 
     return true;
-  }
+  }                  
 
 async function saveRevenueEntry() {
   const amount = Number(String(revenueForm.amount).replace(",", "."));
@@ -1226,24 +1292,32 @@ async function saveRevenueEntry() {
 
 async function handleSaveRevenue() {
   if (!user) {
-    setResumeSaveAfterAuth(true);
-    setAuthOpen(true);
+    // Сохраняем в localStorage для неавторизованных
+    const newRevenue = {
+      id: Date.now(),
+      amount: revenueAmount,
+      date: revenueForm.date,
+      client: revenueForm.client,
+      invoice: revenueForm.invoice,
+      note: revenueForm.note,
+    };
+    
+    const updatedRevenues = [newRevenue, ...revenues];
+    setRevenues(updatedRevenues);
+    localStorage.setItem("revenues_guest", JSON.stringify(updatedRevenues));
+    
+    setShowSignupHint(true);
+    setShowAddRevenue(false);
+    resetRevenueForm();
+    
+    setSaveNotice(`Revenu enregistré localement • ${revenueAmount.toLocaleString("fr-FR")} €`);
+    setTimeout(() => setSaveNotice(null), 2500);
+    
     return;
   }
 
   await saveRevenueEntry();
 }
-
-  async function handleDeleteRevenue(id) {
-    const ok = await deleteRevenueFromSupabase(id);
-
-    if (!ok) {
-      alert("Impossible de supprimer ce revenu.");
-      return;
-    }
-
-    await refreshRevenues();
-  }
 
   function formatRevenueDate(dateStr) {
     if (!dateStr) return "";
@@ -1380,36 +1454,6 @@ function submitAnswer({ chatText, value }) {
     URL.revokeObjectURL(url);
   }
 
-function handleReset() {
-  localStorage.removeItem(LS_KEY);
-
-  setAppView("assistant");
-  setStepIndex(0);
-  setAnswers({});
-  setInput("");
-  setUserName("");
-  setHelpOpen(false);
-  setIsTyping(false);
-  setFocusMode(false);
-  setHasDraft(false);
-  setLastSavedAt(null);
-  setRestoredAt(null);
-
-  setMessages([
-    {
-      role: "bot",
-      text: "Bonjour 👋 On recommence. Réponds simplement.",
-    },
-    {
-      role: "bot",
-      text: `Étape 1 — ${FISCAL_STEPS[0].title}\n${FISCAL_STEPS[0].question}`,
-    },
-  ]);
-
-  setTimeout(() => {
-    scrollToTopSection("assistant");
-  }, 120);
-}
 
 async function saveFiscalProfileToSupabase(profileAnswers) {
   const {
@@ -1464,18 +1508,6 @@ function goToLandingSection(sectionId = "home") {
     }
 
     document.getElementById(sectionId)?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
-  }, 120);
-}
-
-function goToAssistant() {
-  setAppView("assistant");
-  setFocusMode(false);
-
-  setTimeout(() => {
-    assistantRef.current?.scrollIntoView({
       behavior: "smooth",
       block: "start",
     });
@@ -1552,23 +1584,43 @@ const previewAdvice = useMemo(() => {
   return "Bon réflexe : sépare cette somme tout de suite pour éviter les surprises.";
 }, [revenueAmount, previewCharges]);
 
-function goToView(nextView, options = {}) {
-  const { push = true, focus = false } = options;
-
-  if (push) {
-    window.history.pushState({ appView: nextView }, "");
-  }
-
-  setAppView(nextView);
-  setFocusMode(focus);
-
-  if (nextView === "assistant") {
-    setAssistantCollapsed(false);
-  }
-}
 
 
 return (
+  <>
+    {showBetaNotice && (
+      <div className="modalOverlay">
+        <div className="modalCard">
+          <h3>🚧 Version bêta</h3>
+          <p style={{ marginBottom: "12px" }}>
+            Cet outil est actuellement en phase de test.
+          </p>
+          <ul style={{ paddingLeft: "18px", marginBottom: "12px" }}>
+            <li>Ajouter vos revenus</li>
+            <li>Estimation des charges</li>
+            <li>Comprendre vos obligations</li>
+          </ul>
+          <p style={{ fontSize: "13px", opacity: 0.8 }}>
+            Certaines fonctionnalités sont limitées.
+          </p>
+          <p style={{ marginTop: "10px", fontSize: "13px" }}>
+            🙏 Merci pour votre retour — il nous aidera à améliorer le produit.
+          </p>
+    <button
+  className="btn btnPrimary"
+  style={{ marginTop: "12px" }}
+  onClick={() => {
+    localStorage.setItem("beta_seen", "1");
+    setShowBetaNotice(false);
+  }}
+>
+  Commencer
+</button>
+        </div>
+      </div>
+    )}
+
+     
   <div className="page">
     <header className="topbar">
       <div className="appStatusBar">
@@ -2464,36 +2516,29 @@ return (
 
               <div className="revenueDate">{formatRevenueDate(item.date)}</div>
             </div>
+          <div className="revenueMeta">
+  {item.client && <div><strong>Client :</strong> {item.client}</div>}
+  {item.invoice && <div><strong>Facture :</strong> {item.invoice}</div>}
+  {item.note && <div><strong>Note :</strong> {item.note}</div>}
+</div>
 
-            <div className="revenueMeta">
-              {item.client && (
-                <div>
-                  <strong>Client :</strong> {item.client}
-                </div>
-              )}
+{!user && showSignupHint && (
+  <div className="saveNotice">
+    💾 Sauvegarde ton espace pour ne rien perdre
+    <div style={{ marginTop: 8 }}>
+      <button className="btn btnPrimary" onClick={() => setAuthOpen(true)}>
+        Créer mon espace
+      </button>
+    </div>
+  </div>
+)}
 
-              {item.invoice && (
-                <div>
-                  <strong>Facture :</strong> {item.invoice}
-                </div>
-              )}
+<div className="revenueActions">
+  <button className="btn btnGhost btnSmall" onClick={() => handleDeleteRevenue(item.id)}>
+    Supprimer
+  </button>
+</div>
 
-              {item.note && (
-                <div>
-                  <strong>Note :</strong> {item.note}
-                </div>
-              )}
-            </div>
-
-            <div className="revenueActions">
-              <button
-                className="btn btnGhost btnSmall"
-                type="button"
-                onClick={() => handleDeleteRevenue(item.id)}
-              >
-                Supprimer
-              </button>
-            </div>
           </div>
         ))}
       </div>
@@ -2821,13 +2866,15 @@ return (
             <footer className="footer">
           © {new Date().getFullYear()} Microassist
         </footer>
-
-        {authOpen && (
-          <AuthGate
-            onClose={() => setAuthOpen(false)}
-            onSuccess={() => setAuthOpen(false)}
-          />
-        )}
+{/*
+{authOpen && (
+  <AuthGate
+    onClose={() => setAuthOpen(false)}
+    onSuccess={() => setAuthOpen(false)}
+  />
+)}
+*/}
       </div>
+      </>
     );
 }
