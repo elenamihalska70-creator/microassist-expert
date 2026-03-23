@@ -118,6 +118,7 @@ export default function App() {
   const [saveNotice, setSaveNotice] = useState(null);
   const [lastSavedAt, setLastSavedAt] = useState(null);
   const [hasDraft, setHasDraft] = useState(false);
+  const [draftAppView, setDraftAppView] = useState(null);
   const [restoredAt, setRestoredAt] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
   // UI состояния
@@ -288,8 +289,10 @@ const step = steps[stepIndex];
   const chatEndRef = useRef(null);
   const assistantRef = useRef(null);
   const securityRef = useRef(null);
-  const feedbackRef = useRef(null);
   const heroRef = useRef(null);
+  const servicesRef = useRef(null);
+  const howItWorksRef = useRef(null);
+  const feedbackRef = useRef(null);
   const fiscalRef = useRef(null);
   const chartRef = useRef(null);
   useLayoutEffect(() => {
@@ -539,17 +542,22 @@ useEffect(() => {
   try {
     const raw = localStorage.getItem(LS_KEY);
 
+    // всегда стартуем с Accueil
+    setAppView("landing");
+    setFocusMode(false);
+
     if (!raw) {
       setHydrated(true);
       return;
     }
 
     const data = JSON.parse(raw);
+
     if (!data || data.version !== LS_VERSION) {
-  localStorage.removeItem(LS_KEY);
-  setHydrated(true);
-  return;
-}
+      localStorage.removeItem(LS_KEY);
+      setHydrated(true);
+      return;
+    }
 
     setHasDraft(true);
 
@@ -571,22 +579,12 @@ useEffect(() => {
       nextIndex = data.stepIndex;
     }
 
-    const hasProfile = !!a.activity_type && !!a.declaration_frequency;
-
-    if (hasProfile) {
-      setAppView("dashboard");
-      const dashIndex = getIndexByKey("fiscal_dashboard");
-      if (dashIndex !== -1) nextIndex = dashIndex;
-    } else {
-      setAppView("assistant");
-    }
-
     setStepIndex(nextIndex);
     setRestoredAt(new Date().toISOString());
-} catch (e) {
-  console.warn("Restore failed:", e);
-  localStorage.removeItem(LS_KEY);
-} finally {
+  } catch (e) {
+    console.warn("Restore failed:", e);
+    localStorage.removeItem(LS_KEY);
+  } finally {
     setHydrated(true);
   }
 }, []);
@@ -1140,38 +1138,50 @@ function goToView(nextView, options = {}) {
     await refreshRevenues();
   }, [deleteRevenueFromSupabase, refreshRevenues]);
 
-  const handleReset = useCallback(() => {
-    localStorage.removeItem(LS_KEY);
-    setAppView("assistant");
-    setStepIndex(0);
-    setAnswers({});
-    setInput("");
-    setUserName("");
-    setHelpOpen(false);
-    setIsTyping(false);
-    setFocusMode(false);
-    setHasDraft(false);
-    setLastSavedAt(null);
-    setRestoredAt(null);
-    setMessages([
-      { 
-        role: "bot", 
-        text: "Bonjour 👋 On recommence. Réponds simplement." 
-      },
-      { 
-        role: "bot", 
-        text: `Étape 1 — ${FISCAL_STEPS[0].title}\n${FISCAL_STEPS[0].question}` 
-      },
-    ]);
-    setTimeout(() => scrollToTopSection("assistant"), 120);
-  }, []);
+  function handleReset() {
+  localStorage.removeItem(LS_KEY);
+
+  setAppView("landing");
+  setDraftAppView(null);
+  setStepIndex(0);
+  setAnswers({});
+  setInput("");
+  setUserName("");
+  setHelpOpen(false);
+  setIsTyping(false);
+  setFocusMode(false);
+  setHasDraft(false);
+  setLastSavedAt(null);
+  setRestoredAt(null);
+
+  setMessages([
+    {
+      role: "bot",
+      text: "Bonjour 👋 On recommence. Réponds simplement.",
+    },
+    {
+      role: "bot",
+      text: `Étape 1 — ${FISCAL_STEPS[0].title}\n${FISCAL_STEPS[0].question}`,
+    },
+  ]);
+
+  setTimeout(() => {
+    scrollToTopSection("hero");
+  }, 120);
+}
 
 // Оставьте только goToView и используйте везде
 const goToAssistant = useCallback(() => {
-  goToView("assistant", { push: true, focus: false });
-  setTimeout(() => {
-    assistantRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, 100);
+  goToView("assistant", { push: true, focus: true });
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      assistantRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  });
 }, [goToView]);
 
 // А в handleTipAction используйте goToAssistant
@@ -1495,24 +1505,40 @@ function handleNewSession() {
   }, 120);
 }
 
-function goToLandingSection(sectionId = "home") {
-  goToView("landing", { push: true, focus: false });
+const goToLandingSection = useCallback((section) => {
+  const sectionKeyMap = {
+    home: null,
+    howItWorks: "howItWorks",
+    services: "services",
+    contact: "feedback",
+  };
+
+  const visibleKey = sectionKeyMap[section];
+
+  if (visibleKey) {
+    setVisibleSections((prev) => ({
+      ...prev,
+      [visibleKey]: true,
+    }));
+  }
+
+  setAppView("landing");
+  setFocusMode(false);
 
   setTimeout(() => {
-    if (sectionId === "home") {
-      heroRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-      return;
-    }
+    const refs = {
+      home: heroRef,
+      howItWorks: howItWorksRef,
+      services: servicesRef,
+      contact: feedbackRef,
+    };
 
-    document.getElementById(sectionId)?.scrollIntoView({
+    refs[section]?.current?.scrollIntoView({
       behavior: "smooth",
       block: "start",
     });
   }, 120);
-}
+}, []);
 
 function goToFeedback() {
   setAppView("landing");
@@ -1551,6 +1577,33 @@ function handleEditProfile() {
   }, 120);
 }
 
+function handleResumeDraft() {
+  const targetView = draftAppView || "assistant";
+
+  setAppView(targetView);
+
+  if (targetView === "assistant") {
+    setFocusMode(true);
+
+    setTimeout(() => {
+      assistantRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 120);
+  }
+
+  if (targetView === "dashboard") {
+    setFocusMode(true);
+
+    setTimeout(() => {
+      fiscalRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 120);
+  }
+}
 
 const previewCharges = useMemo(() => {
   if (!Number.isFinite(revenueAmount) || revenueAmount <= 0) return 0;
@@ -1648,15 +1701,19 @@ return (
   <button type="button" className="navLink" onClick={() => goToLandingSection("home")}>
     Accueil
   </button>
-  <button type="button" className="navLink" onClick={() => goToLandingSection("services")}>
-    Services
-  </button>
+ <button type="button" className="navLink" onClick={() => goToLandingSection("howItWorks")}>
+  Services
+</button>
   <button type="button" className="navLink" onClick={goToAssistant}>
     Assistant
   </button>
-  <button type="button" className="navLink" onClick={goToFeedback}>
-    Contact
-  </button>
+ <button
+  type="button"
+  className="navLink"
+  onClick={() => goToLandingSection("contact")}
+>
+  Contact
+</button>
 </nav>
       </div>
     </header>
@@ -1764,8 +1821,8 @@ return (
   </div>
 )}
 
-{!focusMode && appView === "landing" && visibleSections.about && (
-  <section className="card">
+{!focusMode && visibleSections.howItWorks && (
+<section ref={howItWorksRef} className="card">
     <div className="sectionHead">
       <h2>À propos de Microassist</h2>
       <button
@@ -1820,7 +1877,7 @@ return (
 )}
 
 {!focusMode && visibleSections.howItWorks && (
-<section className="card">
+  <section ref={howItWorksRef} className="card">
   <div className="sectionHead">
     <h2>Comment ça marche</h2>
     <button
@@ -1950,16 +2007,16 @@ return (
       </div>
 
       <div className="topActions">
-        {hasDraft && (
-          <button
-            className="btn btnGhost btnSmall"
-            onClick={() => scrollToRef(assistantRef)}
-            type="button"
-          >
-            Reprendre
-          </button>
-        )}
-      </div>
+  {hasDraft && (
+   <button
+  className="btn btnGhost btnSmall"
+  onClick={handleResumeDraft}
+  type="button"
+>
+  Reprendre
+</button>
+  )}
+</div>
 
      <p className="muted assistantIntro">
   Configure ton profil en quelques étapes pour obtenir un repère fiscal clair.
@@ -2160,22 +2217,16 @@ return (
         Accéder à mon espace fiscal
       </button>
 
-      <button
-        className="btn btnGhost"
-        type="button"
-        onClick={() => {
-          goToView("dashboard", { push: true, focus: false });
-          setTimeout(() => {
-            fiscalRef.current?.scrollIntoView({
-              behavior: "smooth",
-              block: "start",
-            });
-            setAuthOpen(true);
-          }, 100);
-        }}
-      >
-        Enregistrer mon suivi
-      </button>
+<button
+  className="btn btnGhost"
+  type="button"
+  onClick={() => {
+    setShowSignupHint(true);
+  }}
+>
+  Enregistrer mon suivi
+</button>
+
     </div>
   </div>
 
@@ -2306,13 +2357,14 @@ return (
         </p>
 
         <div className="miniActions" style={{ marginTop: 12 }}>
-          <button
-            className="btn btnPrimary"
-            type="button"
-            onClick={() => setAuthOpen(true)}
-          >
-            Enregistrer
-          </button>
+      <button
+  className="btn btnPrimary"
+  type="button"
+  onClick={() => setShowSignupHint(true)}
+>
+  Enregistrer
+</button>
+  
 
           <button
             className="btn btnGhost"
@@ -2526,9 +2578,13 @@ return (
   <div className="saveNotice">
     💾 Sauvegarde ton espace pour ne rien perdre
     <div style={{ marginTop: 8 }}>
-      <button className="btn btnPrimary" onClick={() => setAuthOpen(true)}>
-        Créer mon espace
-      </button>
+     <button
+  className="btn btnPrimary"
+  type="button"
+  onClick={() => setShowSignupHint(false)}
+>
+  Version complète bientôt disponible
+</button>
     </div>
   </div>
 )}
