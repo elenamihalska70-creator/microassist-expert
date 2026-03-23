@@ -292,6 +292,7 @@ const step = steps[stepIndex];
   const heroRef = useRef(null);
   const servicesRef = useRef(null);
   const howItWorksRef = useRef(null);
+  const signupHintRef = useRef(null);
   const feedbackRef = useRef(null);
   const fiscalRef = useRef(null);
   const chartRef = useRef(null);
@@ -1316,7 +1317,7 @@ async function handleSaveRevenue() {
     setRevenues(updatedRevenues);
     localStorage.setItem("revenues_guest", JSON.stringify(updatedRevenues));
     
-    setShowSignupHint(true);
+    setShowSignupHint(false);
     setShowAddRevenue(false);
     resetRevenueForm();
     
@@ -1540,17 +1541,6 @@ const goToLandingSection = useCallback((section) => {
   }, 120);
 }, []);
 
-function goToFeedback() {
-  setAppView("landing");
-  setFocusMode(false);
-
-  setTimeout(() => {
-    feedbackRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
-  }, 120);
-}
 
 function handleEditProfile() {
   setAppView("assistant");
@@ -1659,7 +1649,7 @@ return (
           <p style={{ marginTop: "10px", fontSize: "13px" }}>
             🙏 Merci pour votre retour — il nous aidera à améliorer le produit.
           </p>
-    <button
+<button
   className="btn btnPrimary"
   style={{ marginTop: "12px" }}
   onClick={() => {
@@ -1821,8 +1811,8 @@ return (
   </div>
 )}
 
-{!focusMode && visibleSections.howItWorks && (
-<section ref={howItWorksRef} className="card">
+{!focusMode && visibleSections.about && (
+  <section className="card">
     <div className="sectionHead">
       <h2>À propos de Microassist</h2>
       <button
@@ -2221,7 +2211,15 @@ return (
   className="btn btnGhost"
   type="button"
   onClick={() => {
+    setAppView("dashboard");
+    setFocusMode(true);
     setShowSignupHint(true);
+    setTimeout(() => {
+      fiscalRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 100);
   }}
 >
   Enregistrer mon suivi
@@ -2345,37 +2343,78 @@ return (
       </div>
     </div>
 
-    {saveNotice && <div className="saveNotice">✅ {saveNotice}</div>}
+{saveNotice && <div className="saveNotice">✅ {saveNotice}</div>}
 
+{!user && revenues.length > 0 && (
+  <div className="assistantNextStep" style={{ marginBottom: 18 }}>
+    <div className="assistantNextStepTitle">Enregistrer mon suivi</div>
 
-   {!user && revenues.length > 0 && (
-      <div className="assistantNextStep" style={{ marginBottom: 18 }}>
-        <div className="assistantNextStepTitle">Enregistrer mon suivi</div>
+    <p className="muted">
+      Retrouve tes revenus, ton historique et tes repères à tout moment.
+    </p>
 
-        <p className="muted">
-          Retrouve tes revenus, ton historique et tes repères à tout moment.
-        </p>
-
-        <div className="miniActions" style={{ marginTop: 12 }}>
+    <div className="miniActions" style={{ marginTop: 12 }}>
       <button
-  className="btn btnPrimary"
-  type="button"
-  onClick={() => setShowSignupHint(true)}
->
-  Enregistrer
-</button>
-  
+        className="btn btnPrimary"
+        type="button"
+        onClick={() => {
+          setShowSignupHint(true);
 
-          <button
-            className="btn btnGhost"
-            type="button"
-            onClick={() => scrollToRef(assistantRef)}
-          >
-            Continuer sans enregistrer
-          </button>
-        </div>
-      </div>
-    )}
+          setTimeout(() => {
+            signupHintRef.current?.scrollIntoView({
+              behavior: "smooth",
+              block: "start",
+            });
+          }, 120);
+        }}
+      >
+        Enregistrer
+      </button>
+
+     <button
+  className="btn btnGhost"
+  type="button"
+  onClick={() => setShowSignupHint(false)}
+>
+  Continuer sans enregistrer
+</button>
+    </div>
+  </div>
+)}
+
+{showSignupHint && (
+  <div
+    ref={signupHintRef}
+    className="assistantNextStep"
+    style={{ marginBottom: 18 }}
+  >
+    <div className="assistantNextStepTitle">Version bêta</div>
+
+    <p className="muted">
+      Cette version permet déjà de tester le parcours principal :
+      ajout de revenus, estimation des charges et repères fiscaux.
+    </p>
+
+    <p className="muted">
+      La sauvegarde complète de l’espace personnel n’est pas encore activée
+      dans cette version de démonstration.
+    </p>
+
+    <p className="muted">
+      Merci pour votre retour — il m’aidera à améliorer le produit.
+    </p>
+
+    <div className="miniActions" style={{ marginTop: 12 }}>
+      <button
+        className="btn btnPrimary"
+        type="button"
+        onClick={() => setShowSignupHint(false)}
+      >
+        Compris
+      </button>
+    </div>
+  </div>
+)}
 
     <div className="fiscalDashboard">
       <div className="fiscalCard">
@@ -2574,20 +2613,6 @@ return (
   {item.note && <div><strong>Note :</strong> {item.note}</div>}
 </div>
 
-{!user && showSignupHint && (
-  <div className="saveNotice">
-    💾 Sauvegarde ton espace pour ne rien perdre
-    <div style={{ marginTop: 8 }}>
-     <button
-  className="btn btnPrimary"
-  type="button"
-  onClick={() => setShowSignupHint(false)}
->
-  Version complète bientôt disponible
-</button>
-    </div>
-  </div>
-)}
 
 <div className="revenueActions">
   <button className="btn btnGhost btnSmall" onClick={() => handleDeleteRevenue(item.id)}>
@@ -2898,23 +2923,23 @@ return (
   </div>
 )}
 
-              <div className="miniActions" style={{ marginTop: 16 }}>
-                <button
-                  className="btn btnGhost"
-                  type="button"
-                  onClick={handleCloseRevenuePopup}
-                >
-                  Annuler
-                </button>
+          <div className="miniActions" style={{ marginTop: 16 }}>
+  <button
+    className="btn btnGhost"
+    type="button"
+    onClick={handleCloseRevenuePopup}
+  >
+    Annuler
+  </button>
 
-                <button
-                  className="btn btnPrimary"
-                  type="button"
-                  onClick={handleSaveRevenue}
-                >
-                  Enregistrer
-                </button>
-              </div>
+  <button
+    className="btn btnPrimary"
+    type="button"
+    onClick={handleSaveRevenue}
+  >
+    Enregistrer
+  </button>
+</div>
             </div>
           </div>
         )}
