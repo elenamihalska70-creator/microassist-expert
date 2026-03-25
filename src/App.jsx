@@ -718,15 +718,14 @@ useEffect(() => {
 }, [user, resumeSaveAfterAuth]);
 
 const dashboardAnswers = useMemo(() => {
-  // Проверяем наличие данных
   const hasActivity = answers?.activity_type || fiscalProfile?.activity_type;
   const hasFrequency = answers?.declaration_frequency || fiscalProfile?.declaration_frequency;
   
-  // Если нет критических данных - возвращаем минимальный объект
   if (!hasActivity && !hasFrequency) {
     return {
       activity_type: null,
       declaration_frequency: null,
+      acre: null,
       _isComplete: false,
     };
   }
@@ -735,6 +734,7 @@ const dashboardAnswers = useMemo(() => {
     ...answers,
     activity_type: answers?.activity_type || fiscalProfile?.activity_type || null,
     declaration_frequency: answers?.declaration_frequency || fiscalProfile?.declaration_frequency || null,
+    acre: answers?.acre || fiscalProfile?.acre || null,
     _isComplete: !!(hasActivity && hasFrequency),
   };
 }, [answers, fiscalProfile]);
@@ -746,7 +746,6 @@ const dashboardAnswers = useMemo(() => {
   }, [revenues]);
 
 const computed = useMemo(() => {
-  // Проверяем, что профиль полный
   if (!dashboardAnswers?.activity_type || !dashboardAnswers?.declaration_frequency) {
     return {
       nextDeclarationLabel: "Profil à compléter",
@@ -811,51 +810,72 @@ const freqLabel = useMemo(
 
 
 
-  const revenueAmount = Number(
-  String(revenueForm.amount || "").replace(",", ".")
-);
-
-  function getEstimatedRate(activityType) {
-    switch (activityType) {
-      case "vente":
-        return 0.123;
-      case "services":
-        return 0.22;
-      case "mixte":
-        return 0.18;
-      default:
-        return 0.22;
-    }
+// ==================== CALCULS POUR DASHBOARD ====================
+const estimatedCharges = useMemo(() => {
+  if (computed?.rate) {
+    return Math.round(currentMonthTotal * computed.rate);
   }
+  return 0;
+}, [currentMonthTotal, computed?.rate]);
 
-  const estimatedRate = useMemo(() => {
-    return getEstimatedRate(dashboardAnswers.activity_type);
-  }, [dashboardAnswers.activity_type]);
+const availableAmount = useMemo(() => {
+  return Math.max(0, currentMonthTotal - estimatedCharges);
+}, [currentMonthTotal, estimatedCharges]);
 
-  const estimatedCharges = useMemo(() => {
-    return Math.round(currentMonthTotal * estimatedRate);
-  }, [currentMonthTotal, estimatedRate]);
+// ==================== PREVIEW POUR MODALE AJOUT REVENU ====================
+const revenueAmount = useMemo(() => {
+  return Number(String(revenueForm.amount || "").replace(",", "."));
+}, [revenueForm.amount]);
 
-  const availableAmount = useMemo(() => {
-    return Math.max(0, currentMonthTotal - estimatedCharges);
-  }, [currentMonthTotal, estimatedCharges]);
+// ==================== FONCTIONS DE TAUX ====================
+function getEstimatedRate(activityType) {
+  switch (activityType) {
+    case "vente":
+      return 0.123;      // 12.3% pour la vente
+    case "services":
+      return 0.22;       // 22% pour les services
+    case "mixte":
+      return 0.18;       // 18% pour les activités mixtes
+    default:
+      return 0.22;       // Taux par défaut
+  }
+}
 
-  const tvaWarning = useMemo(() => {
-    const limit = 36800; // seuil TVA services
-    const warningLevel = 0.8;
+const previewCharges = useMemo(() => {
+  if (!Number.isFinite(revenueAmount) || revenueAmount <= 0) return 0;
+  if (computed?.rate) {
+    return Math.round(revenueAmount * computed.rate);
+  }
+  return Math.round(revenueAmount * getEstimatedRate(dashboardAnswers.activity_type));
+}, [revenueAmount, computed?.rate, dashboardAnswers.activity_type]);
 
-    if (!currentMonthTotal) return null;
+const previewAvailable = useMemo(() => {
+  if (!Number.isFinite(revenueAmount) || revenueAmount <= 0) return 0;
+  return Math.max(0, revenueAmount - previewCharges);
+}, [revenueAmount, previewCharges]);
 
-    if (currentMonthTotal >= limit) {
-      return "⚠️ Vous dépassez le seuil de TVA. La facturation de la TVA devient obligatoire.";
-    }
 
-    if (currentMonthTotal >= limit * warningLevel) {
-      return "ℹ️ Attention : vous approchez du seuil de TVA.";
-    }
 
-    return null;
-  }, [currentMonthTotal]);
+const previewRateLabel = useMemo(() => {
+  if (computed?.rate) {
+    return `${Math.round(computed.rate * 1000) / 10} %`;
+  }
+  return `${Math.round(getEstimatedRate(dashboardAnswers.activity_type) * 1000) / 10} %`;
+}, [computed?.rate, dashboardAnswers.activity_type]);
+
+const previewAdvice = useMemo(() => {
+  if (!Number.isFinite(revenueAmount) || revenueAmount <= 0) return "";
+  if (previewCharges === 0) {
+    return "Ajoute un montant pour voir une estimation.";
+  }
+  if (previewCharges <= 50) {
+    return "Petit revenu : garde ce repère simple pour éviter les oublis.";
+  }
+  if (previewCharges <= 300) {
+    return "Pense à mettre ce montant de côté dès maintenant.";
+  }
+  return "Bon réflexe : sépare cette somme tout de suite pour éviter les surprises.";
+}, [revenueAmount, previewCharges]);
 
   const profileReady =
   dashboardAnswers?.activity_type && dashboardAnswers?.declaration_frequency;
@@ -1208,40 +1228,39 @@ function handleTipAction(action) {
     }));
   }
 
-  async function saveRevenueToSupabase(revenue) {
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+async function saveFiscalProfileToSupabase(profileAnswers) {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
 
-    if (userError || !user) {
-      console.error("User not authenticated:", userError?.message);
-      return null;
-    }
-
-    const payload = {
-      user_id: user.id,
-      amount: Number(revenue.amount),
-      revenue_date: revenue.date,
-      client: revenue.client || null,
-      invoice: revenue.invoice || null,
-      note: revenue.note || null,
-    };
-
-    const { data, error } = await supabase
-      .from("revenues")
-      .insert(payload)
-      .select()
-      .single();
-
-    if (error) {
-      console.error("Revenue insert error:", error.message);
-      return null;
-    }
-
-    console.log("Revenue saved ✅");
-    return data;
+  if (userError || !user) {
+    console.error("User not found:", userError?.message);
+    return;
   }
+
+  const payload = {
+    user_id: user.id,
+    business_status:
+      profileAnswers.entry_status === "micro_yes"
+        ? "micro_entreprise"
+        : "other",
+    activity_type: profileAnswers.activity_type,
+    declaration_frequency: profileAnswers.declaration_frequency,
+    tva_mode: "franchise_en_base",
+    acre: profileAnswers.acre || null,
+  };
+
+  const { error } = await supabase
+    .from("fiscal_profiles")
+    .upsert(payload, { onConflict: "user_id" });
+
+  if (error) {
+    console.error("Fiscal profile upsert error:", error.message);
+  } else {
+    console.log("Fiscal profile saved ✅");
+  }
+}
 
     async function deleteRevenueFromSupabase(id) {
     const { error } = await supabase.from("revenues").delete().eq("id", id);
@@ -1253,6 +1272,42 @@ function handleTipAction(action) {
 
     return true;
   }                  
+
+async function saveRevenueToSupabase(revenue) {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    console.error("User not authenticated:", userError?.message);
+    return null;
+  }
+
+  const payload = {
+    user_id: user.id,
+    amount: Number(revenue.amount),
+    revenue_date: revenue.date,
+    client: revenue.client || null,
+    invoice: revenue.invoice || null,
+    note: revenue.note || null,
+  };
+
+  const { data, error } = await supabase
+    .from("revenues")
+    .insert(payload)
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Revenue insert error:", error.message);
+    return null;
+  }
+
+  console.log("Revenue saved ✅");
+  return data;
+}
+
 
 async function saveRevenueEntry() {
   const amount = Number(String(revenueForm.amount).replace(",", "."));
@@ -1279,7 +1334,8 @@ async function saveRevenueEntry() {
 
   await refreshRevenues();
 
-  const charges = Math.round(amount * estimatedRate);
+   const rate = computed?.rate || getEstimatedRate(dashboardAnswers.activity_type);
+  const charges = Math.round(amount * rate);
   const disponible = Math.max(0, amount - charges);
 
   setSaveNotice(
@@ -1420,6 +1476,12 @@ function submitAnswer({ chatText, value }) {
       forcedNextIndex = dashIndex;
     }
   }
+
+  // В submitAnswer, после setAnswers(updatedAnswers)
+if (key === "acre") {
+  console.log("🔍 ACRE selected:", value);
+  console.log("🔍 Answers after ACRE:", updatedAnswers);
+}
 
   setTimeout(() => {
     goNext(forcedNextIndex);
@@ -1594,38 +1656,6 @@ function handleResumeDraft() {
     }, 120);
   }
 }
-
-const previewCharges = useMemo(() => {
-  if (!Number.isFinite(revenueAmount) || revenueAmount <= 0) return 0;
-  return Math.round(revenueAmount * estimatedRate);
-}, [revenueAmount, estimatedRate]);
-
-const previewAvailable = useMemo(() => {
-  if (!Number.isFinite(revenueAmount) || revenueAmount <= 0) return 0;
-  return Math.max(0, revenueAmount - previewCharges);
-}, [revenueAmount, previewCharges]);
-
-const previewRateLabel = useMemo(() => {
-  return `${Math.round(estimatedRate * 1000) / 10} %`;
-}, [estimatedRate]);
-
-const previewAdvice = useMemo(() => {
-  if (!Number.isFinite(revenueAmount) || revenueAmount <= 0) return "";
-
-  if (previewCharges === 0) {
-    return "Ajoute un montant pour voir une estimation.";
-  }
-
-  if (previewCharges <= 50) {
-    return "Petit revenu : garde ce repère simple pour éviter les oublis.";
-  }
-
-  if (previewCharges <= 300) {
-    return "Pense à mettre ce montant de côté dès maintenant.";
-  }
-
-  return "Bon réflexe : sépare cette somme tout de suite pour éviter les surprises.";
-}, [revenueAmount, previewCharges]);
 
 
 
@@ -2156,7 +2186,6 @@ return (
     </ul>
   </div>
 
-  {tvaWarning && <div className="tvaWarning">{tvaWarning}</div>}
 
   {computed?.recommendations?.length > 0 && (
     <div className="dashRecs">
@@ -2182,6 +2211,10 @@ return (
       </div>
     </div>
   )}
+
+  {computed?.acreHint && (
+  <div className="tvaWarning">{computed.acreHint}</div>
+)}
 
   <div className="assistantNextStep">
     <div className="assistantNextStepTitle">Ton profil est prêt</div>
@@ -2306,172 +2339,127 @@ return (
 
       <div className="sectionHeadActions">
         {!showChart && monthlyHistory.length > 0 && (
-          <button
-            className="btn btnGhost btnSmall"
-            type="button"
-          onClick={() => {
-  setShowChart(true);
-  localStorage.setItem(CHART_KEY, "true");
-
-  setTimeout(() => {
-    chartRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
-  }, 120);
-}}
-          >
+          <button className="btn btnGhost btnSmall" type="button" onClick={() => {
+            setShowChart(true);
+            localStorage.setItem(CHART_KEY, "true");
+            setTimeout(() => {
+              chartRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }, 120);
+          }}>
             Afficher le graphique
           </button>
         )}
 
-<button
-  className="btn btnGhost btnSmall"
-  type="button"
-  onClick={handleEditProfile}
->
-  Modifier mon profil
-</button>
+        <button className="btn btnGhost btnSmall" type="button" onClick={handleEditProfile}>
+          Modifier mon profil
+        </button>
 
-        <button
-          className="btn btnPrimary btnSmall"
-          type="button"
-          onClick={handleOpenRevenuePopup}
-        >
+        <button className="btn btnPrimary btnSmall" type="button" onClick={handleOpenRevenuePopup}>
           + Ajouter revenu
         </button>
       </div>
     </div>
 
-{saveNotice && <div className="saveNotice">✅ {saveNotice}</div>}
+    {saveNotice && <div className="saveNotice">✅ {saveNotice}</div>}
 
-{!user && revenues.length > 0 && (
-  <div className="assistantNextStep" style={{ marginBottom: 18 }}>
-    <div className="assistantNextStepTitle">Enregistrer mon suivi</div>
+    {/* 👇 NOUVELLE PODKAZKA - AJOUTER ICI */}
+    {currentMonthTotal === 0 && dashboardAnswers?.activity_type && (
+      <div className="assistantNextStep" style={{ marginBottom: 18, background: "#fef9e3", border: "1px solid #fde68a" }}>
+        <div className="assistantNextStepTitle">💡 Commence ton suivi</div>
+        <p className="muted" style={{ marginTop: 4 }}>
+          Ton profil est configuré. Ajoute ton premier revenu pour voir tes charges estimées,
+          ton disponible et tes repères fiscaux personnalisés.
+        </p>
+        <div className="miniActions" style={{ marginTop: 12 }}>
+          <button className="btn btnPrimary" type="button" onClick={handleOpenRevenuePopup}>
+            + Ajouter mon premier revenu
+          </button>
+        </div>
+      </div>
+    )}
 
-    <p className="muted">
-      Retrouve tes revenus, ton historique et tes repères à tout moment.
-    </p>
+    {!user && revenues.length > 0 && (
+      <div className="assistantNextStep" style={{ marginBottom: 18 }}>
+        <div className="assistantNextStepTitle">Enregistrer mon suivi</div>
+        <p className="muted">
+          Retrouve tes revenus, ton historique et tes repères à tout moment.
+        </p>
+        <div className="miniActions" style={{ marginTop: 12 }}>
+          <button className="btn btnPrimary" type="button" onClick={() => {
+            setShowSignupHint(true);
+            setTimeout(() => {
+              signupHintRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }, 120);
+          }}>
+            Enregistrer
+          </button>
+          <button className="btn btnGhost" type="button" onClick={() => setShowSignupHint(false)}>
+            Continuer sans enregistrer
+          </button>
+        </div>
+      </div>
+    )}
 
-    <div className="miniActions" style={{ marginTop: 12 }}>
-      <button
-        className="btn btnPrimary"
-        type="button"
-        onClick={() => {
-          setShowSignupHint(true);
+    {showSignupHint && (
+      <div ref={signupHintRef} className="assistantNextStep" style={{ marginBottom: 18 }}>
+        <div className="assistantNextStepTitle">Version bêta</div>
+        <p className="muted">
+          Cette version permet déjà de tester le parcours principal : ajout de revenus, estimation des charges et repères fiscaux.
+        </p>
+        <p className="muted">
+          La sauvegarde complète de l’espace personnel n’est pas encore activée dans cette version de démonstration.
+        </p>
+        <p className="muted">
+          Merci pour votre retour — il m’aidera à améliorer le produit.
+        </p>
+        <div className="miniActions" style={{ marginTop: 12 }}>
+          <button className="btn btnPrimary" type="button" onClick={() => setShowSignupHint(false)}>
+            Compris
+          </button>
+        </div>
+      </div>
+    )}
 
-          setTimeout(() => {
-            signupHintRef.current?.scrollIntoView({
-              behavior: "smooth",
-              block: "start",
-            });
-          }, 120);
-        }}
-      >
-        Enregistrer
-      </button>
-
-     <button
-  className="btn btnGhost"
-  type="button"
-  onClick={() => setShowSignupHint(false)}
->
-  Continuer sans enregistrer
-</button>
-    </div>
-  </div>
-)}
-
-{showSignupHint && (
-  <div
-    ref={signupHintRef}
-    className="assistantNextStep"
-    style={{ marginBottom: 18 }}
-  >
-    <div className="assistantNextStepTitle">Version bêta</div>
-
-    <p className="muted">
-      Cette version permet déjà de tester le parcours principal :
-      ajout de revenus, estimation des charges et repères fiscaux.
-    </p>
-
-    <p className="muted">
-      La sauvegarde complète de l’espace personnel n’est pas encore activée
-      dans cette version de démonstration.
-    </p>
-
-    <p className="muted">
-      Merci pour votre retour — il m’aidera à améliorer le produit.
-    </p>
-
-    <div className="miniActions" style={{ marginTop: 12 }}>
-      <button
-        className="btn btnPrimary"
-        type="button"
-        onClick={() => setShowSignupHint(false)}
-      >
-        Compris
-      </button>
-    </div>
-  </div>
-)}
-
+    {/* Cartes principales */}
     <div className="fiscalDashboard">
       <div className="fiscalCard">
         <div className="fiscalLabel">Revenus</div>
-        <div className="fiscalValue">
-          {currentMonthTotal.toLocaleString("fr-FR")} €
-        </div>
-        <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-          Revenus enregistrés
-        </div>
+        <div className="fiscalValue">{currentMonthTotal.toLocaleString("fr-FR")} €</div>
+        <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Revenus enregistrés</div>
       </div>
 
       <div className="fiscalCard">
         <div className="fiscalLabel">Charges</div>
-        <div className="fiscalValue">
-          {estimatedCharges.toLocaleString("fr-FR")} €
-        </div>
-        <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-          Estimation selon ton activité
-        </div>
+        <div className="fiscalValue">{estimatedCharges.toLocaleString("fr-FR")} €</div>
+        <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Estimation selon ton activité</div>
       </div>
 
       <div className="fiscalCard">
         <div className="fiscalLabel">Disponible</div>
-        <div className="fiscalValue">
-          {availableAmount.toLocaleString("fr-FR")} €
-        </div>
-        <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-          Après estimation des charges
-        </div>
+        <div className="fiscalValue">{availableAmount.toLocaleString("fr-FR")} €</div>
+        <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Après estimation des charges</div>
       </div>
     </div>
 
+    {/* Mini stats */}
     <div className="miniStatsGrid">
       <div className="miniStatCard">
         <div className="miniStatLabel">Moyenne mensuelle</div>
-        <div className="miniStatValue">
-          {revenueStats.monthlyAverage.toLocaleString("fr-FR")} €
-        </div>
+        <div className="miniStatValue">{revenueStats.monthlyAverage.toLocaleString("fr-FR")} €</div>
       </div>
-
       <div className="miniStatCard">
         <div className="miniStatLabel">Dernier revenu</div>
-        <div className="miniStatValue">
-          {revenueStats.lastRevenue.toLocaleString("fr-FR")} €
-        </div>
+        <div className="miniStatValue">{revenueStats.lastRevenue.toLocaleString("fr-FR")} €</div>
       </div>
-
       <div className="miniStatCard">
         <div className="miniStatLabel">Entrées</div>
         <div className="miniStatValue">{revenueStats.count}</div>
       </div>
     </div>
 
+    {/* Repères fiscaux */}
     <div className="fiscalTimeline">
       <h3>Repères fiscaux</h3>
-
       <div className="timelineList">
         {fiscalTimeline.map((item) => (
           <div key={item.key} className="timelineItem">
@@ -2479,7 +2467,6 @@ return (
               <span className="timelineIcon">{item.icon}</span>
               <span className="timelineLabel">{item.label}</span>
             </div>
-
             <div className="timelineValue">{item.value}</div>
             <div className="timelineHint">{item.hint}</div>
           </div>
@@ -2487,58 +2474,82 @@ return (
       </div>
     </div>
 
-    <div
-      className={[
-        "mainActionBox",
-        mainAction.level === "danger" ? "danger" : "",
-        mainAction.level === "warning" ? "warning" : "",
-        mainAction.level === "ok" ? "ok" : "",
-      ]
-        .join(" ")
-        .trim()}
-    >
+    {/* Analyse financière */}
+    {computed.monthlyExpenses !== undefined && (
+      <div className="financialAnalysis" style={{ marginTop: 24 }}>
+        <h3>📊 Analyse financière</h3>
+        <div className="fiscalDashboard" style={{ marginTop: 12 }}>
+          {computed.annualRevenue !== undefined && (
+            <div className="fiscalCard">
+              <div className="fiscalLabel">Revenu net annuel estimé</div>
+              <div className="fiscalValue">{computed.annualNet?.toLocaleString("fr-FR") || "—"} €</div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Après charges et cotisations</div>
+            </div>
+          )}
+          {computed.monthlyExpenses > 0 && (
+            <div className="fiscalCard">
+              <div className="fiscalLabel">Dépenses mensuelles</div>
+              <div className="fiscalValue">{computed.monthlyExpenses?.toLocaleString("fr-FR") || "—"} €</div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Tes charges personnelles</div>
+            </div>
+          )}
+          {computed.coverageRatio && (
+            <div className="fiscalCard">
+              <div className="fiscalLabel">Couverture des dépenses</div>
+              <div className="fiscalValue">{Math.round(computed.coverageRatio * 100)}%</div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Revenus / Dépenses</div>
+            </div>
+          )}
+        </div>
+      </div>
+    )}
+
+    {/* Main action */}
+    <div className={["mainActionBox", mainAction.level === "danger" ? "danger" : "", mainAction.level === "warning" ? "warning" : "", mainAction.level === "ok" ? "ok" : ""].join(" ").trim()}>
       <div className="mainActionTitle">{mainAction.title}</div>
       <div className="mainActionText">{mainAction.text}</div>
-
       {mainAction.cta && (
-        <button
-          className="btn btnPrimary"
-          type="button"
-          onClick={() => handleTipAction(mainAction.action)}
-        >
+        <button className="btn btnPrimary" type="button" onClick={() => handleTipAction(mainAction.action)}>
           {mainAction.cta}
         </button>
       )}
     </div>
 
+    {/* Santé financière */}
+    {computed.financialHealth && computed.financialHealthMessage && (
+      <div className={`financialHealthBox health-${computed.financialHealth}`} style={{
+        marginTop: 16,
+        padding: 16,
+        borderRadius: 12,
+        background: computed.financialHealth === "danger" ? "#fff5f5" : computed.financialHealth === "warning" ? "#fffaf1" : computed.financialHealth === "neutral" ? "#f8f9fb" : computed.financialHealth === "ok" ? "#f4fbf6" : "#f8f9fb",
+        border: `1px solid ${computed.financialHealth === "danger" ? "#f1c9c9" : computed.financialHealth === "warning" ? "#f0deae" : computed.financialHealth === "ok" ? "#cfe8cf" : "#e2e8f0"}`
+      }}>
+        <div style={{ fontWeight: 600, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+          <span>📊</span> Santé financière
+        </div>
+        <div style={{ fontSize: 14, marginBottom: 8, lineHeight: 1.4 }}>
+          {computed.financialHealthMessage}
+        </div>
+        {computed.savingsRecommended > 0 && (
+          <div style={{ fontSize: 13, color: "#555", marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(0,0,0,0.05)" }}>
+            💰 Objectif d'épargne recommandé : <strong>{computed.savingsRecommended.toLocaleString("fr-FR")} €</strong>
+          </div>
+        )}
+      </div>
+    )}
 
+    {/* Smart tips */}
     {smartTips.length > 0 && (
       <div className="smartTips">
         <h3>Recommandations</h3>
-
         <div className="smartTipsList">
           {smartTips.map((tip) => (
-            <div
-              key={tip.key}
-              className={[
-                "smartTipCard",
-                tip.level === "danger" ? "tipDanger" : "",
-                tip.level === "warning" ? "tipWarning" : "",
-                tip.level === "ok" ? "tipOk" : "",
-              ]
-                .join(" ")
-                .trim()}
-            >
+            <div key={tip.key} className={["smartTipCard", tip.level === "danger" ? "tipDanger" : "", tip.level === "warning" ? "tipWarning" : "", tip.level === "ok" ? "tipOk" : ""].join(" ").trim()}>
               <div className="smartTipTitle">{tip.title}</div>
               <div className="smartTipText">{tip.text}</div>
-
               {tip.cta && (
                 <div className="smartTipActions">
-                  <button
-                    className="btn btnGhost btnSmall"
-                    type="button"
-                    onClick={() => handleTipAction(tip.action)}
-                  >
+                  <button className="btn btnGhost btnSmall" type="button" onClick={() => handleTipAction(tip.action)}>
                     {tip.cta}
                   </button>
                 </div>
@@ -2549,30 +2560,17 @@ return (
       </div>
     )}
 
+    {/* Journal des revenus */}
     <div className="journalHeader">
       <h3>Mes revenus</h3>
-
       <div className="journalFilters">
-        <button
-          className="btn btnGhost btnSmall"
-          type="button"
-          onClick={handleExportCSV}
-          disabled={filteredRevenues.length === 0}
-          title="Exporter les revenus affichés"
-        >
+        <button className="btn btnGhost btnSmall" type="button" onClick={handleExportCSV} disabled={filteredRevenues.length === 0} title="Exporter les revenus affichés">
           Export CSV
         </button>
-
-        <select
-          value={selectedMonth}
-          onChange={(e) => setSelectedMonth(e.target.value)}
-          className="monthFilter"
-        >
+        <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} className="monthFilter">
           <option value="all">Tous les mois</option>
           {monthOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
+            <option key={option.value} value={option.value}>{option.label}</option>
           ))}
         </select>
       </div>
@@ -2583,16 +2581,9 @@ return (
         <div className="emptyRevenueIcon">🧾</div>
         <div className="emptyRevenueTitle">Aucun revenu</div>
         <p className="muted">
-          {selectedMonth === "all"
-            ? "Ajoute ton premier revenu pour commencer ton suivi."
-            : "Aucun revenu pour ce mois."}
+          {selectedMonth === "all" ? "Ajoute ton premier revenu pour commencer ton suivi." : "Aucun revenu pour ce mois."}
         </p>
-
-        <button
-          className="btn btnPrimary btnSmall"
-          type="button"
-          onClick={handleOpenRevenuePopup}
-        >
+        <button className="btn btnPrimary btnSmall" type="button" onClick={handleOpenRevenuePopup}>
           Ajouter un revenu
         </button>
       </div>
@@ -2601,71 +2592,42 @@ return (
         {filteredRevenues.map((item) => (
           <div key={item.id} className="revenueItem">
             <div className="revenueMain">
-              <div className="revenueAmount">
-                {Number(item.amount).toLocaleString("fr-FR")} €
-              </div>
-
+              <div className="revenueAmount">{Number(item.amount).toLocaleString("fr-FR")} €</div>
               <div className="revenueDate">{formatRevenueDate(item.date)}</div>
             </div>
-          <div className="revenueMeta">
-  {item.client && <div><strong>Client :</strong> {item.client}</div>}
-  {item.invoice && <div><strong>Facture :</strong> {item.invoice}</div>}
-  {item.note && <div><strong>Note :</strong> {item.note}</div>}
-</div>
-
-
-<div className="revenueActions">
-  <button className="btn btnGhost btnSmall" onClick={() => handleDeleteRevenue(item.id)}>
-    Supprimer
-  </button>
-</div>
-
+            <div className="revenueMeta">
+              {item.client && <div><strong>Client :</strong> {item.client}</div>}
+              {item.invoice && <div><strong>Facture :</strong> {item.invoice}</div>}
+              {item.note && <div><strong>Note :</strong> {item.note}</div>}
+            </div>
+            <div className="revenueActions">
+              <button className="btn btnGhost btnSmall" onClick={() => handleDeleteRevenue(item.id)}>
+                Supprimer
+              </button>
+            </div>
           </div>
         ))}
       </div>
     )}
 
+    {/* Historique mensuel */}
     {monthlyHistory.length > 0 && (
       <div className="monthlyHistory">
         {showChart && revenueChartData.length > 0 && (
           <div ref={chartRef} className="revenueChartCard">
             <div className="chartHeader">
-              <div>
-                <h3>Évolution</h3>
-                <span className="muted">6 derniers mois</span>
-              </div>
-
-              <button
-                className="iconBtn"
-                onClick={hideChart}
-                aria-label="Masquer le graphique"
-              >
-                ✕
-              </button>
+              <div><h3>Évolution</h3><span className="muted">6 derniers mois</span></div>
+              <button className="iconBtn" onClick={hideChart} aria-label="Masquer le graphique">✕</button>
             </div>
-
             <div className="revenueChart">
               {revenueChartData.map((item) => {
                 const date = new Date(item.year, item.month);
-                const label = date.toLocaleDateString("fr-FR", {
-                  month: "short",
-                });
-
-                const height = Math.max(
-                  12,
-                  (item.total / maxRevenueValue) * 140,
-                );
-
+                const label = date.toLocaleDateString("fr-FR", { month: "short" });
+                const height = Math.max(12, (item.total / maxRevenueValue) * 140);
                 return (
                   <div key={`${item.year}-${item.month}`} className="chartCol">
-                    <div
-                      className="chartBar"
-                      style={{ height: `${height}px` }}
-                      title={`${item.total.toLocaleString("fr-FR")} €`}
-                    />
-                    <div className="chartValue">
-                      {item.total.toLocaleString("fr-FR")} €
-                    </div>
+                    <div className="chartBar" style={{ height: `${height}px` }} title={`${item.total.toLocaleString("fr-FR")} €`} />
+                    <div className="chartValue">{item.total.toLocaleString("fr-FR")} €</div>
                     <div className="chartLabel">{label}</div>
                   </div>
                 );
@@ -2673,25 +2635,15 @@ return (
             </div>
           </div>
         )}
-
         <h3>Historique mensuel</h3>
-
         <div className="historyList">
           {monthlyHistory.map((m) => {
             const date = new Date(m.year, m.month);
-
-            const label = date.toLocaleDateString("fr-FR", {
-              month: "long",
-              year: "numeric",
-            });
-
+            const label = date.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
             return (
               <div key={`${m.year}-${m.month}`} className="historyItem">
                 <span className="historyMonth">{label}</span>
-
-                <strong className="historyTotal">
-                  {m.total.toLocaleString("fr-FR")} €
-                </strong>
+                <strong className="historyTotal">{m.total.toLocaleString("fr-FR")} €</strong>
               </div>
             );
           })}

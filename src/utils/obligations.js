@@ -59,7 +59,16 @@ function nextMonthlyDeadline(today) {
 
 export function computeObligations(answers = {}) {
   const ca = Number(answers.ca_month || 0);
-  const rate = getRate(answers.activity_type);
+  const baseRate = getRate(answers.activity_type);
+  let rate = baseRate;
+  
+  // ✅ ACRE logic - сохраняем информацию о применении
+  let acreActive = false;
+  if (answers.acre === "yes" && baseRate > 0) {
+    acreActive = true;
+    rate = baseRate / 2;
+  }
+
   const estimatedAmount = Math.round(ca * rate);
   const treasuryRecommended = estimatedAmount;
 
@@ -70,8 +79,17 @@ export function computeObligations(answers = {}) {
         ? `${treasuryRecommended.toLocaleString("fr-FR")} € à mettre de côté`
         : "—";
 
+  // ✅ ACRE hint amélioré avec les taux
+  let acreHint = null;
+  if (answers.acre === "yes") {
+    acreHint = `💡 ACRE appliquée : taux réduit de ${Math.round(baseRate * 100)}% → ${Math.round(rate * 100)}% pour la première année.`;
+  } else if (answers.acre === "unknown") {
+    acreHint = "💡 Si tu bénéficies de l’ACRE, tes charges peuvent être réduites de 50% la première année.";
+  }
+
   const caAnnuel = ca * 12;
 
+  // ==================== TVA CALCULATIONS ====================
   let tvaThreshold = 0;
 
   if (answers.activity_type === "services") {
@@ -114,25 +132,26 @@ export function computeObligations(answers = {}) {
       `seuil : ${tvaThreshold.toLocaleString("fr-FR")} €${note}`;
   }
 
+  // ==================== DECLARATION DEADLINES ====================
   const today = new Date();
   const freq = answers.declaration_frequency;
 
   let deadlineDate = null;
   let nextDeclaration = "Prochaine échéance : à définir";
 
-  if (freq === "monthly") {
+  if (freq === "mensuel") {
     deadlineDate = nextMonthlyDeadline(today);
     nextDeclaration = "Déclaration mensuelle";
-  } else if (freq === "quarterly") {
+  } else if (freq === "trimestriel") {
     deadlineDate = nextQuarterDeadline(today);
     nextDeclaration = "Déclaration trimestrielle";
   }
 
   let periodLabel = null;
 
-  if (freq === "monthly") {
+  if (freq === "mensuel") {
     periodLabel = `CA de ${formatMonthFR(today)}`;
-  } else if (freq === "quarterly") {
+  } else if (freq === "trimestriel") {
     const q = getQuarterIndex(today.getMonth());
     periodLabel = `CA du trimestre T${q} ${today.getFullYear()}`;
   }
@@ -152,9 +171,10 @@ export function computeObligations(answers = {}) {
     else if (diffDays <= 7) urgency = "soon";
   }
 
+  // ==================== RECOMMENDATIONS ====================
   const recommendations = [];
 
-  if (freq === "unknown") {
+  if (!freq || freq === "") {
     recommendations.push({
       key: "freq_unknown",
       title: "Périodicité à confirmer",
@@ -177,7 +197,7 @@ export function computeObligations(answers = {}) {
       level: "warning",
       text: "Prépare ton chiffre d’affaires et planifie 10 minutes cette semaine pour déclarer sur autoentrepreneur.urssaf.fr.",
     });
-  } else if (typeof daysLeft === "number" && daysLeft > 7) {
+  } else if (typeof daysLeft === "number" && daysLeft > 7 && freq) {
     recommendations.push({
       key: "deadline_ok",
       title: "Tout est sous contrôle",
@@ -202,8 +222,52 @@ export function computeObligations(answers = {}) {
     });
   }
 
+  // ==================== FINANCIAL HEALTH ANALYSIS ====================
+  const monthlyExpenses = Number(answers.monthly_expenses || 0);
+  const hasExpenses = monthlyExpenses > 0;
+
+  let financialHealth = null;
+  let financialHealthMessage = null;
+  let savingsRecommended = 0;
+  let coverageRatio = null;
+
+  if (hasExpenses && ca > 0) {
+    coverageRatio = ca / monthlyExpenses;
+    
+    if (coverageRatio < 0.5) {
+      financialHealth = "danger";
+      financialHealthMessage = "⚠️ Revenus insuffisants pour couvrir les dépenses de base";
+      savingsRecommended = Math.round(monthlyExpenses * 3);
+    } else if (coverageRatio < 0.8) {
+      financialHealth = "warning";
+      financialHealthMessage = "⚡ Revenus fragiles, surveille tes dépenses";
+      savingsRecommended = Math.round(monthlyExpenses * 2);
+    } else if (coverageRatio < 1.2) {
+      financialHealth = "neutral";
+      financialHealthMessage = "✅ Situation stable, continue à suivre tes finances";
+      savingsRecommended = Math.round(monthlyExpenses);
+    } else {
+      financialHealth = "ok";
+      financialHealthMessage = "🎉 Bonne santé financière !";
+      savingsRecommended = Math.round(monthlyExpenses * 0.5);
+    }
+  } else if (hasExpenses && ca === 0) {
+    financialHealth = "danger";
+    financialHealthMessage = "⚠️ Aucun revenu enregistré, mais des dépenses à couvrir";
+    savingsRecommended = Math.round(monthlyExpenses * 3);
+  } else if (!hasExpenses && ca > 0) {
+    financialHealth = "ok";
+    financialHealthMessage = "✅ Aucune dépense renseignée. Pense à les ajouter pour mieux évaluer ta santé financière.";
+  }
+
+  // ==================== ANNUAL CALCULATIONS ====================
+  const annualRevenue = ca * 12;
+  const annualCharges = estimatedAmount * 12;
+  const annualNet = annualRevenue - annualCharges;
+
+  // ==================== LABELS ====================
   const nextDeclarationLabel =
-    !freq || freq === "unknown"
+    !freq || freq === ""
       ? "Choisis une périodicité"
       : urgency === "late"
         ? `⚠️ Déclaration en retard${periodLabel ? ` — ${periodLabel}` : ""}`
@@ -211,15 +275,23 @@ export function computeObligations(answers = {}) {
           ? `⏰ Échéance proche${periodLabel ? ` — ${periodLabel}` : ""}`
           : `${nextDeclaration}${periodLabel ? ` — ${periodLabel}` : ""}`;
 
-  const amountEstimatedLabel =
-    !answers?.activity_type
-      ? "Choisis une activité"
-      : rate <= 0
-        ? "Choisis une activité"
-        : `${estimatedAmount.toLocaleString("fr-FR")} € (${Math.round(rate * 100)}%)`;
+  // ✅ LABEL AVEC ACRE
+  let amountEstimatedLabel = "—";
+  if (!answers?.activity_type) {
+    amountEstimatedLabel = "Choisis une activité";
+  } else if (rate <= 0) {
+    amountEstimatedLabel = "Choisis une activité";
+  } else if (ca === 0) {
+    amountEstimatedLabel = "Ajoute un revenu pour voir l'estimation";
+  } else {
+    amountEstimatedLabel = `${estimatedAmount.toLocaleString("fr-FR")} € (${Math.round(rate * 100)}%)`;
+    if (acreActive) {
+      amountEstimatedLabel += ` • ACRE (${Math.round(baseRate * 100)}% → ${Math.round(rate * 100)}%)`;
+    }
+  }
 
   const deadlineLabel =
-    !deadlineDate || freq === "unknown"
+    !deadlineDate || !freq || freq === ""
       ? "—"
       : `${formatFR(deadlineDate)}${
           typeof daysLeft === "number"
@@ -242,30 +314,58 @@ export function computeObligations(answers = {}) {
             ? "⚠️ Seuil TVA proche"
             : "Franchise TVA OK";
 
+  // ==================== RETURN ====================
   return {
+    // Calculs de base
     estimatedAmount,
     rate,
+    baseRate,
+    acreActive,
     nextDeclaration,
     deadlineDate,
     urgency,
     periodLabel,
     daysLeft,
     caAnnuel,
+    
+    // TVA
     tvaThreshold,
     tvaStatus,
     tvaUrgency,
     tvaHint,
+    
+    // Recommandations
     recommendations,
     obligations: [],
+    
+    // Labels
     nextDeclarationLabel,
     amountEstimatedLabel,
     deadlineLabel,
     tvaStatusLabel,
+    
+    // Trésorerie
     treasuryRecommended,
     treasuryLabel,
+    
+    // ACRE
+    acreHint,
+    
+    // Analyse financière
+    monthlyExpenses,
+    financialHealth,
+    financialHealthMessage,
+    savingsRecommended,
+    coverageRatio,
+    
+    // Calculs annuels
+    annualRevenue,
+    annualCharges,
+    annualNet,
   };
 }
 
+// ✅ Функция getDashValue
 export function getDashValue(cardKey, answers = {}, computed = {}) {
   const map = {
     next_declaration: computed?.nextDeclarationLabel,
