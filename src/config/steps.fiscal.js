@@ -39,6 +39,17 @@ export const FISCAL_STEPS = [
     help: "L'ACRE réduit les charges sociales de 50% la première année.",
   },
 
+// В steps.fiscal.js, после ACRE
+{
+  key: "acre_start_date",
+  title: "Date de début ACRE",
+  mode: "input",
+  question: "Quand as-tu commencé à bénéficier de l'ACRE ?",
+  placeholder: "Ex: 01/01/2026",
+  help: "Cette date nous aidera à te rappeler quand l'ACRE se termine.",
+  condition: (answers) => answers.acre === "yes"  // показывать только если ACRE = Oui
+},
+
   {
     key: "declaration_frequency",
     title: "Périodicité",

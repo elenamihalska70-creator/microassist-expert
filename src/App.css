@@ -1078,7 +1078,7 @@ section[id] {
   .fiscalDashboard, .timelineList {
     grid-template-columns: 1fr;
   }
-}
+
 
 @media (max-width: 768px) {
   .container {
@@ -1174,5 +1174,72 @@ section[id] {
   font-size: 13px;
   line-height: 1.45;
   color: #5f5a52;
+}
+
+/* Progress indicators */
+.progressIndicators {
+  margin: 20px 0 16px;
+}
+
+.progressItem {
+  background: #fff;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+}
+
+.progressBar {
+  background: #e5e7eb;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progressFill {
+  transition: width 0.3s ease;
+}
+
+/* Анимация для прогресса */
+@keyframes fillProgress {
+  from { width: 0; }
+  to { width: var(--width); }
+}
+
+.progressFill {
+  animation: fillProgress 0.5s ease-out;
+}
+
+/* ACRE Expiration Warning */
+.acreExpirationWarning {
+  animation: slideIn 0.3s ease;
+}
+
+.acreExpirationWarning button {
+  transition: transform 0.2s ease;
+}
+
+.acreExpirationWarning button:hover {
+  transform: translateY(-1px);
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Footer styles */
+.footer button, 
+.footer a {
+  transition: all 0.2s ease;
+}
+
+.footer button:hover,
+.footer a:hover {
+  transform: translateY(-1px);
 }
 

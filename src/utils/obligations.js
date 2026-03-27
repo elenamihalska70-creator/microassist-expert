@@ -62,11 +62,44 @@ export function computeObligations(answers = {}) {
   const baseRate = getRate(answers.activity_type);
   let rate = baseRate;
   
-  // ✅ ACRE logic - сохраняем информацию о применении
+  // ✅ ACRE logic avec calcul de la date de fin
   let acreActive = false;
+  let acreMonthsLeft = null;
+  let acreEndDate = null;
+  let acreHint = null;
+
   if (answers.acre === "yes" && baseRate > 0) {
     acreActive = true;
     rate = baseRate / 2;
+    
+    // ✅ Calcul de la date de fin ACRE
+    if (answers.acre_start_date) {
+      const startDate = new Date(answers.acre_start_date);
+      const today = new Date();
+      const endDate = new Date(startDate);
+      endDate.setMonth(endDate.getMonth() + 12);
+      
+      const monthsSinceStart = (today.getFullYear() - startDate.getFullYear()) * 12 + 
+                              (today.getMonth() - startDate.getMonth());
+      acreMonthsLeft = Math.max(0, 12 - monthsSinceStart);
+      acreEndDate = endDate;
+      
+      // Si ACRE est terminée
+      if (acreMonthsLeft <= 0) {
+        acreActive = false;
+        rate = baseRate;
+        acreHint = "⚠️ Votre période ACRE est terminée. Modifiez votre profil pour ajuster les charges.";
+      } else if (acreMonthsLeft <= 3) {
+        acreHint = `⏰ ACRE bientôt terminée : encore ${acreMonthsLeft} mois. Pensez à mettre à jour votre profil.`;
+      } else {
+        acreHint = `💡 ACRE appliquée : taux réduit de ${Math.round(baseRate * 100)}% → ${Math.round(rate * 100)}% pour la première année. Valable encore ${acreMonthsLeft} mois.`;
+      }
+    } else {
+      // Pas de date de début renseignée
+      acreHint = `💡 ACRE appliquée : taux réduit de ${Math.round(baseRate * 100)}% → ${Math.round(rate * 100)}% pour la première année.`;
+    }
+  } else if (answers.acre === "unknown") {
+    acreHint = "💡 Si tu bénéficies de l’ACRE, tes charges peuvent être réduites de 50% la première année.";
   }
 
   const estimatedAmount = Math.round(ca * rate);
@@ -78,14 +111,6 @@ export function computeObligations(answers = {}) {
       : treasuryRecommended
         ? `${treasuryRecommended.toLocaleString("fr-FR")} € à mettre de côté`
         : "—";
-
-  // ✅ ACRE hint amélioré avec les taux
-  let acreHint = null;
-  if (answers.acre === "yes") {
-    acreHint = `💡 ACRE appliquée : taux réduit de ${Math.round(baseRate * 100)}% → ${Math.round(rate * 100)}% pour la première année.`;
-  } else if (answers.acre === "unknown") {
-    acreHint = "💡 Si tu bénéficies de l’ACRE, tes charges peuvent être réduites de 50% la première année.";
-  }
 
   const caAnnuel = ca * 12;
 
@@ -275,7 +300,6 @@ export function computeObligations(answers = {}) {
           ? `⏰ Échéance proche${periodLabel ? ` — ${periodLabel}` : ""}`
           : `${nextDeclaration}${periodLabel ? ` — ${periodLabel}` : ""}`;
 
-  // ✅ LABEL AVEC ACRE
   let amountEstimatedLabel = "—";
   if (!answers?.activity_type) {
     amountEstimatedLabel = "Choisis une activité";
@@ -285,8 +309,10 @@ export function computeObligations(answers = {}) {
     amountEstimatedLabel = "Ajoute un revenu pour voir l'estimation";
   } else {
     amountEstimatedLabel = `${estimatedAmount.toLocaleString("fr-FR")} € (${Math.round(rate * 100)}%)`;
-    if (acreActive) {
-      amountEstimatedLabel += ` • ACRE (${Math.round(baseRate * 100)}% → ${Math.round(rate * 100)}%)`;
+    if (acreActive && acreMonthsLeft > 0) {
+      amountEstimatedLabel += ` • ACRE (${Math.round(baseRate * 100)}% → ${Math.round(rate * 100)}%) • reste ${acreMonthsLeft} mois`;
+    } else if (acreActive && acreMonthsLeft === 0) {
+      amountEstimatedLabel += ` • ACRE terminée`;
     }
   }
 
@@ -321,6 +347,8 @@ export function computeObligations(answers = {}) {
     rate,
     baseRate,
     acreActive,
+    acreMonthsLeft,
+    acreEndDate,
     nextDeclaration,
     deadlineDate,
     urgency,
@@ -378,3 +406,4 @@ export function getDashValue(cardKey, answers = {}, computed = {}) {
 
   return map[cardKey] ?? "—";
 }
+

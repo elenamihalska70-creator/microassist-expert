@@ -1,11 +1,14 @@
 import { supabase } from "./lib/supabase.js";
 /*import AuthGate from "./components/AuthGate.jsx";*/
+import CGUModal from "./components/CGUModal.jsx";
 import { useState, useEffect, useMemo, useRef, useLayoutEffect, useCallback } from "react"; // ✅ Добавляем useCallback
 import "./App.css";
 import { FISCAL_STEPS } from "./config/steps.fiscal";
 import { computeObligations } from "./utils/obligations.js";
 import { showConsoleSignature } from "./consoleSignature.js";
 import { useAuth } from "./context/AuthContext.jsx";
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 // Добавьте после других констант:
 const LS_KEY = "microassist_v1";
@@ -137,6 +140,8 @@ export default function App() {
   return !localStorage.getItem("beta_seen");
 });
   const [resumeSaveAfterAuth, setResumeSaveAfterAuth] = useState(false); // ✅ ДОБАВИТЬ
+   const [showCGU, setShowCGU] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
   const [revenueForm, setRevenueForm] = useState({
     amount: "",
     date: new Date().toISOString().slice(0, 10),
@@ -538,6 +543,32 @@ function openSecuritySection() {
       }
     }, 600);
   }
+
+  function calculateNextReminder(frequency) {
+  const today = new Date();
+
+  if (frequency === "mensuel") {
+    // За 7 дней до конца следующего месяца
+    const nextMonth = new Date(today.getFullYear(), today.getMonth() + 2, 0);
+    nextMonth.setDate(nextMonth.getDate() - 7);
+    return nextMonth.toISOString();
+  }
+
+  if (frequency === "trimestriel") {
+    // За 7 дней до конца квартала
+    const month = today.getMonth();
+    let endQuarter;
+    if (month <= 2) endQuarter = new Date(today.getFullYear(), 3, 30);
+    else if (month <= 5) endQuarter = new Date(today.getFullYear(), 6, 31);
+    else if (month <= 8) endQuarter = new Date(today.getFullYear(), 9, 31);
+    else endQuarter = new Date(today.getFullYear() + 1, 0, 31);
+
+    endQuarter.setDate(endQuarter.getDate() - 7);
+    return endQuarter.toISOString();
+  }
+
+  return null;
+}
 
 useEffect(() => {
   try {
@@ -1112,6 +1143,87 @@ const mainAction = useMemo(() => {
   };
 }, [revenues.length, dashboardAnswers?.declaration_frequency, computed]);
 
+// ==================== PROGRESS INDICATORS ====================
+const profileCompletion = useMemo(() => {
+  let score = 0;
+  if (dashboardAnswers?.activity_type) score += 25;
+  if (dashboardAnswers?.declaration_frequency) score += 25;
+  if (revenues.length > 0) score += 25;
+  if (dashboardAnswers?.acre) score += 25;
+  return score;
+}, [dashboardAnswers?.activity_type, dashboardAnswers?.declaration_frequency, revenues.length, dashboardAnswers?.acre]);
+
+const savingsGoal = useMemo(() => {
+  // Objectif d'épargne recommandé: 3 mois de charges
+  return Math.max(estimatedCharges * 3, 500);
+}, [estimatedCharges]);
+
+const savingsProgress = useMemo(() => {
+  // Épargne actuelle = disponible estimé
+  return availableAmount;
+}, [availableAmount]);
+
+// ==================== ACRE EXPIRATION CHECK ====================
+const acreExpiration = useMemo(() => {
+  if (!dashboardAnswers?.acre || dashboardAnswers.acre !== 'yes') return null;
+  
+  // Предполагаем, что ACRE действует 12 месяцев
+  // Если у пользователя есть дата начала ACRE, используем её
+  const startDate = dashboardAnswers.acre_start_date 
+    ? new Date(dashboardAnswers.acre_start_date)
+    : null;
+  
+  if (!startDate) {
+    // Если нет даты начала, показываем общее напоминание
+    return {
+      hasDate: false,
+      message: "💡 L'ACRE réduit tes charges pendant 12 mois. Pense à vérifier quand elle se termine.",
+      warning: false
+    };
+  }
+  
+  const today = new Date();
+  const endDate = new Date(startDate);
+  endDate.setMonth(endDate.getMonth() + 12);
+  
+  const daysLeft = Math.ceil((endDate - today) / (1000 * 60 * 60 * 24));
+  const monthsLeft = Math.floor(daysLeft / 30);
+  
+  if (daysLeft <= 0) {
+    return {
+      hasDate: true,
+      expired: true,
+      daysLeft: 0,
+      message: "⚠️ Ta période ACRE est terminée. Pense à mettre à jour ton profil pour ajuster tes charges.",
+      warning: true
+    };
+  }
+  
+  if (daysLeft <= 30) {
+    return {
+      hasDate: true,
+      expired: false,
+      daysLeft,
+      monthsLeft,
+      message: `⚠️ Ton ACRE se termine dans ${daysLeft} jours (environ ${monthsLeft} mois). Pense à modifier ton profil dans ton espace fiscal.`,
+      warning: true
+    };
+  }
+  
+  if (daysLeft <= 90) {
+    return {
+      hasDate: true,
+      expired: false,
+      daysLeft,
+      monthsLeft,
+      message: `⏰ Ton ACRE se termine dans ${daysLeft} jours. Anticipe la modification de ton profil.`,
+      warning: true
+    };
+  }
+  
+  return null;
+}, [dashboardAnswers?.acre, dashboardAnswers?.acre_start_date]);
+
 
 function goToView(nextView, options = {}) {
   const { push = true, focus = false } = options;
@@ -1254,6 +1366,19 @@ async function saveFiscalProfileToSupabase(profileAnswers) {
   const { error } = await supabase
     .from("fiscal_profiles")
     .upsert(payload, { onConflict: "user_id" });
+
+// Создать/обновить reminder
+const nextRemindAt = calculateNextReminder(profileAnswers.declaration_frequency);
+
+await supabase
+  .from("reminders")
+  .upsert({
+    user_id: user.id,
+    reminder_type: "declaration",
+    remind_at: nextRemindAt,
+    sent_at: null,
+    is_active: true,
+  }, { onConflict: "user_id" });
 
   if (error) {
     console.error("Fiscal profile upsert error:", error.message);
@@ -1434,6 +1559,65 @@ async function handleSaveRevenue() {
   link.click();
   document.body.removeChild(link);
 }
+
+const handleExportPDF = useCallback(async () => {
+  const doc = new jsPDF();
+  
+  doc.setFontSize(20);
+  doc.text('Rapport fiscal Microassist', 14, 20);
+  doc.setFontSize(10);
+  doc.text(`Généré le ${new Date().toLocaleDateString('fr-FR')}`, 14, 28);
+  
+  doc.setFontSize(14);
+  doc.text('Profil', 14, 40);
+  doc.setFontSize(10);
+  doc.text(`Activité : ${activityLabel || 'Non renseigné'}`, 14, 48);
+  doc.text(`Périodicité : ${freqLabel || 'Non renseigné'}`, 14, 55);
+  doc.text(`ACRE : ${dashboardAnswers?.acre === 'yes' ? 'Active' : dashboardAnswers?.acre === 'no' ? 'Non' : 'Non renseignée'}`, 14, 62);
+  
+  doc.setFontSize(14);
+  doc.text('Revenus', 14, 75);
+  doc.setFontSize(10);
+  doc.text(`Total mensuel : ${currentMonthTotal.toLocaleString('fr-FR')} €`, 14, 83);
+  doc.text(`Moyenne mensuelle : ${revenueStats.monthlyAverage.toLocaleString('fr-FR')} €`, 14, 90);
+  doc.text(`Nombre d'entrées : ${revenueStats.count}`, 14, 97);
+  
+  doc.setFontSize(14);
+  doc.text('Charges estimées', 14, 110);
+  doc.setFontSize(10);
+  doc.text(`Charges : ${estimatedCharges.toLocaleString('fr-FR')} € (${Math.round(computed?.rate * 100)}%)`, 14, 118);
+  doc.text(`Disponible : ${availableAmount.toLocaleString('fr-FR')} €`, 14, 125);
+  
+  doc.setFontSize(14);
+  doc.text('Échéances', 14, 138);
+  doc.setFontSize(10);
+  doc.text(`Prochaine déclaration : ${computed?.nextDeclarationLabel || '—'}`, 14, 146);
+  doc.text(`Date limite : ${computed?.deadlineLabel || '—'}`, 14, 153);
+  doc.text(`TVA : ${computed?.tvaStatusLabel || '—'}`, 14, 160);
+  
+  if (revenues.length > 0) {
+    doc.addPage();
+    doc.setFontSize(14);
+    doc.text('Historique des revenus', 14, 20);
+    
+    const tableData = revenues.slice(0, 20).map(r => [
+      formatRevenueDate(r.date),
+      `${r.amount.toLocaleString('fr-FR')} €`,
+      r.client || '-',
+      r.invoice || '-'
+    ]);
+    
+    autoTable(doc, {
+      startY: 28,
+      head: [['Date', 'Montant', 'Client', 'Facture']],
+      body: tableData,
+      theme: 'striped',
+      headStyles: { fillColor: [124, 58, 237] }
+    });
+  }
+  
+  doc.save(`rapport_microassist_${new Date().toISOString().split('T')[0]}.pdf`);
+}, [activityLabel, freqLabel, dashboardAnswers, currentMonthTotal, revenueStats, estimatedCharges, availableAmount, computed, revenues, formatRevenueDate]);
 
   function handleSend() {
     if (!canSend || isTyping) return;
@@ -2481,7 +2665,7 @@ return (
         <div className="fiscalDashboard" style={{ marginTop: 12 }}>
           {computed.annualRevenue !== undefined && (
             <div className="fiscalCard">
-              <div className="fiscalLabel">Revenu net annuel estimé</div>
+              <div className="fiscalLabel">Projection annuelle</div>
               <div className="fiscalValue">{computed.annualNet?.toLocaleString("fr-FR") || "—"} €</div>
               <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Après charges et cotisations</div>
             </div>
@@ -2503,6 +2687,64 @@ return (
         </div>
       </div>
     )}
+
+
+    {/* Добавьте после fiscalDashboard */}
+<div className="progressIndicators" style={{ marginTop: 20, display: 'grid', gap: 12 }}>
+  <div className="progressItem">
+    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+      <span>📊 Complétude du profil</span>
+      <span>{profileCompletion}%</span>
+    </div>
+    <div className="progressBar" style={{ height: 8, background: '#e5e7eb', borderRadius: 4 }}>
+      <div className="progressFill" style={{ width: `${profileCompletion}%`, background: '#7c3aed', borderRadius: 4 }} />
+    </div>
+  </div>
+  
+  {currentMonthTotal > 0 && (
+    <div className="progressItem">
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+        <span>💰 Objectif d'épargne</span>
+        <span>{Math.min(100, Math.round((savingsProgress / savingsGoal) * 100))}%</span>
+      </div>
+      <div className="progressBar" style={{ height: 8, background: '#e5e7eb', borderRadius: 4 }}>
+        <div className="progressFill" style={{ 
+          width: `${Math.min(100, Math.round((savingsProgress / savingsGoal) * 100))}%`, 
+          background: savingsProgress >= savingsGoal ? '#10b981' : '#f59e0b',
+          borderRadius: 4 
+        }} />
+      </div>
+    </div>
+  )}
+</div>
+
+{/* ACRE Expiration Warning */}
+{acreExpiration && (
+  <div className="acreExpirationWarning" style={{
+    marginTop: 16,
+    padding: '14px 16px',
+    borderRadius: 12,
+    background: acreExpiration.warning ? '#fff5f0' : '#f0f9ff',
+    borderLeft: `4px solid ${acreExpiration.warning ? '#f97316' : '#3b82f6'}`,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 12
+  }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
+      <span style={{ fontSize: 20 }}>{acreExpiration.warning ? '⚠️' : '💡'}</span>
+      <span style={{ fontSize: 14, color: '#374151' }}>{acreExpiration.message}</span>
+    </div>
+    <button
+      onClick={handleEditProfile}
+      className="btn btnGhost btnSmall"
+      style={{ whiteSpace: 'nowrap' }}
+    >
+      Modifier mon profil
+    </button>
+  </div>
+)}
 
     {/* Main action */}
     <div className={["mainActionBox", mainAction.level === "danger" ? "danger" : "", mainAction.level === "warning" ? "warning" : "", mainAction.level === "ok" ? "ok" : ""].join(" ").trim()}>
@@ -2560,13 +2802,18 @@ return (
       </div>
     )}
 
-    {/* Journal des revenus */}
+        {/* Journal des revenus */}
     <div className="journalHeader">
       <h3>Mes revenus</h3>
       <div className="journalFilters">
         <button className="btn btnGhost btnSmall" type="button" onClick={handleExportCSV} disabled={filteredRevenues.length === 0} title="Exporter les revenus affichés">
           Export CSV
         </button>
+
+        <button className="btn btnGhost btnSmall" type="button" onClick={handleExportPDF} disabled={revenues.length === 0}>
+          📄 Export PDF
+        </button>
+        
         <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} className="monthFilter">
           <option value="all">Tous les mois</option>
           {monthOptions.map((option) => (
@@ -2575,6 +2822,9 @@ return (
         </select>
       </div>
     </div>
+
+
+
 
     {filteredRevenues.length === 0 ? (
       <div className="emptyRevenueState">
@@ -2896,18 +3146,162 @@ return (
           </div>
         )}
 
-            <footer className="footer">
-          © {new Date().getFullYear()} Microassist
-        </footer>
-{/*
-{authOpen && (
-  <AuthGate
-    onClose={() => setAuthOpen(false)}
-    onSuccess={() => setAuthOpen(false)}
-  />
-)}
-*/}
+<footer className="footer" style={{
+  marginTop: '40px',
+  padding: '24px 20px',
+  background: '#ffffff',
+  borderTop: '1px solid #e2e8f0'
+}}>
+  <div style={{
+    maxWidth: '1200px',
+    margin: '0 auto',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '16px'
+  }}>
+    {/* Première ligne : liens */}
+    <div style={{ 
+      display: 'flex', 
+      gap: '28px', 
+      flexWrap: 'wrap', 
+      justifyContent: 'center',
+      alignItems: 'center'
+    }}>
+      <button 
+        onClick={() => setShowCGU(true)} 
+        className="footerLink"
+        style={{ 
+          background: 'none', 
+          border: 'none', 
+          color: '#6b7280', 
+          cursor: 'pointer', 
+          fontSize: '13px',
+          padding: '4px 8px',
+          borderRadius: '6px',
+          transition: 'all 0.2s ease'
+        }}
+        onMouseEnter={(e) => {
+          e.target.style.color = '#7c3aed';
+          e.target.style.backgroundColor = '#f5f3ff';
+        }}
+        onMouseLeave={(e) => {
+          e.target.style.color = '#6b7280';
+          e.target.style.backgroundColor = 'transparent';
+        }}
+      >
+        Mentions légales
+      </button>
+      
+      <span style={{ color: '#e2e8f0', fontSize: '14px' }}>|</span>
+      
+      <button 
+        onClick={() => setShowPrivacy(true)} 
+        className="footerLink"
+        style={{ 
+          background: 'none', 
+          border: 'none', 
+          color: '#6b7280', 
+          cursor: 'pointer', 
+          fontSize: '13px',
+          padding: '4px 8px',
+          borderRadius: '6px',
+          transition: 'all 0.2s ease'
+        }}
+        onMouseEnter={(e) => {
+          e.target.style.color = '#7c3aed';
+          e.target.style.backgroundColor = '#f5f3ff';
+        }}
+        onMouseLeave={(e) => {
+          e.target.style.color = '#6b7280';
+          e.target.style.backgroundColor = 'transparent';
+        }}
+      >
+        Confidentialité
+      </button>
+      
+      <span style={{ color: '#e2e8f0', fontSize: '14px' }}>|</span>
+      
+      <a 
+        href="mailto:support@microassist.fr" 
+        className="footerLink"
+        style={{ 
+          color: '#6b7280', 
+          textDecoration: 'none', 
+          fontSize: '13px',
+          padding: '4px 8px',
+          borderRadius: '6px',
+          transition: 'all 0.2s ease'
+        }}
+        onMouseEnter={(e) => {
+          e.target.style.color = '#7c3aed';
+          e.target.style.backgroundColor = '#f5f3ff';
+        }}
+        onMouseLeave={(e) => {
+          e.target.style.color = '#6b7280';
+          e.target.style.backgroundColor = 'transparent';
+        }}
+      >
+        Contact
+      </a>
+    </div>
+    
+    {/* Deuxième ligne : copyright et informations */}
+    <div style={{ 
+      fontSize: '12px', 
+      color: '#9ca3af', 
+      display: 'flex', 
+      alignItems: 'center', 
+      gap: '16px', 
+      flexWrap: 'wrap', 
+      justifyContent: 'center' 
+    }}>
+      <span>© {new Date().getFullYear()} Microassist</span>
+      <span style={{ color: '#e2e8f0' }}>•</span>
+      <span>Assistant fiscal pour micro-entrepreneurs</span>
+      <span style={{ color: '#e2e8f0' }}>•</span>
+      <span>
+        Fait avec ❤️ par{' '}
+        <a 
+          href="https://elenamihalska70-creator.github.io/Portfolio/"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ 
+            color: '#6b7280', 
+            textDecoration: 'none',
+            transition: 'color 0.2s ease'
+          }}
+          onMouseEnter={(e) => e.target.style.color = '#7c3aed'}
+          onMouseLeave={(e) => e.target.style.color = '#6b7280'}
+        >
+          Olena Mykhalska
+        </a>
+      </span>
+    </div>
+    
+    {/* Troisième ligne : crédits (optionnel, maintenant intégré dans la ligne du dessus) */}
+    {/* <div style={{ 
+      fontSize: '11px', 
+      color: '#cbd5e1',
+      textAlign: 'center'
+    }}>
+      Prototype développé par Olena Mykhalska
+    </div> */}
+  </div>
+</footer>
+
+        {showCGU && <CGUModal isOpen={showCGU} onClose={() => setShowCGU(false)} />}
+        {showPrivacy && <CGUModal isOpen={showPrivacy} onClose={() => setShowPrivacy(false)} initialTab="privacy" />}
+
+        {/*
+        {authOpen && (
+          <AuthGate
+            onClose={() => setAuthOpen(false)}
+            onSuccess={() => setAuthOpen(false)}
+          />
+        )}
+        */}
       </div>
-      </>
-    );
+    </>
+  );
 }
