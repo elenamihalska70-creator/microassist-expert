@@ -344,7 +344,6 @@ const step = steps[stepIndex];
   const heroRef = useRef(null);
   const servicesRef = useRef(null);
   const howItWorksRef = useRef(null);
-  const signupHintRef = useRef(null);
   const feedbackRef = useRef(null);
   const fiscalRef = useRef(null);
   const chartRef = useRef(null);
@@ -1191,14 +1190,6 @@ const mainAction = useMemo(() => {
 }, [revenues.length, dashboardAnswers?.declaration_frequency, computed]);
 
 // ==================== PROGRESS INDICATORS ====================
-const profileCompletion = useMemo(() => {
-  let score = 0;
-  if (dashboardAnswers?.activity_type) score += 25;
-  if (dashboardAnswers?.declaration_frequency) score += 25;
-  if (revenues.length > 0) score += 25;
-  if (dashboardAnswers?.acre) score += 25;
-  return score;
-}, [dashboardAnswers?.activity_type, dashboardAnswers?.declaration_frequency, revenues.length, dashboardAnswers?.acre]);
 
 const savingsGoal = useMemo(() => {
   // Objectif d'épargne recommandé: 3 mois de charges
@@ -1751,15 +1742,6 @@ if (key === "acre") {
     }
   }
 
-  function handleCopySummary() {
-    const summary =
-      buildFiscalSummary(answers, computed) +
-      "\n\n" +
-      buildFiscalChecklist(computed);
-
-    navigator.clipboard.writeText(summary);
-    alert("Résumé copié dans le presse-papiers ✅");
-  }
 
   function handleDownloadTxt() {
     const content =
@@ -1969,43 +1951,44 @@ return (
 
         <div className="heroLead">
           <p>Tu ne sais pas combien payer ni quand déclarer ?</p>
-          <p><p>Microassist te guide simplement pour estimer tes charges, anticiper tes échéances et éviter les oublis.</p></p>
+          <p>Microassist te guide simplement pour estimer tes charges, anticiper tes échéances et éviter les oublis.</p>
         </div>
 
-        <ul className="heroBullets">
-          <li>✅ Charges estimées</li>
-          <li>✅ Prochaine échéance</li>
-          <li>✅ Alerte TVA</li>
-          <li>✅ Plan d’action simple</li>
-        </ul>
+          <ul className="heroBullets">
+    <li>✅ Montant à mettre de côté</li>
+    <li>✅ Prochaine déclaration claire</li>
+    <li>✅ Alerte TVA simple</li>
+    <li>✅ Action à faire maintenant</li>
+  </ul>
 
-        <p className="assistantIntro">
-          Réponds à quelques questions. C’est rapide.
-        </p>
+  <p className="assistantIntro">
+    Sans inscription • Simple • En 2 minutes
+  </p>
 
-        <div className="heroActions">
-          <button
-            className="btn btnPrimary"
- onClick={() => {
-  track("click_tester_simulateur");
-  goToView("assistant", { push: true, focus: true });
+  <div className="heroActions">
+    <button
+      className="btn btnPrimary"
+      onClick={() => {
+        track("click_tester_simulateur");
+        goToView("assistant", { push: true, focus: true });
 
-  setTimeout(() => {
-    scrollToRef(assistantRef);
-  }, 80);
-}}
-            type="button"
-          >
-            Commencer
-          </button>
+        setTimeout(() => {
+          scrollToRef(assistantRef);
+        }, 80);
+      }}
+      type="button"
+    >
+      Commencer gratuitement
+    </button>
 
-          <button
-            className="btn btnGhost"
-            onClick={openSecuritySection}
-            type="button"
-          >
-            Sécurité
-          </button>
+    <button
+      className="btn btnGhost"
+      onClick={openSecuritySection}
+      type="button"
+    >
+      Sécurité
+    </button>
+  
         </div>
       </div>
 
@@ -2075,23 +2058,17 @@ return (
     </div>
 
     <p>
-      Microassist aide les micro-entrepreneurs à mieux comprendre leurs obligations
-      fiscales et à suivre leur activité plus sereinement.
-    </p>
+  Microassist aide les micro-entrepreneurs débutants à comprendre plus simplement
+  leurs charges, leurs échéances et leurs repères fiscaux.
+</p>
 
-    <p>
-      L’objectif est simple : gagner du temps, réduire le stress administratif et
-      rendre les échéances plus lisibles.
-    </p>
+<p>
+  L’objectif est simple : savoir quoi faire, quand le faire, et éviter les oublis.
+</p>
 
-    <p>
-      En quelques étapes, l’outil fournit un repère clair sur les charges,
-      les obligations à venir et le suivi du chiffre d’affaires.
-    </p>
-
-       <p>
-     Conçu par une entrepreneuse, pour les entrepreneurs.
-    </p>
+<p>
+  Conçu par une entrepreneuse, pour les entrepreneurs.
+</p>
 
   </section>
 )}
@@ -2183,13 +2160,10 @@ return (
     <h3 style={{ marginTop: 12 }}>🚧 Prochainement</h3>
     <ul className="roadmaplist">
   <li>📅 Rappels automatiques avant chaque échéance</li>
-  <li>📑 Déclaration URSSAF depuis Microassist (AE Connect)</li>
-  <li>🤖 Assistant IA pour conseils personnalisés</li>
-  <li>📄 Exports comptables complets (PDF, CSV)</li>
-  <li>🏢 Version pour SASU / EURL / EI</li>
-  <li>👥 Espace partagé avec ton expert-comptable</li>
-   <li>🔗 Connexion bancaire (import automatique)</li>
-    </ul>
+  <li>📄 Rapports plus complets (PDF, CSV)</li>
+  <li>📊 Historique enrichi et alertes plus intelligentes</li>
+  <li>🧠 Conseils plus personnalisés selon ton profil</li>
+</ul>
   </section>
 )}
 
@@ -2444,48 +2418,82 @@ return (
 )}
 
   <div className="assistantNextStep">
-    <div className="assistantNextStepTitle">Ton profil est prêt</div>
+  <div className="assistantNextStepTitle">Voilà ta situation</div>
 
-    <p className="muted">
-      Accède à ton espace fiscal pour suivre tes revenus et tes charges.
-    </p>
+  <ul className="assistantSummaryList" style={{ marginTop: 12 }}>
+    <li>
+      <strong>💰 À mettre de côté :</strong>{" "}
+      {computed?.estimatedAmount?.toLocaleString("fr-FR") ?? "—"} €
+    </li>
+    <li>
+      <strong>📅 Prochaine déclaration :</strong>{" "}
+      {computed?.deadlineLabel || "—"}
+    </li>
+    <li>
+      <strong>⚠️ TVA :</strong>{" "}
+      {computed?.tvaStatus === "exceeded"
+        ? "seuil dépassé"
+        : computed?.tvaStatus === "soon"
+        ? "vigilance"
+        : "aucun risque immédiat"}
+    </li>
+    <li>
+      <strong>🧾 ACRE :</strong>{" "}
+      {computed?.acreHint ? "taux réduit actif" : "non renseigné"}
+    </li>
+  </ul>
 
-    <div className="miniActions" style={{ marginTop: 12 }}>
-      <button
-        className="btn btnPrimary"
-        type="button"
-        onClick={() => {
-          setAppView("dashboard");
-          setTimeout(() => {
-            fiscalRef.current?.scrollIntoView({
-              behavior: "smooth",
-              block: "start",
-            });
-          }, 100);
-        }}
-      >
-        Accéder à mon espace fiscal
-      </button>
-
-<button
-  className="btn btnPrimary"
-  type="button"
-  onClick={() => {
-    if (!user) {
-      setAuthOpen(true);  // Ouvre le modal d'authentification
-    } else {
-      // L'utilisateur est déjà connecté
-      setTimeout(() => {
-        signupHintRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 120);
-    }
-  }}
->
-  Enregistrer mon suivi
-</button>
-
+  <div className="mainActionBox ok" style={{ marginTop: 16 }}>
+    <div className="mainActionTitle">Ce que tu dois faire maintenant</div>
+    <div className="mainActionText">
+      Mets de côté environ {computed?.estimatedAmount?.toLocaleString("fr-FR") ?? "—"} €
+      et pense à vérifier ta situation avant ta prochaine déclaration.
     </div>
   </div>
+
+<div className="miniActions" style={{ marginTop: 12 }}>
+  <button
+    className="btn btnPrimary"
+    type="button"
+    onClick={() => {
+      setAppView("dashboard");
+      setTimeout(() => {
+        fiscalRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }, 100);
+    }}
+  >
+    Accéder à mon espace fiscal
+  </button>
+
+  <button
+    className="btn btnGhost"
+    type="button"
+    onClick={() => {
+      if (!user) {
+        setAuthOpen(true);
+      } else {
+        setSaveNotice(
+          "Ton profil fiscal, tes revenus et ton historique sont déjà liés à ton espace personnel sécurisé."
+        );
+        setTimeout(() => setSaveNotice(null), 3500);
+      }
+    }}
+  >
+    Sauvegarder mon suivi
+  </button>
+
+  <button
+    className="btn btnGhost"
+    type="button"
+    onClick={handleDownloadTxt}
+  >
+    Télécharger mon résumé
+  </button>
+</div>
+</div>
 
   <div className="disclaimer">
     ⚠️ Indication simplifiée. Ne remplace pas un expert-comptable.
@@ -2530,23 +2538,15 @@ return (
       )}
 
       {(step?.mode === "dashboard" || stepIndex >= FISCAL_STEPS.length) && (
-        <div className="miniActions">
-          <button
-            className="btn btnGhost"
-            onClick={handleCopySummary}
-            type="button"
-          >
-            Copier
-          </button>
-
-          <button
-            className="btn btnGhost"
-            onClick={handleDownloadTxt}
-            type="button"
-          >
-            Télécharger
-          </button>
-        </div>
+       <div className="miniActions">
+  <button
+    className="btn btnGhost"
+    onClick={handleDownloadTxt}
+    type="button"
+  >
+    Télécharger
+  </button>
+</div>
       )}
     </div>
   )}
@@ -2587,6 +2587,63 @@ return (
     </div>
 
     {saveNotice && <div className="saveNotice">✅ {saveNotice}</div>}
+
+<div className="monthActionCard">
+  <div className="monthActionHeader">
+    <h3>Ce mois-ci</h3>
+    <p className="muted">
+      Voici l’essentiel à retenir pour avancer sans stress.
+    </p>
+  </div>
+
+  <div className="monthActionGrid">
+    <div className="monthActionItem">
+      <span>💰 À mettre de côté</span>
+      <strong>{estimatedCharges.toLocaleString("fr-FR")} €</strong>
+    </div>
+
+    <div className="monthActionItem">
+      <span>📅 Prochaine déclaration</span>
+      <strong>{computed?.nextDeadlineLabel || fiscalTimeline?.[0]?.value || "—"}</strong>
+    </div>
+
+    <div className="monthActionItem">
+      <span>⚠️ TVA</span>
+      <strong>
+        {computed?.tvaStatus === "exceeded"
+          ? "seuil dépassé"
+          : computed?.tvaStatus === "soon"
+          ? "vigilance"
+          : "aucun risque immédiat"}
+      </strong>
+    </div>
+  </div>
+
+  <div
+    className={[
+      "mainActionBox",
+      mainAction.level === "danger" ? "danger" : "",
+      mainAction.level === "warning" ? "warning" : "",
+      mainAction.level === "ok" ? "ok" : "",
+    ]
+      .join(" ")
+      .trim()}
+    style={{ marginTop: 16 }}
+  >
+    <div className="mainActionTitle">Action recommandée</div>
+    <div className="mainActionText">{mainAction.text}</div>
+
+    {mainAction.cta && (
+      <button
+        className="btn btnPrimary"
+        type="button"
+        onClick={() => handleTipAction(mainAction.action)}
+      >
+        {mainAction.cta}
+      </button>
+    )}
+  </div>
+</div>
 
     {/* 👇 NOUVELLE PODKAZKA - AJOUTER ICI */}
     {currentMonthTotal === 0 && dashboardAnswers?.activity_type && (
@@ -2692,33 +2749,26 @@ return (
 
 
     {/* Добавьте после fiscalDashboard */}
-<div className="progressIndicators" style={{ marginTop: 20, display: 'grid', gap: 12 }}>
-  <div className="progressItem">
-    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-      <span>📊 Complétude du profil</span>
-      <span>{profileCompletion}%</span>
-    </div>
-    <div className="progressBar" style={{ height: 8, background: '#e5e7eb', borderRadius: 4 }}>
-      <div className="progressFill" style={{ width: `${profileCompletion}%`, background: '#7c3aed', borderRadius: 4 }} />
-    </div>
-  </div>
-  
-  {currentMonthTotal > 0 && (
+{currentMonthTotal > 0 && (
+  <div className="progressIndicators" style={{ marginTop: 20, display: "grid", gap: 12 }}>
     <div className="progressItem">
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
         <span>💰 Objectif d'épargne</span>
         <span>{Math.min(100, Math.round((savingsProgress / savingsGoal) * 100))}%</span>
       </div>
-      <div className="progressBar" style={{ height: 8, background: '#e5e7eb', borderRadius: 4 }}>
-        <div className="progressFill" style={{ 
-          width: `${Math.min(100, Math.round((savingsProgress / savingsGoal) * 100))}%`, 
-          background: savingsProgress >= savingsGoal ? '#10b981' : '#f59e0b',
-          borderRadius: 4 
-        }} />
+      <div className="progressBar" style={{ height: 8, background: "#e5e7eb", borderRadius: 4 }}>
+        <div
+          className="progressFill"
+          style={{
+            width: `${Math.min(100, Math.round((savingsProgress / savingsGoal) * 100))}%`,
+            background: savingsProgress >= savingsGoal ? "#10b981" : "#f59e0b",
+            borderRadius: 4,
+          }}
+        />
       </div>
     </div>
-  )}
-</div>
+  </div>
+)}
 
 {/* ACRE Expiration Warning */}
 {acreExpiration && (
@@ -2749,15 +2799,6 @@ return (
 )}
 
     {/* Main action */}
-    <div className={["mainActionBox", mainAction.level === "danger" ? "danger" : "", mainAction.level === "warning" ? "warning" : "", mainAction.level === "ok" ? "ok" : ""].join(" ").trim()}>
-      <div className="mainActionTitle">{mainAction.title}</div>
-      <div className="mainActionText">{mainAction.text}</div>
-      {mainAction.cta && (
-        <button className="btn btnPrimary" type="button" onClick={() => handleTipAction(mainAction.action)}>
-          {mainAction.cta}
-        </button>
-      )}
-    </div>
 
     {/* Santé financière */}
     {computed.financialHealth && computed.financialHealthMessage && (
@@ -2806,7 +2847,12 @@ return (
 
         {/* Journal des revenus */}
     <div className="journalHeader">
-      <h3>Mes revenus</h3>
+  <div>
+    <h3>Mes revenus</h3>
+    <p className="muted" style={{ marginTop: 4 }}>
+      Retrouve ton historique et télécharge ton suivi si besoin.
+    </p>
+  </div>
       <div className="journalFilters">
         <button className="btn btnGhost btnSmall" type="button" onClick={handleExportCSV} disabled={filteredRevenues.length === 0} title="Exporter les revenus affichés">
           Export CSV
@@ -2904,8 +2950,8 @@ return (
     )}
 
     <div className="dataTrustLine">
-      🔒 Les données enregistrées sont liées à votre espace personnel sécurisé.
-    </div>
+  🔒 Ton profil fiscal, tes revenus et ton historique sont liés à ton espace personnel sécurisé.
+</div>
   </section>
 )}
 
@@ -3307,7 +3353,7 @@ ce qui est utile, ce qui peut être amélioré.
       await migrateLocalDataToSupabase();
       await refreshRevenues();
       await refreshFiscalProfile();
-      setSaveNotice("✅ Connexion réussie ! Vos données sont sauvegardées.");
+     setSaveNotice("Connexion réussie ✅ Ton profil fiscal, tes revenus et ton historique sont maintenant enregistrés dans ton espace personnel sécurisé.");
       setTimeout(() => setSaveNotice(null), 3000);
     }, 500);
   }}
