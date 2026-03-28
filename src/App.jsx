@@ -2087,13 +2087,13 @@ return (
       </button>
     </div>
 
-    <ul className="roadmaplist">
-      <li>📊 Estimer rapidement tes charges selon ton activité</li>
-      <li>💰 Suivre tes revenus et ton disponible estimé</li>
-      <li>📅 Visualiser ta prochaine échéance</li>
-      <li>🧾 Identifier les seuils et alertes TVA</li>
-      <li>🔔 Ne plus rater une échéance URSSAF</li>
-    </ul>
+  <ul className="roadmaplist">
+  <li>💰 Savoir combien mettre de côté chaque mois</li>
+  <li>📅 Ne plus rater une échéance URSSAF</li>
+  <li>👀 Comprendre ta situation fiscale en un coup d’œil</li>
+  <li>⚠️ Anticiper la TVA sans surprise</li>
+  <li>🧭 Savoir quoi faire à chaque étape</li>
+</ul>
   </section>
 )}
 
@@ -2111,22 +2111,22 @@ return (
     </button>
   </div>
 
-  <div className="steps">
-    <div className="step">
-      <strong>1. Tu configures ton profil</strong>
-      <p>Tu indiques ton activité et ton rythme de déclaration.</p>
-    </div>
-
-    <div className="step">
-      <strong>2. Tu accèdes à ton espace fiscal</strong>
-      <p>Tu obtiens un repère clair sur tes charges estimées, ta TVA et tes échéances.</p>
-    </div>
-
-    <div className="step">
-      <strong>3. Tu ajoutes tes revenus</strong>
-      <p>Tu suis ton activité, ton disponible estimé et ton historique mensuel.</p>
-    </div>
+<div className="steps">
+  <div className="step">
+    <strong>1. Tu réponds à quelques questions</strong>
+    <p>Ton activité et ton rythme de déclaration sont pris en compte.</p>
   </div>
+
+  <div className="step">
+    <strong>2. Tu obtiens ton repère fiscal</strong>
+    <p>Charges, TVA et échéances — tout devient plus clair.</p>
+  </div>
+
+  <div className="step">
+    <strong>3. Tu suis ton activité simplement</strong>
+    <p>Ajoute tes revenus et garde une vue claire mois après mois.</p>
+  </div>
+</div>
 </section>
 )}
 
