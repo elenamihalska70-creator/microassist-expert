@@ -1,5 +1,5 @@
 import { supabase } from "./lib/supabase.js";
-/*import AuthGate from "./components/AuthGate.jsx";*/
+import AuthGate from "./components/AuthGate.jsx";
 import CGUModal from "./components/CGUModal.jsx";
 import { useState, useEffect, useMemo, useRef, useLayoutEffect, useCallback } from "react"; // ✅ Добавляем useCallback
 import "./App.css";
@@ -126,13 +126,12 @@ export default function App() {
   const [isTyping, setIsTyping] = useState(false);
   // UI состояния
   const [helpOpen, setHelpOpen] = useState(false);        // ✅ ДОБАВИТЬ
-  /*const [authOpen, setAuthOpen] = useState(false);*/
+  const [authOpen, setAuthOpen] = useState(false);
   const [focusMode, setFocusMode] = useState(false);      // ✅ ДОБАВИТЬ
   const { user } = useAuth();
   const [appView, setAppView] = useState("landing");
   const [userName, setUserName] = useState("");
   const [hydrated, setHydrated] = useState(false);
-  const [showSignupHint, setShowSignupHint] = useState(false);
   // Состояния для доходов
   const [showAddRevenue, setShowAddRevenue] = useState(false);
   const [revenues, setRevenues] = useState([]);
@@ -216,6 +215,8 @@ export default function App() {
     }
   }, [user]);
 
+
+
   // useCallback для refreshFiscalProfile
   const refreshFiscalProfile = useCallback(async () => {
     if (!user) {
@@ -247,6 +248,60 @@ export default function App() {
     }
   }, [user]);
 
+    const migrateLocalDataToSupabase = useCallback(async () => {
+  if (!user) return false;
+
+  let migrated = false;
+
+  // 1. Migrer les revenus locaux
+  const localRevenues = localStorage.getItem("revenues_guest");
+  if (localRevenues) {
+    try {
+      const revenues = JSON.parse(localRevenues);
+      for (const rev of revenues) {
+        await supabase.from("revenues").insert({
+          user_id: user.id,
+          amount: rev.amount,
+          revenue_date: rev.date,
+          client: rev.client || null,
+          invoice: rev.invoice || null,
+          note: rev.note || null,
+        });
+      }
+      localStorage.removeItem("revenues_guest");
+      migrated = true;
+      console.log("✅ Revenus locaux migrés:", revenues.length);
+    } catch (e) {
+      console.error("Erreur migration revenus:", e);
+    }
+  }
+
+  // 2. Migrer le profil fiscal
+  const localAnswers = localStorage.getItem(LS_KEY);
+  if (localAnswers) {
+    try {
+      const data = JSON.parse(localAnswers);
+      if (data.answers && (data.answers.activity_type || data.answers.declaration_frequency)) {
+        await saveFiscalProfileToSupabase(data.answers);
+        migrated = true;
+        console.log("✅ Profil fiscal local migré");
+      }
+    } catch (e) {
+      console.error("Erreur migration profil:", e);
+    }
+  }
+
+  if (migrated) {
+    // Rafraîchir les données
+    await refreshRevenues();
+    await refreshFiscalProfile();
+    setSaveNotice("📦 Vos données locales ont été sauvegardées dans votre espace !");
+    setTimeout(() => setSaveNotice(null), 3000);
+  }
+
+  return migrated;
+}, [user, refreshRevenues, refreshFiscalProfile]);
+
   // Эффекты с правильными зависимостями
   useEffect(() => {
     if (!user) {
@@ -264,17 +319,7 @@ export default function App() {
     refreshRevenues();
   }, [user, refreshRevenues]);
 
-
-
-
-const viewLabel =
-  appView === "landing"
-    ? "Assistant fiscal"
-    : appView === "assistant"
-      ? "Profil fiscal"
-      : "Espace fiscal";
-
-const steps = FISCAL_STEPS;
+  const steps = FISCAL_STEPS;
 
 const [messages, setMessages] = useState([
   {
@@ -286,6 +331,8 @@ const [messages, setMessages] = useState([
     text: `Étape 1 — ${steps[0].title}\n${steps[0].question}`,
   },
 ]);
+
+
 
 const step = steps[stepIndex];
 
@@ -301,6 +348,16 @@ const step = steps[stepIndex];
   const feedbackRef = useRef(null);
   const fiscalRef = useRef(null);
   const chartRef = useRef(null);
+
+  
+  const viewLabel =
+  appView === "landing"
+    ? "Assistant fiscal"
+    : appView === "assistant"
+      ? "Profil fiscal"
+      : "Espace fiscal";
+
+
   useLayoutEffect(() => {
     if ("scrollRestoration" in window.history) {
       window.history.scrollRestoration = "manual";
@@ -544,31 +601,7 @@ function openSecuritySection() {
     }, 600);
   }
 
-  function calculateNextReminder(frequency) {
-  const today = new Date();
 
-  if (frequency === "mensuel") {
-    // За 7 дней до конца следующего месяца
-    const nextMonth = new Date(today.getFullYear(), today.getMonth() + 2, 0);
-    nextMonth.setDate(nextMonth.getDate() - 7);
-    return nextMonth.toISOString();
-  }
-
-  if (frequency === "trimestriel") {
-    // За 7 дней до конца квартала
-    const month = today.getMonth();
-    let endQuarter;
-    if (month <= 2) endQuarter = new Date(today.getFullYear(), 3, 30);
-    else if (month <= 5) endQuarter = new Date(today.getFullYear(), 6, 31);
-    else if (month <= 8) endQuarter = new Date(today.getFullYear(), 9, 31);
-    else endQuarter = new Date(today.getFullYear() + 1, 0, 31);
-
-    endQuarter.setDate(endQuarter.getDate() - 7);
-    return endQuarter.toISOString();
-  }
-
-  return null;
-}
 
 useEffect(() => {
   try {
@@ -792,9 +825,23 @@ const computed = useMemo(() => {
   }
 
   try {
+    const currentYear = new Date().getFullYear();
+
+    const caYtd = revenues
+      .filter(r => new Date(`${r.date}T00:00:00`).getFullYear() === currentYear)
+      .reduce((sum, r) => sum + Number(r.amount || 0), 0);
+
+    const monthsWithData = new Set(
+      revenues
+        .filter(r => new Date(`${r.date}T00:00:00`).getFullYear() === currentYear)
+        .map(r => new Date(`${r.date}T00:00:00`).getMonth())
+    ).size || 1;
+
     return computeObligations({
       ...dashboardAnswers,
       ca_month: currentMonthTotal,
+      ca_ytd: caYtd,
+      months_with_data: monthsWithData,
     });
   } catch (error) {
     console.error("Compute error:", error);
@@ -810,7 +857,7 @@ const computed = useMemo(() => {
       treasuryRecommended: null,
     };
   }
-}, [dashboardAnswers, currentMonthTotal]);
+}, [dashboardAnswers, currentMonthTotal, revenues]);
 
 const activityLabel = useMemo(
   () => labelFromOptions("activity_type", dashboardAnswers.activity_type),
@@ -1271,6 +1318,7 @@ function goToView(nextView, options = {}) {
     await refreshRevenues();
   }, [deleteRevenueFromSupabase, refreshRevenues]);
 
+
   function handleReset() {
   localStorage.removeItem(LS_KEY);
 
@@ -1340,11 +1388,34 @@ function handleTipAction(action) {
     }));
   }
 
-async function saveFiscalProfileToSupabase(profileAnswers) {
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+    function calculateNextReminder(frequency) {
+  const today = new Date();
+
+  if (frequency === "mensuel") {
+    // За 7 дней до конца следующего месяца
+    const nextMonth = new Date(today.getFullYear(), today.getMonth() + 2, 0);
+    nextMonth.setDate(nextMonth.getDate() - 7);
+    return nextMonth.toISOString();
+  }
+
+  if (frequency === "trimestriel") {
+    // За 7 дней до конца квартала
+    const month = today.getMonth();
+    let endQuarter;
+    if (month <= 2) endQuarter = new Date(today.getFullYear(), 3, 30);
+    else if (month <= 5) endQuarter = new Date(today.getFullYear(), 6, 31);
+    else if (month <= 8) endQuarter = new Date(today.getFullYear(), 9, 31);
+    else endQuarter = new Date(today.getFullYear() + 1, 0, 31);
+
+    endQuarter.setDate(endQuarter.getDate() - 7);
+    return endQuarter.toISOString();
+  }
+
+  return null;
+}
+
+const saveFiscalProfileToSupabase = useCallback(async (profileAnswers) => {
+  const { data: { user }, error: userError } = await supabase.auth.getUser();
 
   if (userError || !user) {
     console.error("User not found:", userError?.message);
@@ -1353,39 +1424,36 @@ async function saveFiscalProfileToSupabase(profileAnswers) {
 
   const payload = {
     user_id: user.id,
-    business_status:
-      profileAnswers.entry_status === "micro_yes"
-        ? "micro_entreprise"
-        : "other",
+    business_status: profileAnswers.entry_status === "micro_yes" ? "micro_entreprise" : "other",
     activity_type: profileAnswers.activity_type,
     declaration_frequency: profileAnswers.declaration_frequency,
     tva_mode: "franchise_en_base",
     acre: profileAnswers.acre || null,
+    acre_start_date: profileAnswers.acre_start_date || null,
   };
 
   const { error } = await supabase
     .from("fiscal_profiles")
     .upsert(payload, { onConflict: "user_id" });
 
-// Создать/обновить reminder
-const nextRemindAt = calculateNextReminder(profileAnswers.declaration_frequency);
-
-await supabase
-  .from("reminders")
-  .upsert({
-    user_id: user.id,
-    reminder_type: "declaration",
-    remind_at: nextRemindAt,
-    sent_at: null,
-    is_active: true,
-  }, { onConflict: "user_id" });
-
   if (error) {
     console.error("Fiscal profile upsert error:", error.message);
   } else {
     console.log("Fiscal profile saved ✅");
+    
+    // ✅ Créer/update reminder - à l'intérieur du else
+    const nextRemindAt = calculateNextReminder(profileAnswers.declaration_frequency);
+    await supabase
+      .from("reminders")
+      .upsert({
+        user_id: user.id,
+        reminder_type: "declaration",
+        remind_at: nextRemindAt,
+        sent_at: null,
+        is_active: true,
+      }, { onConflict: "user_id" });
   }
-}
+}, []);
 
     async function deleteRevenueFromSupabase(id) {
     const { error } = await supabase.from("revenues").delete().eq("id", id);
@@ -1498,7 +1566,6 @@ async function handleSaveRevenue() {
     setRevenues(updatedRevenues);
     localStorage.setItem("revenues_guest", JSON.stringify(updatedRevenues));
     
-    setShowSignupHint(false);
     setShowAddRevenue(false);
     resetRevenueForm();
     
@@ -1712,38 +1779,6 @@ if (key === "acre") {
   }
 
 
-async function saveFiscalProfileToSupabase(profileAnswers) {
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError || !user) {
-    console.error("User not found:", userError?.message);
-    return;
-  }
-
-  const payload = {
-    user_id: user.id,
-    business_status:
-      profileAnswers.entry_status === "micro_yes"
-        ? "micro_entreprise"
-        : "other",
-    activity_type: profileAnswers.activity_type,
-    declaration_frequency: profileAnswers.declaration_frequency,
-    tva_mode: "franchise_en_base",
-  };
-
-  const { error } = await supabase
-    .from("fiscal_profiles")
-    .upsert(payload, { onConflict: "user_id" });
-
-  if (error) {
-    console.error("Fiscal profile upsert error:", error.message);
-  } else {
-    console.log("Fiscal profile saved ✅");
-  }
-}
 
 function handleNewSession() {
   handleReset();
@@ -1933,8 +1968,8 @@ return (
         <h1>Assistant fiscal pour micro-entrepreneurs</h1>
 
         <div className="heroLead">
-          <p>Combien prévoir ? Quand déclarer ?</p>
-          <p>Obtiens un repère clair en quelques clics.</p>
+          <p>Tu ne sais pas combien payer ni quand déclarer ?</p>
+          <p><p>Microassist te guide simplement pour estimer tes charges, anticiper tes échéances et éviter les oublis.</p></p>
         </div>
 
         <ul className="heroBullets">
@@ -2053,6 +2088,11 @@ return (
       En quelques étapes, l’outil fournit un repère clair sur les charges,
       les obligations à venir et le suivi du chiffre d’affaires.
     </p>
+
+       <p>
+     Conçu par une entrepreneuse, pour les entrepreneurs.
+    </p>
+
   </section>
 )}
 
@@ -2075,7 +2115,7 @@ return (
       <li>💰 Suivre tes revenus et ton disponible estimé</li>
       <li>📅 Visualiser ta prochaine échéance</li>
       <li>🧾 Identifier les seuils et alertes TVA</li>
-      <li>🧠 Garder un repère simple pour éviter les oublis</li>
+      <li>🔔 Ne plus rater une échéance URSSAF</li>
     </ul>
   </section>
 )}
@@ -2134,18 +2174,21 @@ return (
 
     <h3 style={{ marginTop: 12 }}>✅ Pour qui ?</h3>
     <ul className="targetList">
-      <li>Micro-entrepreneurs</li>
-      <li>Freelances et indépendants</li>
-      <li>Créateurs d’activité</li>
-      <li>Profils qui veulent mieux anticiper leurs charges et échéances</li>
+      <li>- Tu viens de créer ta micro-entreprise</li>
+      <li>- Tu ne sais pas toujours combien mettre de côté</li>
+      <li>- Tu as déjà raté (ou failli rater) une déclaration</li>
+      <li>- Tu veux un outil simple, pas un logiciel comptable complet</li>
     </ul>
 
     <h3 style={{ marginTop: 12 }}>🚧 Prochainement</h3>
     <ul className="roadmaplist">
-      <li>📌 Historique plus détaillé</li>
-      <li>📅 Rappels et repères automatiques</li>
-      <li>📄 Exports plus complets</li>
-      <li>🧠 Conseils plus personnalisés selon le profil</li>
+  <li>📅 Rappels automatiques avant chaque échéance</li>
+  <li>📑 Déclaration URSSAF depuis Microassist (AE Connect)</li>
+  <li>🤖 Assistant IA pour conseils personnalisés</li>
+  <li>📄 Exports comptables complets (PDF, CSV)</li>
+  <li>🏢 Version pour SASU / EURL / EI</li>
+  <li>👥 Espace partagé avec ton expert-comptable</li>
+   <li>🔗 Connexion bancaire (import automatique)</li>
     </ul>
   </section>
 )}
@@ -2425,18 +2468,17 @@ return (
       </button>
 
 <button
-  className="btn btnGhost"
+  className="btn btnPrimary"
   type="button"
   onClick={() => {
-    setAppView("dashboard");
-    setFocusMode(true);
-    setShowSignupHint(true);
-    setTimeout(() => {
-      fiscalRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    }, 100);
+    if (!user) {
+      setAuthOpen(true);  // Ouvre le modal d'authentification
+    } else {
+      // L'utilisateur est déjà connecté
+      setTimeout(() => {
+        signupHintRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 120);
+    }
   }}
 >
   Enregistrer mon suivi
@@ -2562,47 +2604,7 @@ return (
       </div>
     )}
 
-    {!user && revenues.length > 0 && (
-      <div className="assistantNextStep" style={{ marginBottom: 18 }}>
-        <div className="assistantNextStepTitle">Enregistrer mon suivi</div>
-        <p className="muted">
-          Retrouve tes revenus, ton historique et tes repères à tout moment.
-        </p>
-        <div className="miniActions" style={{ marginTop: 12 }}>
-          <button className="btn btnPrimary" type="button" onClick={() => {
-            setShowSignupHint(true);
-            setTimeout(() => {
-              signupHintRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-            }, 120);
-          }}>
-            Enregistrer
-          </button>
-          <button className="btn btnGhost" type="button" onClick={() => setShowSignupHint(false)}>
-            Continuer sans enregistrer
-          </button>
-        </div>
-      </div>
-    )}
-
-    {showSignupHint && (
-      <div ref={signupHintRef} className="assistantNextStep" style={{ marginBottom: 18 }}>
-        <div className="assistantNextStepTitle">Version bêta</div>
-        <p className="muted">
-          Cette version permet déjà de tester le parcours principal : ajout de revenus, estimation des charges et repères fiscaux.
-        </p>
-        <p className="muted">
-          La sauvegarde complète de l’espace personnel n’est pas encore activée dans cette version de démonstration.
-        </p>
-        <p className="muted">
-          Merci pour votre retour — il m’aidera à améliorer le produit.
-        </p>
-        <div className="miniActions" style={{ marginTop: 12 }}>
-          <button className="btn btnPrimary" type="button" onClick={() => setShowSignupHint(false)}>
-            Compris
-          </button>
-        </div>
-      </div>
-    )}
+    
 
     {/* Cartes principales */}
     <div className="fiscalDashboard">
@@ -2979,8 +2981,9 @@ return (
               </div>
 
               <p className="muted">
-                Ton retour m’aide à améliorer l’assistant. Le formulaire prend
-                moins de 30 secondes.
+                Tu utilises Microassist ? Dis-moi ce qui manque, 
+ce qui est utile, ce qui peut être amélioré.
+Ça prend 30 secondes et ça compte vraiment.
               </p>
 
               <a
@@ -3274,7 +3277,7 @@ return (
           onMouseEnter={(e) => e.target.style.color = '#7c3aed'}
           onMouseLeave={(e) => e.target.style.color = '#6b7280'}
         >
-          Olena Mykhalska
+          O.M
         </a>
       </span>
     </div>
@@ -3293,14 +3296,23 @@ return (
         {showCGU && <CGUModal isOpen={showCGU} onClose={() => setShowCGU(false)} />}
         {showPrivacy && <CGUModal isOpen={showPrivacy} onClose={() => setShowPrivacy(false)} initialTab="privacy" />}
 
-        {/*
-        {authOpen && (
-          <AuthGate
-            onClose={() => setAuthOpen(false)}
-            onSuccess={() => setAuthOpen(false)}
-          />
-        )}
-        */}
+      {/* Modal d'authentification */}
+{authOpen && (
+  <AuthGate
+  onClose={() => setAuthOpen(false)}
+  onSuccess={async () => {
+    setAuthOpen(false);
+    // Attendre que l'utilisateur soit chargé
+    setTimeout(async () => {
+      await migrateLocalDataToSupabase();
+      await refreshRevenues();
+      await refreshFiscalProfile();
+      setSaveNotice("✅ Connexion réussie ! Vos données sont sauvegardées.");
+      setTimeout(() => setSaveNotice(null), 3000);
+    }, 500);
+  }}
+/>
+)}
       </div>
     </>
   );

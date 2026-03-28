@@ -112,7 +112,25 @@ export function computeObligations(answers = {}) {
         ? `${treasuryRecommended.toLocaleString("fr-FR")} € à mettre de côté`
         : "—";
 
-  const caAnnuel = ca * 12;
+// Projection annuelle intelligente
+// Si on a des données sur plusieurs mois — utiliser la moyenne réelle
+// Sinon — projection simple avec avertissement
+const caYtd = Number(answers.ca_ytd || 0); // CA total depuis début d'année
+const monthsWithData = Number(answers.months_with_data || 1); // nombre de mois avec données
+
+let caAnnuel;
+let tvaProjectionMode; // pour afficher comment on a calculé
+
+if (caYtd > 0 && monthsWithData > 1) {
+  // Moyenne réelle sur plusieurs mois → projection fiable
+  const monthlyAverage = caYtd / monthsWithData;
+  caAnnuel = Math.round(monthlyAverage * 12);
+  tvaProjectionMode = "moyenne";
+} else {
+  // Un seul mois — projection simple mais on l'indique clairement
+  caAnnuel = ca * 12;
+  tvaProjectionMode = "estimation";
+}
 
   // ==================== TVA CALCULATIONS ====================
   let tvaThreshold = 0;
@@ -139,23 +157,39 @@ export function computeObligations(answers = {}) {
   if (tvaStatus === "exceeded") tvaUrgency = "late";
   else if (tvaStatus === "soon") tvaUrgency = "soon";
 
-  let tvaHint = null;
+let tvaHint = null;
 
-  if (!answers.activity_type) {
-    tvaHint = "Choisis une activité pour afficher le repère TVA.";
-  } else if (ca <= 0) {
-    tvaHint = "Ajoute un revenu pour afficher un repère TVA basé sur ton activité.";
-  } else if (tvaThreshold > 0) {
-    const note =
-      answers.activity_type === "mixte"
-        ? " (mixte : estimation simplifiée)"
-        : "";
+if (!answers.activity_type) {
+  tvaHint = "Choisis une activité pour afficher le repère TVA.";
+} else if (ca <= 0) {
+  tvaHint = "Ajoute un revenu pour afficher un repère TVA basé sur ton activité.";
+} else if (tvaThreshold > 0) {
+  const note =
+    answers.activity_type === "mixte"
+      ? " (mixte : estimation simplifiée)"
+      : "";
 
-    tvaHint =
-      `CA enregistré : ${ca.toLocaleString("fr-FR")} € ce mois • ` +
-      `projection annuelle simplifiée : ${caAnnuel.toLocaleString("fr-FR")} € • ` +
-      `seuil : ${tvaThreshold.toLocaleString("fr-FR")} €${note}`;
-  }
+  tvaHint =
+    `CA ce mois : ${ca.toLocaleString("fr-FR")} € • ` +
+    `Projection annuelle : ${caAnnuel.toLocaleString("fr-FR")} € • ` +
+    `Seuil TVA : ${tvaThreshold.toLocaleString("fr-FR")} €${note}`;
+}
+
+  if (tvaThreshold > 0) {
+  const note = answers.activity_type === "mixte"
+    ? " (mixte : estimation simplifiée)"
+    : "";
+
+  const projectionNote = tvaProjectionMode === "moyenne"
+    ? `moyenne sur ${monthsWithData} mois`
+    : "projection sur 1 mois — à affiner";
+
+  tvaHint =
+    `CA ce mois : ${ca.toLocaleString("fr-FR")} € • ` +
+    `projection annuelle (${projectionNote}) : ${caAnnuel.toLocaleString("fr-FR")} € • ` +
+    `seuil : ${tvaThreshold.toLocaleString("fr-FR")} €${note}`;
+}
+
 
   // ==================== DECLARATION DEADLINES ====================
   const today = new Date();
@@ -361,7 +395,8 @@ export function computeObligations(answers = {}) {
     tvaStatus,
     tvaUrgency,
     tvaHint,
-    
+    tvaProjectionMode,
+
     // Recommandations
     recommendations,
     obligations: [],
