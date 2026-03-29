@@ -1970,7 +1970,6 @@ return (
   className="navLink"
   onClick={() => {
     setAppView("dashboard");
-    setShowInvoices(true);
     setTimeout(() => {
       document.getElementById("invoices-section")
         ?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1979,6 +1978,7 @@ return (
 >
   Factures
 </button>
+
  <button
   type="button"
   className="navLink"
