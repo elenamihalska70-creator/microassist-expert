@@ -9,6 +9,7 @@ import { showConsoleSignature } from "./consoleSignature.js";
 import { useAuth } from "./context/AuthContext.jsx";
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import InvoiceGenerator from "./components/InvoiceGenerator.jsx";
 
 // Добавьте после других констант:
 const LS_KEY = "microassist_v1";
@@ -141,6 +142,8 @@ export default function App() {
   const [resumeSaveAfterAuth, setResumeSaveAfterAuth] = useState(false); // ✅ ДОБАВИТЬ
    const [showCGU, setShowCGU] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
+  const [showInvoiceGenerator, setShowInvoiceGenerator] = useState(false);
+  const [invoices, setInvoices] = useState([]);
   const [revenueForm, setRevenueForm] = useState({
     amount: "",
     date: new Date().toISOString().slice(0, 10),
@@ -215,7 +218,29 @@ export default function App() {
     }
   }, [user]);
 
+const refreshInvoices = useCallback(async () => {
+  if (!user) {
+    setInvoices([]);
+    return;
+  }
+  try {
+    const { data, error } = await supabase
+      .from("invoices")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false });
 
+    if (error) {
+      console.error("Load invoices error:", error.message);
+      setInvoices([]);
+      return;
+    }
+    setInvoices(data || []);
+  } catch (error) {
+    console.error("Unexpected error in refreshInvoices:", error);
+    setInvoices([]);
+  }
+}, [user]);
 
   // useCallback для refreshFiscalProfile
   const refreshFiscalProfile = useCallback(async () => {
@@ -318,6 +343,14 @@ export default function App() {
     }
     refreshRevenues();
   }, [user, refreshRevenues]);
+
+  useEffect(() => {
+  if (!user) {
+    setInvoices([]);
+    return;
+  }
+  refreshInvoices();
+}, [user, refreshInvoices]);
 
   const steps = FISCAL_STEPS;
 
@@ -768,6 +801,8 @@ useEffect(() => {
     }
   }
 }, [user]);
+
+
 
 useEffect(() => {
   if (!user || !resumeSaveAfterAuth) return;
@@ -1431,18 +1466,20 @@ const saveFiscalProfileToSupabase = useCallback(async (profileAnswers) => {
     console.error("Fiscal profile upsert error:", error.message);
   } else {
     console.log("Fiscal profile saved ✅");
-    
-    // ✅ Créer/update reminder - à l'intérieur du else
+
     const nextRemindAt = calculateNextReminder(profileAnswers.declaration_frequency);
-    await supabase
-      .from("reminders")
-      .upsert({
-        user_id: user.id,
-        reminder_type: "declaration",
-        remind_at: nextRemindAt,
-        sent_at: null,
-        is_active: true,
-      }, { onConflict: "user_id" });
+
+    if (nextRemindAt) {
+      await supabase
+        .from("reminders")
+        .upsert({
+          user_id: user.id,
+          reminder_type: "declaration",
+          reminder_date: nextRemindAt.slice(0, 10),
+          status: "pending",
+        }, { onConflict: "user_id" });
+
+    }
   }
 }, []);
 
@@ -1928,6 +1965,20 @@ return (
   <button type="button" className="navLink" onClick={goToAssistant}>
     Assistant
   </button>
+<button
+  type="button"
+  className="navLink"
+  onClick={() => {
+    setAppView("dashboard");
+    setShowInvoices(true);
+    setTimeout(() => {
+      document.getElementById("invoices-section")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 150);
+  }}
+>
+  Factures
+</button>
  <button
   type="button"
   className="navLink"
@@ -2583,6 +2634,13 @@ return (
         <button className="btn btnPrimary btnSmall" type="button" onClick={handleOpenRevenuePopup}>
           + Ajouter revenu
         </button>
+        <button
+  className="btn btnGhost btnSmall"
+  type="button"
+  onClick={() => setShowInvoiceGenerator(true)}
+>
+  🧾 Créer une facture
+</button>
       </div>
     </div>
 
@@ -2949,9 +3007,73 @@ return (
       </div>
     )}
 
+{/* ===== MES FACTURES ===== */}
+<div id="invoices-section" style={{ marginTop: 32 }}>
+  <div className="journalHeader">
+    <h3>Mes factures</h3>
+    <button
+      className="btn btnPrimary btnSmall"
+      type="button"
+      onClick={() => setShowInvoiceGenerator(true)}
+    >
+      + Nouvelle facture
+    </button>
+  </div>
+
+  {invoices.length === 0 ? (
+    <div className="emptyRevenueState">
+      <div className="emptyRevenueIcon">🧾</div>
+      <div className="emptyRevenueTitle">Aucune facture</div>
+      <p className="muted">
+        Crée ta première facture pour commencer le suivi.
+      </p>
+      <button
+        className="btn btnPrimary btnSmall"
+        type="button"
+        onClick={() => setShowInvoiceGenerator(true)}
+      >
+        Créer une facture
+      </button>
+    </div>
+  ) : (
+    <div className="revenuesList">
+      {invoices.map((invoice) => (
+        <div key={invoice.id} className="revenueItem">
+          <div className="revenueMain">
+            <div className="revenueAmount">
+              {Number(invoice.amount).toLocaleString("fr-FR")} €
+            </div>
+            <div className="revenueDate">
+              {invoice.invoice_number}
+            </div>
+          </div>
+          <div className="revenueMeta">
+            {invoice.client_name && (
+              <div><strong>Client :</strong> {invoice.client_name}</div>
+            )}
+            {invoice.description && (
+              <div><strong>Prestation :</strong> {invoice.description}</div>
+            )}
+            {invoice.invoice_date && (
+              <div><strong>Date :</strong> {new Date(`${invoice.invoice_date}T00:00:00`).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}</div>
+            )}
+          </div>
+          <div className="revenueActions">
+            <span className={`badge ${invoice.status === "sent" ? "badgeGreen" : "badgeGray"}`}>
+              {invoice.status === "sent" ? "✅ Envoyée" : "📝 Brouillon"}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  )}
+</div>
+
     <div className="dataTrustLine">
   🔒 Ton profil fiscal, tes revenus et ton historique sont liés à ton espace personnel sécurisé.
 </div>
+
+
   </section>
 )}
 
@@ -3315,17 +3437,11 @@ ce qui est utile, ce qui peut être amélioré.
           href="https://elenamihalska70-creator.github.io/Portfolio/"
           target="_blank"
           rel="noopener noreferrer"
-          style={{ 
-            color: '#6b7280', 
-            textDecoration: 'none',
-            transition: 'color 0.2s ease'
-          }}
-          onMouseEnter={(e) => e.target.style.color = '#7c3aed'}
-          onMouseLeave={(e) => e.target.style.color = '#6b7280'}
-        >
-          O.M
-        </a>
-      </span>
+          className="footerLink"
+  >
+    O.M.
+  </a>
+</span>
     </div>
     
     {/* Troisième ligne : crédits (optionnel, maintenant intégré dans la ligne du dessus) */}
@@ -3360,6 +3476,18 @@ ce qui est utile, ce qui peut être amélioré.
 />
 )}
       </div>
+      {showInvoiceGenerator && (
+  <InvoiceGenerator
+    user={user}
+    onClose={() => setShowInvoiceGenerator(false)}
+   onSaved={() => {
+  setShowInvoiceGenerator(false);
+  refreshInvoices();
+  setSaveNotice("Facture enregistrée ✅");
+  setTimeout(() => setSaveNotice(null), 2500);
+}}
+  />
+)}
     </>
   );
 }

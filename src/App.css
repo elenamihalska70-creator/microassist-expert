@@ -1305,3 +1305,21 @@ section[id] {
   font-size: 13px;
 }
 
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.badgeGreen {
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.badgeGray {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
