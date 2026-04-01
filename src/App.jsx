@@ -2272,6 +2272,20 @@ function handleOpenSaveModal(source = "unknown") {
                         <div className="kpiValue">OK / Vigilance</div>
                       </div>
 
+<div className="kpi">
+  <div className="kpiLabel">ACRE</div>
+  <div className="kpiValue">
+    Taux réduit automatique selon la date
+  </div>
+</div>
+
+<div className="kpi">
+  <div className="kpiLabel">CFE</div>
+  <div className="kpiValue">
+    Prévision dès la 2e année
+  </div>
+</div>
+
                       <div className="kpi">
                         <div className="kpiLabel">Action</div>
                         <div className="kpiValue">Étape suivante claire</div>
