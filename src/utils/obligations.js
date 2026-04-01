@@ -57,12 +57,25 @@ function nextMonthlyDeadline(today) {
   return endOfMonth(nextMonth);
 }
 
+// Fonction pour calculer l'année d'activité
+function getBusinessYear(startDate) {
+  if (!startDate) return null;
+  const start = new Date(startDate);
+  const now = new Date();
+  let years = now.getFullYear() - start.getFullYear();
+  const monthDiff = now.getMonth() - start.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < start.getDate())) {
+    years--;
+  }
+  return years + 1;
+}
+
 export function computeObligations(answers = {}) {
   const ca = Number(answers.ca_month || 0);
   const baseRate = getRate(answers.activity_type);
   let rate = baseRate;
   
-  // ✅ ACRE logic avec calcul de la date de fin
+  // ==================== ACRE LOGIC ====================
   let acreActive = false;
   let acreMonthsLeft = null;
   let acreEndDate = null;
@@ -72,7 +85,6 @@ export function computeObligations(answers = {}) {
     acreActive = true;
     rate = baseRate / 2;
     
-    // ✅ Calcul de la date de fin ACRE
     if (answers.acre_start_date) {
       const startDate = new Date(answers.acre_start_date);
       const today = new Date();
@@ -84,7 +96,6 @@ export function computeObligations(answers = {}) {
       acreMonthsLeft = Math.max(0, 12 - monthsSinceStart);
       acreEndDate = endDate;
       
-      // Si ACRE est terminée
       if (acreMonthsLeft <= 0) {
         acreActive = false;
         rate = baseRate;
@@ -95,7 +106,6 @@ export function computeObligations(answers = {}) {
         acreHint = `💡 ACRE appliquée : taux réduit de ${Math.round(baseRate * 100)}% → ${Math.round(rate * 100)}% pour la première année. Valable encore ${acreMonthsLeft} mois.`;
       }
     } else {
-      // Pas de date de début renseignée
       acreHint = `💡 ACRE appliquée : taux réduit de ${Math.round(baseRate * 100)}% → ${Math.round(rate * 100)}% pour la première année.`;
     }
   } else if (answers.acre === "unknown") {
@@ -112,25 +122,51 @@ export function computeObligations(answers = {}) {
         ? `${treasuryRecommended.toLocaleString("fr-FR")} € à mettre de côté`
         : "—";
 
-// Projection annuelle intelligente
-// Si on a des données sur plusieurs mois — utiliser la moyenne réelle
-// Sinon — projection simple avec avertissement
-const caYtd = Number(answers.ca_ytd || 0); // CA total depuis début d'année
-const monthsWithData = Number(answers.months_with_data || 1); // nombre de mois avec données
+  // ==================== PROJECTION ANNUELLE ====================
+  const caYtd = Number(answers.ca_ytd || 0);
+  const monthsWithData = Number(answers.months_with_data || 1);
 
-let caAnnuel;
-let tvaProjectionMode; // pour afficher comment on a calculé
+  let caAnnuel;
+  let tvaProjectionMode;
 
-if (caYtd > 0 && monthsWithData > 1) {
-  // Moyenne réelle sur plusieurs mois → projection fiable
-  const monthlyAverage = caYtd / monthsWithData;
-  caAnnuel = Math.round(monthlyAverage * 12);
-  tvaProjectionMode = "moyenne";
-} else {
-  // Un seul mois — projection simple mais on l'indique clairement
-  caAnnuel = ca * 12;
-  tvaProjectionMode = "estimation";
-}
+  if (caYtd > 0 && monthsWithData > 1) {
+    const monthlyAverage = caYtd / monthsWithData;
+    caAnnuel = Math.round(monthlyAverage * 12);
+    tvaProjectionMode = "moyenne";
+  } else {
+    caAnnuel = ca * 12;
+    tvaProjectionMode = "estimation";
+  }
+
+  // ==================== CFE CALCULATIONS ====================
+  const businessStartDate = answers.business_start_date;
+  const businessYear = getBusinessYear(businessStartDate);
+  const isFirstYear = businessYear === 1;
+  const isSecondYear = businessYear === 2;
+
+  let cfeAlert = null;
+  if (!isFirstYear && caAnnuel > 5000 && businessStartDate) {
+    let estimatedAmountCFE = 0;
+    if (caAnnuel < 10000) estimatedAmountCFE = 75;
+    else if (caAnnuel < 20000) estimatedAmountCFE = 150;
+    else if (caAnnuel < 30000) estimatedAmountCFE = 250;
+    else if (caAnnuel < 50000) estimatedAmountCFE = 400;
+    else estimatedAmountCFE = 600;
+    
+    cfeAlert = {
+      show: true,
+      estimatedAmount: estimatedAmountCFE,
+      message: `⚠️ CFE à prévoir : environ ${estimatedAmountCFE}€ en fin d'année`,
+      year: businessYear
+    };
+  } else if (!businessStartDate && caAnnuel > 5000) {
+    cfeAlert = {
+      show: true,
+      estimatedAmount: null,
+      message: `CFE à prévoir (renseigne ta date de début pour une estimation précise)`,
+      year: null
+    };
+  }
 
   // ==================== TVA CALCULATIONS ====================
   let tvaThreshold = 0;
@@ -147,7 +183,6 @@ if (caYtd > 0 && monthsWithData > 1) {
 
   if (tvaThreshold > 0 && ca > 0) {
     const ratio = caAnnuel / tvaThreshold;
-
     if (ratio >= 1) tvaStatus = "exceeded";
     else if (ratio >= 0.8) tvaStatus = "soon";
     else tvaStatus = "ok";
@@ -157,39 +192,26 @@ if (caYtd > 0 && monthsWithData > 1) {
   if (tvaStatus === "exceeded") tvaUrgency = "late";
   else if (tvaStatus === "soon") tvaUrgency = "soon";
 
-let tvaHint = null;
+  let tvaHint = null;
 
-if (!answers.activity_type) {
-  tvaHint = "Choisis une activité pour afficher le repère TVA.";
-} else if (ca <= 0) {
-  tvaHint = "Ajoute un revenu pour afficher un repère TVA basé sur ton activité.";
-} else if (tvaThreshold > 0) {
-  const note =
-    answers.activity_type === "mixte"
+  if (!answers.activity_type) {
+    tvaHint = "Choisis une activité pour afficher le repère TVA.";
+  } else if (ca <= 0) {
+    tvaHint = "Ajoute un revenu pour afficher un repère TVA basé sur ton activité.";
+  } else if (tvaThreshold > 0) {
+    const note = answers.activity_type === "mixte"
       ? " (mixte : estimation simplifiée)"
       : "";
+    
+    const projectionNote = tvaProjectionMode === "moyenne"
+      ? `moyenne sur ${monthsWithData} mois`
+      : "projection sur 1 mois — à affiner";
 
-  tvaHint =
-    `CA ce mois : ${ca.toLocaleString("fr-FR")} € • ` +
-    `Projection annuelle : ${caAnnuel.toLocaleString("fr-FR")} € • ` +
-    `Seuil TVA : ${tvaThreshold.toLocaleString("fr-FR")} €${note}`;
-}
-
-  if (tvaThreshold > 0) {
-  const note = answers.activity_type === "mixte"
-    ? " (mixte : estimation simplifiée)"
-    : "";
-
-  const projectionNote = tvaProjectionMode === "moyenne"
-    ? `moyenne sur ${monthsWithData} mois`
-    : "projection sur 1 mois — à affiner";
-
-  tvaHint =
-    `CA ce mois : ${ca.toLocaleString("fr-FR")} € • ` +
-    `projection annuelle (${projectionNote}) : ${caAnnuel.toLocaleString("fr-FR")} € • ` +
-    `seuil : ${tvaThreshold.toLocaleString("fr-FR")} €${note}`;
-}
-
+    tvaHint =
+      `CA ce mois : ${ca.toLocaleString("fr-FR")} € • ` +
+      `projection annuelle (${projectionNote}) : ${caAnnuel.toLocaleString("fr-FR")} € • ` +
+      `seuil : ${tvaThreshold.toLocaleString("fr-FR")} €${note}`;
+  }
 
   // ==================== DECLARATION DEADLINES ====================
   const today = new Date();
@@ -225,7 +247,6 @@ if (!answers.activity_type) {
   if (deadlineDate) {
     const diffMs = deadlineDate.getTime() - today.getTime();
     const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-
     if (diffDays < 0) urgency = "late";
     else if (diffDays <= 7) urgency = "soon";
   }
@@ -238,7 +259,7 @@ if (!answers.activity_type) {
       key: "freq_unknown",
       title: "Périodicité à confirmer",
       level: "warning",
-      text: "Choisis 'Mensuel' ou 'Trimestriel' pour calculer une date limite. Tu peux vérifier dans ton espace URSSAF.",
+      text: "Choisis 'Mensuel' ou 'Trimestriel' pour calculer une date limite.",
     });
   }
 
@@ -247,14 +268,14 @@ if (!answers.activity_type) {
       key: "deadline_late",
       title: "Déclaration URSSAF en retard",
       level: "danger",
-      text: "Connecte-toi à autoentrepreneur.urssaf.fr et régularise ta déclaration dès que possible. En cas de blocage, contacte l’URSSAF.",
+      text: "Connecte-toi à autoentrepreneur.urssaf.fr et régularise ta déclaration dès que possible.",
     });
   } else if (urgency === "soon") {
     recommendations.push({
       key: "deadline_soon",
       title: "Échéance proche",
       level: "warning",
-      text: "Prépare ton chiffre d’affaires et planifie 10 minutes cette semaine pour déclarer sur autoentrepreneur.urssaf.fr.",
+      text: "Prépare ton chiffre d’affaires et planifie 10 minutes cette semaine pour déclarer.",
     });
   } else if (typeof daysLeft === "number" && daysLeft > 7 && freq) {
     recommendations.push({
@@ -270,18 +291,18 @@ if (!answers.activity_type) {
       key: "tva_exceeded",
       title: "Seuil TVA dépassé",
       level: "danger",
-      text: "Vérifie ton régime TVA. Tu pourrais devoir facturer la TVA et la déclarer. Si tu n’es pas sûr(e), demande confirmation à un expert-comptable.",
+      text: "Vérifie ton régime TVA. Tu pourrais devoir facturer la TVA et la déclarer.",
     });
   } else if (tvaStatus === "soon") {
     recommendations.push({
       key: "tva_soon",
       title: "Seuil TVA bientôt atteint",
       level: "warning",
-      text: "Surveille ton CA. Anticipe la TVA (mentions sur factures, paramétrage) pour éviter les surprises.",
+      text: "Surveille ton CA. Anticipe la TVA pour éviter les surprises.",
     });
   }
 
-  // ==================== FINANCIAL HEALTH ANALYSIS ====================
+  // ==================== FINANCIAL HEALTH ====================
   const monthlyExpenses = Number(answers.monthly_expenses || 0);
   const hasExpenses = monthlyExpenses > 0;
 
@@ -376,7 +397,6 @@ if (!answers.activity_type) {
 
   // ==================== RETURN ====================
   return {
-    // Calculs de base
     estimatedAmount,
     rate,
     baseRate,
@@ -389,46 +409,34 @@ if (!answers.activity_type) {
     periodLabel,
     daysLeft,
     caAnnuel,
-    
-    // TVA
     tvaThreshold,
     tvaStatus,
     tvaUrgency,
     tvaHint,
     tvaProjectionMode,
-
-    // Recommandations
     recommendations,
     obligations: [],
-    
-    // Labels
     nextDeclarationLabel,
     amountEstimatedLabel,
     deadlineLabel,
     tvaStatusLabel,
-    
-    // Trésorerie
     treasuryRecommended,
     treasuryLabel,
-    
-    // ACRE
     acreHint,
-    
-    // Analyse financière
     monthlyExpenses,
     financialHealth,
     financialHealthMessage,
     savingsRecommended,
     coverageRatio,
-    
-    // Calculs annuels
     annualRevenue,
     annualCharges,
     annualNet,
+    businessYear,
+    isFirstYear,
+    cfeAlert,
   };
 }
 
-// ✅ Функция getDashValue
 export function getDashValue(cardKey, answers = {}, computed = {}) {
   const map = {
     next_declaration: computed?.nextDeclarationLabel,
@@ -438,7 +446,5 @@ export function getDashValue(cardKey, answers = {}, computed = {}) {
     reminders: answers?.reminders_enabled ? "✅ Activé" : "⏸ Désactivé",
     treasury: computed?.treasuryLabel,
   };
-
   return map[cardKey] ?? "—";
 }
-

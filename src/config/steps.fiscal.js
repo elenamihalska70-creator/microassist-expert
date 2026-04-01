@@ -39,20 +39,28 @@ export const FISCAL_STEPS = [
     help: "L'ACRE réduit les charges sociales de 50% la première année.",
   },
 
-// В steps.fiscal.js, после ACRE
-{
-  key: "acre_start_date",
-  title: "Date de début ACRE",
-  mode: "input",
-  question: "Quand as-tu commencé à bénéficier de l'ACRE ?",
-  placeholder: "Ex: 01/01/2026",
-  help: "Cette date nous aidera à te rappeler quand l'ACRE se termine.",
-  condition: (answers) => answers.acre === "yes"  // показывать только если ACRE = Oui
-},
+  {
+    key: "acre_start_date",
+    title: "Date de début ACRE",
+    mode: "input",
+    question: "Quand as-tu commencé à bénéficier de l'ACRE ?",
+    placeholder: "Ex: 01/01/2026",
+    help: "Cette date nous aidera à te rappeler quand l'ACRE se termine.",
+    condition: (answers) => answers.acre === "yes"
+  },
+
+  {
+    key: "business_start_date",
+    title: "Début d'activité",
+    mode: "input",
+    question: "Quand as-tu commencé ton activité ?",
+    placeholder: "Ex: 01/01/2026",
+    help: "Cette date nous permet de personnaliser les calculs (CFE, ACRE, etc.)",
+  },
 
   {
     key: "declaration_frequency",
-    title: "Périodicité",
+    title: "Rythme",
     mode: "choice",
     question: "Quel est ton rythme de déclaration ?",
     options: [
