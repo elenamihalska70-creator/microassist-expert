@@ -31,9 +31,6 @@ function endOfMonth(date) {
   return new Date(date.getFullYear(), date.getMonth() + 1, 0);
 }
 
-function addMonths(date, n) {
-  return new Date(date.getFullYear(), date.getMonth() + n, 1);
-}
 
 function getQuarterIndex(m) {
   if (m <= 2) return 1;
@@ -53,8 +50,10 @@ function nextQuarterDeadline(today) {
 }
 
 function nextMonthlyDeadline(today) {
-  const nextMonth = addMonths(today, 1);
-  return endOfMonth(nextMonth);
+  // dernier jour du mois suivant
+  const year = today.getFullYear();
+  const month = today.getMonth();
+  return new Date(year, month + 2, 0);
 }
 
 // Fonction pour calculer l'année d'activité
@@ -80,6 +79,7 @@ export function computeObligations(answers = {}) {
   let acreMonthsLeft = null;
   let acreEndDate = null;
   let acreHint = null;
+  let acreStatus = "inactive"; // добавим статус
 
   if (answers.acre === "yes" && baseRate > 0) {
     acreActive = true;
@@ -99,13 +99,18 @@ export function computeObligations(answers = {}) {
       if (acreMonthsLeft <= 0) {
         acreActive = false;
         rate = baseRate;
+        acreStatus = "expired";
         acreHint = "⚠️ Votre période ACRE est terminée. Modifiez votre profil pour ajuster les charges.";
-      } else if (acreMonthsLeft <= 3) {
-        acreHint = `⏰ ACRE bientôt terminée : encore ${acreMonthsLeft} mois. Pensez à mettre à jour votre profil.`;
       } else {
-        acreHint = `💡 ACRE appliquée : taux réduit de ${Math.round(baseRate * 100)}% → ${Math.round(rate * 100)}% pour la première année. Valable encore ${acreMonthsLeft} mois.`;
+        acreStatus = "active";
+        if (acreMonthsLeft <= 3) {
+          acreHint = `⏰ ACRE bientôt terminée : encore ${acreMonthsLeft} mois. Pensez à mettre à jour votre profil.`;
+        } else {
+          acreHint = `💡 ACRE appliquée : taux réduit de ${Math.round(baseRate * 100)}% → ${Math.round(rate * 100)}% pour la première année. Valable encore ${acreMonthsLeft} mois.`;
+        }
       }
     } else {
+      acreStatus = "active";
       acreHint = `💡 ACRE appliquée : taux réduit de ${Math.round(baseRate * 100)}% → ${Math.round(rate * 100)}% pour la première année.`;
     }
   } else if (answers.acre === "unknown") {
@@ -113,14 +118,13 @@ export function computeObligations(answers = {}) {
   }
 
   const estimatedAmount = Math.round(ca * rate);
+  
   const treasuryRecommended = estimatedAmount;
-
-  const treasuryLabel =
-    !answers?.activity_type
-      ? "Choisis une activité"
-      : treasuryRecommended
-        ? `${treasuryRecommended.toLocaleString("fr-FR")} € à mettre de côté`
-        : "—";
+  const treasuryLabel = !answers?.activity_type
+  ? "Choisis une activité"
+  : treasuryRecommended
+    ? `${treasuryRecommended.toLocaleString("fr-FR")} € à mettre de côté`
+    : "—";
 
   // ==================== PROJECTION ANNUELLE ====================
   const caYtd = Number(answers.ca_ytd || 0);
@@ -355,7 +359,7 @@ export function computeObligations(answers = {}) {
           ? `⏰ Échéance proche${periodLabel ? ` — ${periodLabel}` : ""}`
           : `${nextDeclaration}${periodLabel ? ` — ${periodLabel}` : ""}`;
 
-  let amountEstimatedLabel = "—";
+let amountEstimatedLabel = "—";
   if (!answers?.activity_type) {
     amountEstimatedLabel = "Choisis une activité";
   } else if (rate <= 0) {
@@ -371,6 +375,9 @@ export function computeObligations(answers = {}) {
     }
   }
 
+
+
+  
   const deadlineLabel =
     !deadlineDate || !freq || freq === ""
       ? "—"
@@ -405,6 +412,8 @@ export function computeObligations(answers = {}) {
     acreEndDate,
     nextDeclaration,
     deadlineDate,
+    acreStatus,      // обязательно добавить
+    acreHint,
     urgency,
     periodLabel,
     daysLeft,
@@ -422,7 +431,6 @@ export function computeObligations(answers = {}) {
     tvaStatusLabel,
     treasuryRecommended,
     treasuryLabel,
-    acreHint,
     monthlyExpenses,
     financialHealth,
     financialHealthMessage,

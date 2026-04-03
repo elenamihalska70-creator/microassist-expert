@@ -153,6 +153,7 @@ export default function App() {
   const [showCGU, setShowCGU] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showInvoiceGenerator, setShowInvoiceGenerator] = useState(false);
+  
   const [invoices, setInvoices] = useState([]);
   const [showPricingModal, setShowPricingModal] = useState(false);
   const [pdfExportCount, setPdfExportCount] = useState(0);
@@ -160,7 +161,16 @@ export default function App() {
   // состояния
 // Modals pédagogiques
   const [showTVAModal, setShowTVAModal] = useState(false);
+  const [showReminderModal, setShowReminderModal] = useState(false);
 
+  const [reminderPrefs, setReminderPrefs] = useState({
+  declaration: true,
+  tva: true,
+  cfe: true,
+  acre: true,
+  email: true,
+  sms: false,
+});
 // Plan utilisateur
   const [userPlan, setUserPlan] = useState(
   BETA_MODE ? "beta_founder" : "free"
@@ -399,6 +409,21 @@ const isTrialExpired = trialDaysLeft !== null && trialDaysLeft <= 0;
     }
     refreshInvoices();
   }, [user, refreshInvoices]);
+
+// sync reminder prefs depuis Supabase
+useEffect(() => {
+  if (!fiscalProfile) return;
+
+  setReminderPrefs((prev) => ({
+    ...prev,
+    declaration: fiscalProfile.reminder_declaration ?? prev.declaration,
+    tva: fiscalProfile.reminder_tva ?? prev.tva,
+    cfe: fiscalProfile.reminder_cfe ?? prev.cfe,
+    acre: fiscalProfile.reminder_acre ?? prev.acre,
+    email: fiscalProfile.reminder_email ?? prev.email,
+    sms: fiscalProfile.reminder_sms ?? prev.sms,
+  }));
+}, [fiscalProfile]);
 
   const steps = FISCAL_STEPS;
 
@@ -733,6 +758,17 @@ useEffect(() => {
   const key = `microassist_pdf_exports_${new Date().getFullYear()}_${new Date().getMonth() + 1}`;
   const saved = localStorage.getItem(key);
   setPdfExportCount(saved ? Number(saved) : 0);
+}, []);
+
+useEffect(() => {
+  try {
+    const saved = localStorage.getItem("microassist_reminder_prefs");
+    if (saved) {
+      setReminderPrefs(JSON.parse(saved));
+    }
+  } catch (error) {
+    console.error("Erreur chargement préférences rappels:", error);
+  }
 }, []);
 
   useEffect(() => {
@@ -1161,6 +1197,7 @@ useEffect(() => {
         value: computed?.tvaStatusLabel || "À vérifier",
         hint: computed?.tvaHint || "Repère TVA",
       },
+      
     ];
   }, [computed, revenues.length, estimatedCharges]);
 
@@ -1309,84 +1346,71 @@ useEffect(() => {
   }, [availableAmount]);
 
   // ==================== ACRE EXPIRATION CHECK ====================
-  const acreExpiration = useMemo(() => {
-    if (!dashboardAnswers?.acre || dashboardAnswers.acre !== "yes") return null;
+const acreExpiration = useMemo(() => {
+  if (!dashboardAnswers?.acre || dashboardAnswers.acre !== "yes") return null;
 
-    // Предполагаем, что ACRE действует 12 месяцев
-    // Если у пользователя есть дата начала ACRE, используем её
-    const startDate = dashboardAnswers.acre_start_date
-      ? new Date(dashboardAnswers.acre_start_date)
-      : null;
+  const startDate = dashboardAnswers.acre_start_date
+    ? new Date(dashboardAnswers.acre_start_date)
+    : null;
 
-    if (!startDate) {
-      // Если нет даты начала, показываем общее напоминание
-      return {
-        hasDate: false,
-        message:
-          "💡 L'ACRE réduit tes charges pendant 12 mois. Pense à vérifier quand elle se termine.",
-        warning: false,
-      };
-    }
-
-
-
-    const today = new Date();
-    const endDate = new Date(startDate);
-    endDate.setMonth(endDate.getMonth() + 12);
-
-    const daysLeft = Math.ceil((endDate - today) / (1000 * 60 * 60 * 24));
-    const monthsLeft = Math.floor(daysLeft / 30);
-
-    if (daysLeft <= 0) {
-      return {
-        hasDate: true,
-        expired: true,
-        daysLeft: 0,
-        message:
-          "⚠️ Ta période ACRE est terminée. Pense à mettre à jour ton profil pour ajuster tes charges.",
-        warning: true,
-      };
-    }
-
-    if (daysLeft <= 30) {
-      return {
-        hasDate: true,
-        expired: false,
-        daysLeft,
-        monthsLeft,
-        message: `⚠️ Ton ACRE se termine dans ${daysLeft} jours (environ ${monthsLeft} mois). Pense à modifier ton profil dans ton espace fiscal.`,
-        warning: true,
-      };
-    }
-
-    if (daysLeft <= 90) {
-      return {
-        hasDate: true,
-        expired: false,
-        daysLeft,
-        monthsLeft,
-        message: `⏰ Ton ACRE se termine dans ${daysLeft} jours. Anticipe la modification de ton profil.`,
-        warning: true,
-      };
-    }
-
-    return null;
-  }, [dashboardAnswers?.acre, dashboardAnswers?.acre_start_date]);
-
-  function goToView(nextView, options = {}) {
-    const { push = true, focus = false } = options;
-
-    if (push) {
-      window.history.pushState({ appView: nextView }, "");
-    }
-
-    setAppView(nextView);
-    setFocusMode(focus);
-
-    if (nextView === "assistant") {
-      setAssistantCollapsed(false);
-    }
+  if (!startDate) {
+    return {
+      hasDate: false,
+      message: "💡 L'ACRE réduit tes charges pendant 12 mois. Pense à vérifier quand elle se termine.",
+      warning: false,
+    };
   }
+
+  const today = new Date();
+  const endDate = new Date(startDate);
+  endDate.setMonth(endDate.getMonth() + 12);
+
+  const daysLeft = Math.ceil((endDate - today) / (1000 * 60 * 60 * 24));
+  const monthsLeft = Math.floor(daysLeft / 30);
+
+  if (daysLeft <= 0) {
+    return {
+      hasDate: true,
+      expired: true,
+      daysLeft: 0,
+      message: "⚠️ Ta période ACRE est terminée. Pense à mettre à jour ton profil pour ajuster tes charges.",
+      warning: true,
+    };
+  }
+
+  if (daysLeft <= 30) {
+    const daysOnly = daysLeft > 0 ? daysLeft : 0;
+    return {
+      hasDate: true,
+      expired: false,
+      daysLeft,
+      monthsLeft,
+      message: `⚠️ Ton ACRE se termine dans ${daysOnly} jour${daysOnly > 1 ? 's' : ''}. Pense à modifier ton profil.`,
+      warning: true,
+    };
+  }
+
+  if (daysLeft <= 90) {
+    return {
+      hasDate: true,
+      expired: false,
+      daysLeft,
+      monthsLeft,
+      message: `⏰ Ton ACRE se termine dans ${daysLeft} jours. Anticipe la modification de ton profil.`,
+      warning: true,
+    };
+  }
+
+  return null;
+}, [dashboardAnswers?.acre, dashboardAnswers?.acre_start_date, revenues]); // ✅ revenues добавлена
+
+const goToView = useCallback((nextView, options = {}) => {
+  const { push = true, focus = false } = options;
+  if (push) window.history.pushState({ appView: nextView }, "");
+  setAppView(nextView);
+  setFocusMode(focus);
+  if (nextView === "assistant") setAssistantCollapsed(false);
+}, []);
 
   const handleResumeDraft = useCallback(() => {
     const targetView = draftAppView || "assistant";
@@ -1406,6 +1430,18 @@ useEffect(() => {
       }
     }, 100);
   }, [draftAppView]);
+
+  function handleReminderToggle(key) {
+  setReminderPrefs((prev) => {
+    const next = {
+      ...prev,
+      [key]: !prev[key],
+    };
+
+    localStorage.setItem("microassist_reminder_prefs", JSON.stringify(next));
+    return next;
+  });
+}
 
   function resetRevenueForm() {
     setRevenueForm({
@@ -1647,6 +1683,37 @@ function handleOpenInvoiceGenerator() {
     return data;
   }
 
+async function saveReminderPrefsToSupabase() {
+  try {
+    if (!user) return false;
+
+    const payload = {
+      reminder_declaration: reminderPrefs.declaration,
+      reminder_tva: reminderPrefs.tva,
+      reminder_cfe: reminderPrefs.cfe,
+      reminder_acre: reminderPrefs.acre,
+      reminder_email: reminderPrefs.email,
+      reminder_sms: reminderPrefs.sms,
+    };
+
+    const { error } = await supabase
+      .from("fiscal_profiles")
+      .update(payload)
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("Reminder prefs update error:", error.message);
+      return false;
+    }
+
+    await refreshFiscalProfile();
+    return true;
+  } catch (error) {
+    console.error("Unexpected reminder prefs error:", error);
+    return false;
+  }
+}
+
   async function saveRevenueEntry() {
     const amount = Number(String(revenueForm.amount).replace(",", "."));
 
@@ -1783,139 +1850,305 @@ function incrementPdfExportCount() {
   localStorage.setItem(key, String(nextCount));
 }
 
-  const handleExportPDF = useCallback(async () => {
-    const doc = new jsPDF();
-    let y = 20;
+const handleExportPDF = useCallback(async () => {
+  const doc = new jsPDF();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 16;
+  let y = 22;
 
-    doc.setFontSize(20);
-    doc.text("Rapport fiscal Microassist", 14, 20);
-    doc.setFontSize(10);
-    doc.text(`Généré le ${new Date().toLocaleDateString("fr-FR")}`, 14, 28);
+  // Palette sérieuse
+  const navy = [30, 41, 59];        // slate-800
+  const dark = [17, 24, 39];        // gray-900
+  const muted = [75, 85, 99];       // gray-600
+  const border = [229, 231, 235];   // gray-200
+  const soft = [249, 250, 251];     // gray-50
+  const softBlue = [241, 245, 249]; // slate-100
 
-    doc.setFontSize(14);
-    doc.text("Profil", 14, 40);
-    doc.setFontSize(10);
-    doc.text(`Activité : ${activityLabel || "Non renseigné"}`, 14, 48);
-    doc.text(`Périodicité : ${freqLabel || "Non renseigné"}`, 14, 55);
-    doc.text(
-      `ACRE : ${dashboardAnswers?.acre === "yes" ? "Active" : dashboardAnswers?.acre === "no" ? "Non" : "Non renseignée"}`,
-      14,
-      62,
-    );
+  const cleanPdfText = (text) =>
+    String(text || "")
+      .replace(/[^\x00-\x7F]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
 
-    doc.setFontSize(14);
-    doc.text("Revenus", 14, 75);
-    doc.setFontSize(10);
-    doc.text(
-      `Total mensuel : ${currentMonthTotal.toLocaleString("fr-FR")} €`,
-      14,
-      83,
-    );
-    doc.text(
-      `Moyenne mensuelle : ${revenueStats.monthlyAverage.toLocaleString("fr-FR")} €`,
-      14,
-      90,
-    );
-    doc.text(`Nombre d'entrées : ${revenueStats.count}`, 14, 97);
-
-    doc.setFontSize(14);
-    doc.text("Charges estimées", 14, 110);
-    doc.setFontSize(10);
-    doc.text(
-      `Charges : ${estimatedCharges.toLocaleString("fr-FR")} € (${Math.round(computed?.rate * 100)}%)`,
-      14,
-      118,
-    );
-    doc.text(
-      `Disponible : ${availableAmount.toLocaleString("fr-FR")} €`,
-      14,
-      125,
-    );
-
-    doc.setFontSize(14);
-    doc.text("Échéances", 14, 138);
-    doc.setFontSize(10);
-    doc.text(
-      `Prochaine déclaration : ${computed?.nextDeclarationLabel || "—"}`,
-      14,
-      146,
-    );
-    doc.text(`Date limite : ${computed?.deadlineLabel || "—"}`, 14, 153);
-    doc.text(`TVA : ${computed?.tvaStatusLabel || "—"}`, 14, 160);
-
-    // Сохраняем текущую позицию, чтобы потом вернуться (если понадобится)
-    // Но для CFE мы будем использовать y из блока ниже.
-
-    if (revenues.length > 0) {
+  const ensureSpace = (needed = 24) => {
+    if (y + needed > pageHeight - 20) {
       doc.addPage();
-      doc.setFontSize(14);
-      doc.text("Historique des revenus", 14, 20);
-
-      const tableData = revenues
-        .slice(0, 20)
-        .map((r) => [
-          formatRevenueDate(r.date),
-          `${r.amount.toLocaleString("fr-FR")} €`,
-          r.client || "-",
-          r.invoice || "-",
-        ]);
-
-      
-      const tableResult = autoTable(doc, {
-        startY: 28,
-        head: [["Date", "Montant", "Client", "Facture"]],
-        body: tableData,
-        theme: "striped",
-        headStyles: { fillColor: [124, 58, 237] },
-      });
-
-      if (tableResult && typeof tableResult.finalY === "number") {
-        y = tableResult.finalY + 10;
-      } else {
-        y = 180; // запасное значение
-      }
-    } else {
-      // Если нет доходов, выводим CFE после информации о профиле
-      // Здесь y можно установить на фиксированное значение после раздела «Échéances»
-      y = 170; // примерное значение, можно вычислить точнее, но для простоты оставим
+      y = 20;
     }
+  };
 
-    // Блок CFE
-    doc.setFontSize(14);
-    doc.text("CFE (Cotisation Foncière des Entreprises)", 14, y);
+  const drawTitle = (title) => {
+    ensureSpace(12);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    doc.setTextColor(...dark);
+    doc.text(title, margin, y);
     y += 8;
-    doc.setFontSize(10);
-    if (computed?.cfeAlert?.show) {
-      doc.text(computed.cfeAlert.message, 14, y);
-      y += 6;
-      if (computed.cfeAlert.estimatedAmount) {
-        doc.text(
-          `Montant estimé : ${computed.cfeAlert.estimatedAmount} €`,
-          14,
-          y,
-        );
-      }
-    } else if (computed?.isFirstYear) {
-      doc.text("Exonéré la première année", 14, y);
-    } else {
-      doc.text("Renseigne ta date de début pour une estimation", 14, y);
-    }
+  };
 
-    doc.save(
-      `rapport_microassist_${new Date().toISOString().split("T")[0]}.pdf`,
+  const drawLine = (label, value) => {
+    ensureSpace(8);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(...dark);
+    doc.text(`${label} :`, margin, y);
+
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...muted);
+
+    const text = cleanPdfText(value || "—");
+    const wrapped = doc.splitTextToSize(text, pageWidth - margin * 2 - 38);
+    doc.text(wrapped, margin + 34, y);
+    y += Math.max(7, wrapped.length * 5.5);
+  };
+
+  const drawBox = (title, lines = [], fill = soft) => {
+    const lineHeight = 6;
+    const wrappedLines = lines.map((line) =>
+      doc.splitTextToSize(cleanPdfText(line), pageWidth - margin * 2 - 14)
     );
-  }, [
-    activityLabel,
-    freqLabel,
-    dashboardAnswers,
-    currentMonthTotal,
-    revenueStats,
-    estimatedCharges,
-    availableAmount,
-    computed,
-    revenues,
-    formatRevenueDate,
-  ]);
+    const contentHeight =
+      wrappedLines.reduce((sum, arr) => sum + arr.length * lineHeight, 0) + 18;
+
+    ensureSpace(contentHeight + 8);
+
+    doc.setFillColor(...fill);
+    doc.setDrawColor(...border);
+    doc.roundedRect(
+      margin,
+      y,
+      pageWidth - margin * 2,
+      contentHeight,
+      3,
+      3,
+      "FD"
+    );
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(...dark);
+    doc.text(title, margin + 6, y + 8);
+
+    let innerY = y + 16;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(...muted);
+
+    wrappedLines.forEach((arr) => {
+      doc.text(arr, margin + 6, innerY);
+      innerY += arr.length * lineHeight;
+    });
+
+    y += contentHeight + 8;
+  };
+
+  // HEADER
+  doc.setFillColor(...navy);
+  doc.rect(0, 0, pageWidth, 28, "F");
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(17);
+  doc.setTextColor(255, 255, 255);
+  doc.text("MICROASSIST", margin, 14);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text("Rapport fiscal simplifie", margin, 21);
+
+  doc.setFontSize(8.5);
+  doc.text(
+    `Genere le ${new Date().toLocaleDateString("fr-FR")}`,
+    pageWidth - margin - 28,
+    21
+  );
+
+  y = 38;
+
+  // PROFIL
+  drawTitle("1. Profil");
+  drawLine("Activite", activityLabel || "Non renseignee");
+  drawLine("Periodicite", freqLabel || "Non renseignee");
+  drawLine(
+    "ACRE",
+    dashboardAnswers?.acre === "yes"
+      ? "Oui"
+      : dashboardAnswers?.acre === "no"
+        ? "Non"
+        : "Non renseignee"
+  );
+
+  // RESUME
+  y += 2;
+  drawTitle("2. Resume du mois");
+
+  const tvaLine = cleanPdfText(
+    computed?.tvaStatusLabel || computed?.tvaHint || "Non renseigne"
+  );
+
+  const cfeLine = computed?.cfeAlert?.show
+    ? computed?.cfeAlert?.estimatedAmount
+      ? `${cleanPdfText(computed.cfeAlert.message)} • estimation : ${computed.cfeAlert.estimatedAmount} €`
+      : cleanPdfText(computed.cfeAlert.message)
+    : computed?.isFirstYear
+      ? "Exonere la premiere annee"
+      : "A confirmer selon la date de debut d activite";
+
+  drawBox(
+    "Vue d ensemble",
+    [
+      `Chiffre d affaires du mois : ${currentMonthTotal.toLocaleString("fr-FR")} €`,
+      `Charges estimees : ${estimatedCharges.toLocaleString("fr-FR")} €`,
+      `Disponible estime : ${availableAmount.toLocaleString("fr-FR")} €`,
+      `Moyenne mensuelle : ${revenueStats.monthlyAverage.toLocaleString("fr-FR")} €`,
+      `Nombre d entrees : ${revenueStats.count}`,
+    ],
+    soft
+  );
+
+  drawBox(
+    "Reperes fiscaux",
+    [
+      `Prochaine declaration : ${cleanPdfText(computed?.nextDeclarationLabel || "—")}`,
+      `Date limite : ${cleanPdfText(computed?.deadlineLabel || "—")}`,
+      `TVA : ${tvaLine}`,
+      `CFE : ${cfeLine}`,
+    ],
+    softBlue
+  );
+
+  // ANALYSE
+  drawTitle("3. Analyse");
+  drawBox(
+    "Projection",
+    [
+      `Projection annuelle : ${computed?.annualNet?.toLocaleString("fr-FR") || "—"} €`,
+      `Taux estime : ${computed?.rate ? Math.round(computed.rate * 100) : 0}%`,
+      `Objectif d epargne : ${
+        typeof savingsGoal !== "undefined" && savingsGoal > 0
+          ? `${Math.round((savingsProgress / savingsGoal) * 100 || 0)}%`
+          : "—"
+      }`,
+    ],
+    soft
+  );
+
+  // ACTIONS
+  drawTitle("4. Actions recommandees");
+
+  const actionLines = [
+    `Mettre de cote environ ${estimatedCharges.toLocaleString("fr-FR")} € pour eviter les surprises.`,
+    `Verifier la prochaine echeance : ${cleanPdfText(computed?.deadlineLabel || "—")}.`,
+  ];
+
+  if (computed?.tvaStatus === "soon" || computed?.tvaStatus === "exceeded") {
+    actionLines.push("Surveiller le seuil TVA et anticiper la facturation.");
+  }
+
+  if (computed?.cfeAlert?.show) {
+    actionLines.push("Prevoir la CFE pour eviter une charge tardive en fin d annee.");
+  }
+
+  if (computed?.acreHint) {
+    actionLines.push(cleanPdfText(computed.acreHint));
+  }
+
+  drawBox("A faire maintenant", actionLines, softBlue);
+
+  // DISCLAIMER
+  ensureSpace(18);
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(8.5);
+  doc.setTextColor(...muted);
+  const disclaimer = doc.splitTextToSize(
+    "Document simplifie fourni a titre indicatif. Microassist ne remplace pas un expert-comptable.",
+    pageWidth - margin * 2
+  );
+  doc.text(disclaimer, margin, y);
+  y += disclaimer.length * 5 + 6;
+
+  // FOOTER SIGNATURE
+  doc.setDrawColor(...border);
+  doc.line(margin, pageHeight - 16, pageWidth - margin, pageHeight - 16);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(...muted);
+  doc.text(
+    "Microassist • Rapport fiscal premium • France micro-entreprise",
+    margin,
+    pageHeight - 10
+  );
+
+  // PAGE 2 - HISTORIQUE
+  if (revenues.length > 0) {
+    doc.addPage();
+
+    doc.setFillColor(...navy);
+    doc.rect(0, 0, pageWidth, 22, "F");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.setTextColor(255, 255, 255);
+    doc.text("Historique des revenus", margin, 14);
+
+    const tableData = revenues.slice(0, 30).map((r) => [
+      formatRevenueDate(r.date),
+      `${Number(r.amount).toLocaleString("fr-FR")} €`,
+      r.client || "-",
+      r.invoice || "-",
+    ]);
+
+    autoTable(doc, {
+      startY: 30,
+      head: [["Date", "Montant", "Client", "Facture"]],
+      body: tableData,
+      theme: "grid",
+      headStyles: {
+        fillColor: navy,
+        textColor: [255, 255, 255],
+        fontStyle: "bold",
+      },
+      bodyStyles: {
+        textColor: dark,
+        fontSize: 9,
+      },
+      alternateRowStyles: {
+        fillColor: soft,
+      },
+      styles: {
+        lineColor: border,
+        lineWidth: 0.1,
+      },
+      margin: { left: margin, right: margin },
+    });
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(...muted);
+    doc.text(
+      "Microassist • Historique des revenus",
+      margin,
+      pageHeight - 10
+    );
+  }
+
+  doc.save(
+    `rapport_microassist_${new Date().toISOString().split("T")[0]}.pdf`
+  );
+}, [
+  activityLabel,
+  freqLabel,
+  dashboardAnswers,
+  currentMonthTotal,
+  revenueStats,
+  estimatedCharges,
+  availableAmount,
+  computed,
+  revenues,
+  formatRevenueDate,
+  savingsGoal,
+  savingsProgress,
+]);
 
 function handleExportPDFWithLimit() {
   if (pdfExportCount >= currentPlanLimits.pdfExportsPerMonth) {
@@ -2737,13 +2970,27 @@ function handleOpenSaveModal(source = "unknown") {
                                 ? "vigilance"
                                 : "aucun risque immédiat"}
                           </li>
-                          <li>
-                            <strong>🧾 ACRE :</strong>{" "}
-                            {computed?.acreHint
-                              ? "taux réduit actif"
-                              : "non renseigné"}
-                          </li>
+                         <li>
+  <strong>🧾 ACRE :</strong>{" "}
+  {computed?.acreStatus === "active"
+    ? "taux réduit actif"
+    : computed?.acreStatus === "expired"
+    ? "terminée"
+    : "non renseignée"}
+</li>
+<div style={{ marginTop: 12 }}>
+  <a
+    href="https://autoentrepreneur.urssaf.fr"
+    target="_blank"
+    rel="noopener noreferrer"
+    className="btn btnGhost btnSmall"
+  >
+    📅 Déclarer mon CA sur URSSAF →
+  </a>
+</div>
                         </ul>
+
+                        
                         {/* Dans assistant, après la ligne TVA */}
 
                         {computed?.cfeAlert?.show && (
@@ -2774,6 +3021,7 @@ function handleOpenSaveModal(source = "unknown") {
                             prochaine déclaration.
                           </div>
                         </div>
+
 
                         <div className="miniActions" style={{ marginTop: 12 }}>
                           <button
@@ -2974,6 +3222,14 @@ function handleOpenSaveModal(source = "unknown") {
   🧾 Créer une facture
 </button>
 
+<button
+  className="btn btnGhost btnSmall"
+  type="button"
+  onClick={() => setShowReminderModal(true)}
+>
+  🔔 Gérer mes rappels
+</button>
+
 <span className="muted" style={{ fontSize: 12 }}>
   {invoicesThisMonth}/{currentPlanLimits.invoicesPerMonth === Infinity ? "∞" : currentPlanLimits.invoicesPerMonth}
 </span>
@@ -3007,6 +3263,8 @@ function handleOpenSaveModal(source = "unknown") {
                         "—"}
                     </strong>
                   </div>
+
+                  
 
                   <div className="monthActionItem">
                     <span>⚠️ TVA</span>
@@ -3061,6 +3319,17 @@ function handleOpenSaveModal(source = "unknown") {
                 >
                   <div className="mainActionTitle">Action recommandée</div>
                   <div className="mainActionText">{mainAction.text}</div>
+
+<div style={{ marginTop: 12 }}>
+  <a
+    href="https://autoentrepreneur.urssaf.fr"
+    target="_blank"
+    rel="noopener noreferrer"
+    className="btn btnGhost btnSmall"
+  >
+    📅 Déclarer mon CA sur URSSAF →
+  </a>
+</div>
 
                   {mainAction.cta && (
                     <button
@@ -3207,6 +3476,119 @@ function handleOpenSaveModal(source = "unknown") {
                 </div>
               </div>
 
+              <section className="card">
+  <div className="sectionHead">
+  <h2>🔔 Mes rappels actifs</h2>
+  <button
+    className="btn btnGhost btnSmall"
+    type="button"
+    onClick={() => setShowReminderModal(true)}
+  >
+    Gérer
+  </button>
+</div>
+
+<p className="muted" style={{ marginTop: 0 }}>
+  Voici les rappels actuellement activés dans ton espace.
+</p>
+
+<div
+  style={{
+    display: "grid",
+    gap: 12,
+    marginTop: 14,
+  }}
+>
+  {reminderPrefs.declaration && (
+    <div className="kpi">
+      <div className="kpiLabel">Déclaration URSSAF</div>
+      <div className="kpiValue">
+        {computed?.deadlineLabel || "Prochaine échéance à venir"}
+      </div>
+
+      <button
+        className="btn btnGhost btnSmall"
+        type="button"
+        onClick={() =>
+          window.open("https://www.autoentrepreneur.urssaf.fr", "_blank")
+        }
+        style={{ marginTop: 8 }}
+      >
+        Déclarer
+      </button>
+    </div>
+  )}
+
+  {reminderPrefs.tva && (
+    <div className="kpi">
+      <div className="kpiLabel">TVA</div>
+      <div className="kpiValue">
+        {computed?.tvaStatusLabel || "Alerte TVA activée"}
+      </div>
+
+      <button
+        className="btn btnGhost btnSmall"
+        type="button"
+        onClick={() => setShowTVAModal(true)}
+        style={{ marginTop: 8 }}
+      >
+        Voir seuil
+      </button>
+    </div>
+  )}
+
+  {reminderPrefs.cfe && (
+    <div className="kpi">
+      <div className="kpiLabel">CFE</div>
+      <div className="kpiValue">
+        {computed?.cfeAlert?.show
+          ? computed?.cfeAlert?.message
+          : "Rappel CFE activé"}
+      </div>
+
+      <button
+        className="btn btnGhost btnSmall"
+        type="button"
+        onClick={() => setShowCFEModal(true)}
+        style={{ marginTop: 8 }}
+      >
+        Comprendre
+      </button>
+    </div>
+  )}
+
+  {reminderPrefs.acre && (
+    <div className="kpi">
+      <div className="kpiLabel">Fin ACRE</div>
+      <div className="kpiValue">
+        {computed?.acreHint || "Rappel fin ACRE activé"}
+      </div>
+
+      <button
+        className="btn btnGhost btnSmall"
+        type="button"
+        onClick={handleEditProfile}
+        style={{ marginTop: 8 }}
+      >
+        Modifier profil
+      </button>
+    </div>
+  )}
+
+  <div className="kpi">
+    <div className="kpiLabel">Canal</div>
+    <div className="kpiValue">
+      {[
+        reminderPrefs.email ? "Email" : null,
+        reminderPrefs.sms ? "SMS urgent" : null,
+      ]
+        .filter(Boolean)
+        .join(" • ") || "Aucun"}
+    </div>
+  </div>
+</div>
+</section>
+
               {/* Analyse financière */}
               {computed.monthlyExpenses !== undefined && (
                 <div className="financialAnalysis" style={{ marginTop: 24 }}>
@@ -3310,9 +3692,8 @@ function handleOpenSaveModal(source = "unknown") {
               )}
 
               {/* ACRE Expiration Warning */}
-              {acreExpiration && (
-                <div
-                  className="acreExpirationWarning"
+{acreExpiration && !acreExpiration.expired && computed?.acreStatus !== "expired" && (
+  <div className="acreExpirationWarning"
                   style={{
                     marginTop: 16,
                     padding: "14px 16px",
@@ -4557,6 +4938,188 @@ function handleOpenSaveModal(source = "unknown") {
           }}
         />
       )}
+
+      {showReminderModal && (
+  <div
+    className="modalOverlay"
+    onClick={() => setShowReminderModal(false)}
+  >
+    <div
+      className="modalCard"
+      style={{ maxWidth: "520px" }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="sectionHead">
+        <h3>🔔 Gérer mes rappels</h3>
+        <button
+          className="iconBtn"
+          onClick={() => setShowReminderModal(false)}
+          type="button"
+        >
+          ✕
+        </button>
+      </div>
+
+      <div style={{ marginTop: 20 }}>
+        <p style={{ fontSize: 14, lineHeight: 1.6, marginTop: 0 }}>
+          Choisis les rappels que tu souhaites recevoir pour mieux anticiper
+          tes échéances fiscales.
+        </p>
+
+        <div
+          style={{
+            background: "#f9fafb",
+            border: "1px solid #e5e7eb",
+            borderRadius: 12,
+            padding: 16,
+            marginBottom: 16,
+          }}
+        >
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>
+            Rappels activés
+          </div>
+
+          <label style={{ display: "flex", gap: 10, marginBottom: 10, alignItems: "center" }}>
+            <input
+              type="checkbox"
+              checked={reminderPrefs.declaration}
+              onChange={() => handleReminderToggle("declaration")}
+            />
+            <span>Déclaration URSSAF</span>
+          </label>
+
+          <label style={{ display: "flex", gap: 10, marginBottom: 10, alignItems: "center" }}>
+            <input
+              type="checkbox"
+              checked={reminderPrefs.tva}
+              onChange={() => handleReminderToggle("tva")}
+            />
+            <span>Alerte TVA</span>
+          </label>
+
+          <label style={{ display: "flex", gap: 10, marginBottom: 10, alignItems: "center" }}>
+            <input
+              type="checkbox"
+              checked={reminderPrefs.cfe}
+              onChange={() => handleReminderToggle("cfe")}
+            />
+            <span>CFE annuelle</span>
+          </label>
+
+          <label style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <input
+              type="checkbox"
+              checked={reminderPrefs.acre}
+              onChange={() => handleReminderToggle("acre")}
+            />
+            <span>Fin ACRE</span>
+          </label>
+        </div>
+
+        <div
+          style={{
+            background: "#f5f3ff",
+            border: "1px solid #ddd6fe",
+            borderRadius: 12,
+            padding: 16,
+            marginBottom: 20,
+          }}
+        >
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>
+            Canal de notification
+          </div>
+
+          <label style={{ display: "flex", gap: 10, marginBottom: 10, alignItems: "center" }}>
+            <input
+              type="checkbox"
+              checked={reminderPrefs.email}
+              onChange={() => handleReminderToggle("email")}
+            />
+            <span>Email</span>
+          </label>
+
+          <label style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <input
+              type="checkbox"
+              checked={reminderPrefs.sms}
+              onChange={() => handleReminderToggle("sms")}
+            />
+            <span>SMS urgent (premium)</span>
+          </label>
+        </div>
+
+        <div
+          style={{
+            background: "#fefce8",
+            border: "1px solid #fde68a",
+            borderRadius: 12,
+            padding: 14,
+            marginBottom: 20,
+            fontSize: 13,
+            lineHeight: 1.6,
+            color: "#854d0e",
+          }}
+        >
+          Les rappels SMS urgents feront partie de l’offre premium.
+          Les rappels email restent inclus dans ton espace Microassist.
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <button
+            className="btn btnPrimary"
+            type="button"
+            onClick={async () => {
+  track("reminder_preferences_saved", reminderPrefs);
+
+  // SMS = premium après période beta
+  if (reminderPrefs.sms && isTrialExpired) {
+    handleOpenSaveModal("sms_premium");
+    return;
+  }
+
+  // localStorage backup
+  localStorage.setItem(
+    "microassist_reminder_prefs",
+    JSON.stringify(reminderPrefs),
+  );
+
+  // sauvegarde Supabase si connecté
+  const saved = await saveReminderPrefsToSupabase();
+
+  if (saved || !user) {
+    setShowReminderModal(false);
+    setSaveNotice("Préférences de rappels enregistrées ✅");
+    setTimeout(() => setSaveNotice(null), 3000);
+  } else {
+    setSaveNotice("Impossible d’enregistrer les préférences.");
+    setTimeout(() => setSaveNotice(null), 3000);
+  }
+}}
+            style={{ flex: 1 }}
+          >
+            Enregistrer mes préférences
+          </button>
+
+          <button
+            className="btn btnGhost"
+            type="button"
+            onClick={() => setShowReminderModal(false)}
+            style={{ flex: 1 }}
+          >
+            Fermer
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
+
     </>
   );
 }
