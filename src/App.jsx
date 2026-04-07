@@ -1444,6 +1444,7 @@ const goToView = useCallback((nextView, options = {}) => {
     }, 100);
   }, [goToView]);
 
+
   const handleResumeDraft = useCallback(() => {
     setAppView("assistant");
     setFocusMode(true);
@@ -2476,7 +2477,7 @@ function handleOpenSaveModal(source = "unknown") {
                 Services
               </button>
               <button type="button" className="navLink" onClick={goToAssistant}>
-                Assistant
+                {profileReady ? "Mon espace fiscal" : "Assistant"}
               </button>
               <button
                 type="button"
@@ -2546,6 +2547,17 @@ function handleOpenSaveModal(source = "unknown") {
                       type="button"
                     >
                       Commencer gratuitement
+                    </button>
+
+                    <button
+                      className="btn btnGhost"
+                      onClick={() => {
+                        track("landing_auth_cta_clicked", { source: "hero" });
+                        setAuthOpen(true);
+                      }}
+                      type="button"
+                    >
+                      S'inscrire / Connexion
                     </button>
 
                     <button
