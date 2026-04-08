@@ -130,6 +130,7 @@ export default function App() {
   const [answers, setAnswers] = useState({});
   const [input, setInput] = useState("");
   const [saveNotice, setSaveNotice] = useState(null);
+  const [invoiceNotice, setInvoiceNotice] = useState(null);
   const [lastSavedAt, setLastSavedAt] = useState(null);
   const [hasDraft, setHasDraft] = useState(false);
   const [restoredAt, setRestoredAt] = useState(null);
@@ -153,6 +154,13 @@ export default function App() {
   const [showInvoiceGenerator, setShowInvoiceGenerator] = useState(false);
   
   const [invoices, setInvoices] = useState([]);
+  const [guestInvoices, setGuestInvoices] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("guest_invoices") || "[]");
+    } catch {
+      return [];
+    }
+  });
   const [showPricingModal, setShowPricingModal] = useState(false);
   const [pdfExportCount, setPdfExportCount] = useState(0);
   const [showCFEModal, setShowCFEModal] = useState(false);
@@ -1340,17 +1348,19 @@ useEffect(() => {
     };
   }, [revenues.length, dashboardAnswers?.declaration_frequency, computed]);
 
+  const visibleInvoices = user ? invoices : guestInvoices;
+
   const invoicesThisMonth = useMemo(() => {
   const now = new Date();
   const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
 
-  return invoices.filter((invoice) => {
+  return visibleInvoices.filter((invoice) => {
     if (!invoice.invoice_date) return false;
     const d = new Date(`${invoice.invoice_date}T00:00:00`);
     return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
   }).length;
-}, [invoices]);
+}, [visibleInvoices]);
 
 
 
@@ -3176,10 +3186,27 @@ function handleOpenSaveModal(source = "unknown") {
       border: "1px solid #bbf7d0",
       color: "#166534",
       fontSize: 14,
-      fontWeight: 500,
     }}
   >
-    {saveNotice}
+    {typeof saveNotice === "string" ? (
+      <div style={{ fontWeight: 500 }}>{saveNotice}</div>
+    ) : (
+      <div style={{ display: "grid", gap: 8 }}>
+        <div style={{ fontWeight: 700 }}>{saveNotice.title}</div>
+        <div>{saveNotice.body}</div>
+        {saveNotice.cta === "auth" && (
+          <div>
+            <button
+              className="btn btnGhost btnSmall"
+              type="button"
+              onClick={() => setAuthOpen(true)}
+            >
+              Créer mon compte
+            </button>
+          </div>
+        )}
+      </div>
+    )}
   </div>
 )}
 
@@ -3337,7 +3364,29 @@ function handleOpenSaveModal(source = "unknown") {
                 </div>
               </div>
 
-              {saveNotice && <div className="saveNotice">✅ {saveNotice}</div>}
+              {saveNotice && (
+                <div className="saveNotice">
+                  {typeof saveNotice === "string" ? (
+                    <>✅ {saveNotice}</>
+                  ) : (
+                    <div style={{ display: "grid", gap: 8 }}>
+                      <div style={{ fontWeight: 700 }}>{saveNotice.title}</div>
+                      <div>{saveNotice.body}</div>
+                      {saveNotice.cta === "auth" && (
+                        <div>
+                          <button
+                            className="btn btnGhost btnSmall"
+                            type="button"
+                            onClick={() => setAuthOpen(true)}
+                          >
+                            Créer mon compte
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="monthActionCard">
                 <div className="monthActionHeader">
@@ -4242,7 +4291,31 @@ function handleOpenSaveModal(source = "unknown") {
                   </button>
                 </div>
 
-                {invoices.length === 0 ? (
+                {invoiceNotice && (
+                  <div className="saveNotice" style={{ marginTop: 16, width: "100%" }}>
+                    {typeof invoiceNotice === "string" ? (
+                      <>✅ {invoiceNotice}</>
+                    ) : (
+                      <div style={{ display: "grid", gap: 8 }}>
+                        <div style={{ fontWeight: 700 }}>{invoiceNotice.title}</div>
+                        <div>{invoiceNotice.body}</div>
+                        {invoiceNotice.cta === "auth" && (
+                          <div>
+                            <button
+                              className="btn btnGhost btnSmall"
+                              type="button"
+                              onClick={() => setAuthOpen(true)}
+                            >
+                              Créer mon compte pour garder cette facture
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {visibleInvoices.length === 0 ? (
                   <div className="emptyRevenueState">
                     <div className="emptyRevenueIcon">🧾</div>
                     <div className="emptyRevenueTitle">Aucune facture</div>
@@ -4259,7 +4332,7 @@ function handleOpenSaveModal(source = "unknown") {
                   </div>
                 ) : (
                   <div className="revenuesList">
-                    {invoices.map((invoice) => (
+                    {visibleInvoices.map((invoice) => (
                       <div key={invoice.id} className="revenueItem">
                         <div className="revenueMain">
                           <div className="revenueAmount">
@@ -4296,11 +4369,19 @@ function handleOpenSaveModal(source = "unknown") {
                         </div>
                         <div className="revenueActions">
                           <span
-                            className={`badge ${invoice.status === "sent" ? "badgeGreen" : "badgeGray"}`}
+                            className={`badge ${
+                              invoice.localOnly
+                                ? "badgeGray"
+                                : invoice.status === "sent"
+                                  ? "badgeGreen"
+                                  : "badgeGray"
+                            }`}
                           >
-                            {invoice.status === "sent"
-                              ? "✅ Envoyée"
-                              : "📝 Brouillon"}
+                            {invoice.localOnly
+                              ? "Locale • non enregistrée"
+                              : invoice.status === "sent"
+                                ? "✅ Envoyée"
+                                : "📝 Brouillon"}
                           </span>
                         </div>
                       </div>
@@ -5014,13 +5095,24 @@ function handleOpenSaveModal(source = "unknown") {
           user={user}
           fiscalProfile={fiscalProfile}
           onClose={() => setShowInvoiceGenerator(false)}
-          onSaved={({ savedToSupabase, message } = {}) => {
+          onSaved={({ savedToSupabase, message, invoice } = {}) => {
             setShowInvoiceGenerator(false);
             if (savedToSupabase) {
               refreshInvoices();
+              setInvoiceNotice(message || "Facture enregistrée ✅");
+            } else if (invoice) {
+              setGuestInvoices((prev) => {
+                const next = [invoice, ...prev];
+                localStorage.setItem("guest_invoices", JSON.stringify(next));
+                return next;
+              });
+              setInvoiceNotice({
+                title: "Facture téléchargée ✅",
+                body: "Connecte-toi pour la retrouver dans ton historique.",
+                cta: "auth",
+              });
             }
-            setSaveNotice(message || "Facture enregistrée ✅");
-            setTimeout(() => setSaveNotice(null), 2500);
+            setTimeout(() => setInvoiceNotice(null), savedToSupabase ? 2500 : 5000);
           }}
         />
       )}

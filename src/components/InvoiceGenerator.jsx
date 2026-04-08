@@ -211,6 +211,11 @@ async function generateInvoiceNumber() {
       if (onSaved) {
         onSaved({
           savedToSupabase: !isGuest,
+          invoice: {
+            id: isGuest ? `guest-${Date.now()}` : number,
+            ...payload,
+            localOnly: isGuest,
+          },
           message: isGuest
             ? "Facture téléchargée. Connecte-toi pour la retrouver dans ton historique."
             : "Facture enregistrée ✅",
@@ -255,7 +260,6 @@ async function generateInvoiceNumber() {
     doc.setTextColor(55, 65, 81);
     doc.setFontSize(10);
     doc.text(SELLER_NAME, 20, 63);
-    doc.text(user?.email || "Email non renseigné", 20, 70);
     doc.setFillColor(255, 255, 255);
     doc.rect(20, 64, 95, 10, "F");
     doc.setTextColor(55, 65, 81);
