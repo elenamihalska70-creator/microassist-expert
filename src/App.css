@@ -290,6 +290,70 @@ section[id] {
   font-weight: 600;
 }
 
+.pricingAccessSection {
+  overflow: hidden;
+}
+
+.pricingAccessGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.pricingAccessCard {
+  position: relative;
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  padding: 16px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 16px;
+  background: #fff;
+}
+
+.pricingAccessCardPremium {
+  background: linear-gradient(180deg, #fffaf0 0%, #ffffff 100%);
+  border-color: #f59e0b;
+  box-shadow: 0 10px 24px rgba(245, 158, 11, 0.12);
+}
+
+.pricingAccessBadge {
+  display: inline-block;
+  width: fit-content;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #111;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pricingAccessTop {
+  display: grid;
+  gap: 4px;
+}
+
+.pricingAccessTitle {
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.pricingAccessPrice {
+  font-size: 0.95rem;
+  color: #4b5563;
+}
+
+.pricingAccessList {
+  margin: 0;
+  padding-left: 18px;
+  color: #1f2937;
+  line-height: 1.7;
+}
+
+.pricingAccessList li::marker {
+  color: #111;
+}
+
 /* ===== CHAT ===== */
 .chat {
   display: flex;
@@ -1074,6 +1138,9 @@ section[id] {
 }
 
   .heroGrid {
+    grid-template-columns: 1fr;
+  }
+  .pricingAccessGrid {
     grid-template-columns: 1fr;
   }
   .fiscalDashboard, .timelineList {

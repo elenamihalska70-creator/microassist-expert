@@ -812,6 +812,7 @@ useEffect(() => {
       answers?.declaration_frequency;
 
     if (!canSaveFiscalProfile) return;
+    if (!user) return;
     if (user && !fiscalProfileLoaded) return;
 
     // Добавляем debounce
@@ -1654,7 +1655,9 @@ function handleOpenInvoiceGenerator() {
     } = await supabase.auth.getUser();
 
     if (userError || !user) {
-      console.error("User not found:", userError?.message);
+      if (userError && userError.message !== "Auth session missing") {
+        console.error("User not found:", userError?.message);
+      }
       return;
     }
 
@@ -2371,6 +2374,18 @@ function handleOpenSaveModal(source = "unknown") {
   setShowPricingModal(true);
 }
 
+const handlePremiumWaitlistCTA = useCallback(() => {
+  track("signup_cta_clicked", {
+    source: isTrialExpired ? "premium_after_trial" : "pricing_modal",
+  });
+  setShowPricingModal(false);
+  if (!user) {
+    setAuthOpen(true);
+    return;
+  }
+  setAuthOpen(true);
+}, [isTrialExpired, user]);
+
   function handleEditProfile() {
     setAppView("assistant");
     setAssistantCollapsed(false);
@@ -2632,6 +2647,77 @@ function handleOpenSaveModal(source = "unknown") {
                       <span>⚡ Rapide</span>
                     </div>
                   </div>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {!focusMode && appView === "landing" && (
+            <section className="card pricingAccessSection">
+              <div className="sectionHead" style={{ marginBottom: 14 }}>
+                <div>
+                  <h2>Tarifs & accès</h2>
+                  <p className="muted" style={{ margin: "6px 0 0" }}>
+                    Choisis le niveau d’accompagnement qui te convient, sans te compliquer la vie.
+                  </p>
+                </div>
+              </div>
+
+              <div className="pricingAccessGrid">
+                <div className="pricingAccessCard">
+                  <div className="pricingAccessTop">
+                    <div className="pricingAccessTitle">Gratuit</div>
+                    <div className="pricingAccessPrice">Sans compte</div>
+                  </div>
+                  <ul className="pricingAccessList">
+                    <li>Assistant fiscal</li>
+                    <li>Estimation des charges</li>
+                    <li>Création PDF facture</li>
+                    <li>Historique local navigateur</li>
+                  </ul>
+                </div>
+
+                <div className="pricingAccessCard">
+                  <div className="pricingAccessTop">
+                    <div className="pricingAccessTitle">Compte gratuit</div>
+                    <div className="pricingAccessPrice">0€ / mois</div>
+                  </div>
+                  <ul className="pricingAccessList">
+                    <li>Historique sécurisé</li>
+                    <li>Synchronisation multi-appareils</li>
+                    <li>Récupération après refresh</li>
+                    <li>Mon espace fiscal personnel</li>
+                  </ul>
+                  <button
+                    className="btn btnGhost"
+                    type="button"
+                    onClick={() => setAuthOpen(true)}
+                  >
+                    Créer mon compte
+                  </button>
+                </div>
+
+                <div className="pricingAccessCard pricingAccessCardPremium">
+                  <div className="pricingAccessBadge">Le plus complet</div>
+                  <div className="pricingAccessTop">
+                    <div className="pricingAccessTitle">Premium</div>
+                    <div className="pricingAccessPrice">5€ / mois</div>
+                  </div>
+                  <ul className="pricingAccessList">
+                    <li>Alertes SMS</li>
+                    <li>Rappels URSSAF</li>
+                    <li>Alerte TVA / ACRE / CFE</li>
+                    <li>Historique illimité</li>
+                    <li>Exports avancés</li>
+                    <li>Assistant proactif</li>
+                  </ul>
+                  <button
+                    className="btn btnPrimary"
+                    type="button"
+                    onClick={() => handleOpenSaveModal("pricing_access_block")}
+                  >
+                    Être informé du lancement Premium
+                  </button>
                 </div>
               </div>
             </section>
@@ -4853,7 +4939,7 @@ function handleOpenSaveModal(source = "unknown") {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="sectionHead">
-                <h3>Passe à Premium pour garder le contrôle 📈</h3>
+                <h3>Premium arrive bientôt ✨</h3>
                 <button
                   className="iconBtn"
                   onClick={() => setShowPricingModal(false)}
@@ -4865,7 +4951,9 @@ function handleOpenSaveModal(source = "unknown") {
 
   <div style={{ marginTop: 20 }}>
   <p style={{ fontSize: 14, lineHeight: 1.6, marginTop: 0, marginBottom: 0 }}>
-  Ne perds plus ton historique, tes alertes SMS et tes rappels importants.
+  La version Premium est en cours de finalisation.
+  <br />
+  Laisse ton email pour être informé(e) dès l’ouverture.
 </p>
 
   <div
@@ -4878,10 +4966,10 @@ function handleOpenSaveModal(source = "unknown") {
     }}
   >
   <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.2, marginBottom: 6 }}>
-  Seulement 5€ / mois
+  Ouverture prochaine
   </div>
   <p style={{ fontSize: 14, lineHeight: 1.6, margin: 0 }}>
-    Moins qu’une pénalité URSSAF oubliée.
+    Tu peux déjà laisser ton email pour recevoir l’accès en avant-première.
   </p>
   </div>
 
@@ -4924,16 +5012,10 @@ function handleOpenSaveModal(source = "unknown") {
     <button
   className="btn btnPrimary"
   type="button"
-  onClick={() => {
-    track("signup_cta_clicked", {
-      source: isTrialExpired ? "premium_after_trial" : "pricing_modal",
-    });
-    setShowPricingModal(false);
-    setAuthOpen(true);
-  }}
+  onClick={handlePremiumWaitlistCTA}
   style={{ flex: 1 }}
 >
-  Activer Premium — 5€/mois
+  Recevoir l’accès en avant-première
 </button>
 
     <button
@@ -4955,7 +5037,7 @@ function handleOpenSaveModal(source = "unknown") {
       marginBottom: 0,
     }}
   >
-    Sans engagement • annulation à tout moment
+    Aucun paiement maintenant • email d’information uniquement
   </p>
 </div>
             </div>

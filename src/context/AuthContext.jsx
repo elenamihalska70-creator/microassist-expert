@@ -18,7 +18,17 @@ export function AuthProvider({ children }) {
       const { data, error } = await supabase.auth.getSession();
 
       if (error) {
-        console.error("Get session error:", error.message);
+        const isExpectedNoSession =
+          !data?.session &&
+          (error.message === "Auth session missing" ||
+            error.message === "An unexpected error occurred");
+
+        if (!isExpectedNoSession) {
+          console.error(
+            "Get session error:",
+            error.message || error.name || String(error),
+          );
+        }
       }
 
       if (!mounted) return;
