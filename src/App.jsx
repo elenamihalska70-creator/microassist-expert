@@ -1576,11 +1576,6 @@ function handleOpenInvoiceGenerator() {
 
   // Оставьте только goToView и используйте везде
   const goToAssistant = useCallback(() => {
-    if (profileReady) {
-      goToDashboard();
-      return;
-    }
-
     goToView("assistant", { push: true, focus: true });
 
     requestAnimationFrame(() => {
@@ -1591,7 +1586,7 @@ function handleOpenInvoiceGenerator() {
         });
       });
     });
-  }, [goToDashboard, goToView, profileReady]);
+  }, [goToView]);
 
   // А в handleTipAction используйте goToAssistant
   // Вместо текущей неполной функции, вставьте эту:
@@ -2477,8 +2472,17 @@ function handleOpenSaveModal(source = "unknown") {
                 Services
               </button>
               <button type="button" className="navLink" onClick={goToAssistant}>
-                {profileReady ? "Mon espace fiscal" : "Assistant"}
+                Assistant
               </button>
+              {profileReady && (
+                <button
+                  type="button"
+                  className="navLink"
+                  onClick={goToDashboard}
+                >
+                  Mon espace fiscal
+                </button>
+              )}
               <button
                 type="button"
                 className="navLink"
@@ -4768,9 +4772,7 @@ function handleOpenSaveModal(source = "unknown") {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="sectionHead">
-                <h3>
-  {isTrialExpired ? "✨ Passe à Premium" : "🔐 Crée ton espace sécurisé"}
-</h3>
+                <h3>Passe à Premium pour garder le contrôle 📈</h3>
                 <button
                   className="iconBtn"
                   onClick={() => setShowPricingModal(false)}
@@ -4781,39 +4783,25 @@ function handleOpenSaveModal(source = "unknown") {
               </div>
 
   <div style={{ marginTop: 20 }}>
-  <p style={{ fontSize: 14, lineHeight: 1.6, marginTop: 0 }}>
-  {isTrialExpired
-    ? "Ton accès gratuit est terminé. Passe à Premium pour conserver ton historique, tes factures et continuer ton suivi sans interruption."
-    : "Si tu souhaites conserver ton profil fiscal, ton historique de revenus, tes factures et retrouver tes calculs plus tard, crée ton espace sécurisé."}
+  <p style={{ fontSize: 14, lineHeight: 1.6, marginTop: 0, marginBottom: 0 }}>
+  Ne perds plus ton historique, tes alertes SMS et tes rappels importants.
 </p>
 
   <div
     style={{
       background: "#fef3c7",
-      padding: 16,
+      padding: 18,
       borderRadius: 12,
       marginTop: 16,
       marginBottom: 20,
     }}
   >
-  <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>
-  {isTrialExpired ? "✨ Offre Premium" : "🎁 3 mois gratuits"}
-</div>
-
-<p style={{ fontSize: 14, lineHeight: 1.6, margin: 0 }}>
-  {isTrialExpired ? (
-    <>
-      Continue avec ton espace complet pour seulement <strong>5€/mois</strong>,
-      sans engagement.
-    </>
-  ) : (
-    <>
-      Tu pourras continuer à utiliser Microassist gratuitement pendant
-      <strong> 3 mois</strong>, puis continuer avec ton espace complet pour
-      seulement <strong>5€/mois</strong>, sans engagement.
-    </>
-  )}
-</p>
+  <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.2, marginBottom: 6 }}>
+  Seulement 5€ / mois
+  </div>
+  <p style={{ fontSize: 14, lineHeight: 1.6, margin: 0 }}>
+    Moins qu’une pénalité URSSAF oubliée.
+  </p>
   </div>
 
   <div
@@ -4825,7 +4813,7 @@ function handleOpenSaveModal(source = "unknown") {
     }}
   >
     <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>
-      Ce que comprend ton espace Microassist
+      Ce que Premium t’apporte
     </div>
 
     <ul
@@ -4836,13 +4824,12 @@ function handleOpenSaveModal(source = "unknown") {
         lineHeight: 1.7,
       }}
     >
-      <li>✅ Historique illimité</li>
-      <li>✅ Revenus et dépenses illimités</li>
-      <li>✅ Factures illimitées</li>
-      <li>✅ Export PDF du rapport fiscal</li>
-      <li>✅ Alertes TVA, CFE et échéances</li>
-      <li>✅ Rappels email avant déclaration</li>
-      <li>✅ Sauvegarde sécurisée de ton suivi</li>
+      <li>✔ Historique complet de tes revenus</li>
+      <li>✔ Alertes SMS urgentes avant échéance</li>
+      <li>✔ Export PDF / CSV illimité</li>
+      <li>✔ Suivi TVA + ACRE + CFE intelligent</li>
+      <li>✔ Recommandations personnalisées selon ton profil</li>
+      <li>✔ Accès prioritaire aux nouvelles fonctionnalités</li>
     </ul>
   </div>
 
@@ -4865,7 +4852,7 @@ function handleOpenSaveModal(source = "unknown") {
   }}
   style={{ flex: 1 }}
 >
-  {isTrialExpired ? "Passer à Premium" : "Créer mon espace sécurisé"}
+  Activer Premium — 5€/mois
 </button>
 
     <button
@@ -4874,7 +4861,7 @@ function handleOpenSaveModal(source = "unknown") {
       onClick={() => setShowPricingModal(false)}
       style={{ flex: 1 }}
     >
-      Continuer sans enregistrer
+      Continuer en gratuit
     </button>
   </div>
 
@@ -4887,7 +4874,7 @@ function handleOpenSaveModal(source = "unknown") {
       marginBottom: 0,
     }}
   >
-    Ton espace te permet de retrouver ton suivi fiscal et de continuer sans repartir de zéro.
+    Sans engagement • annulation à tout moment
   </p>
 </div>
             </div>
