@@ -5014,10 +5014,12 @@ function handleOpenSaveModal(source = "unknown") {
           user={user}
           fiscalProfile={fiscalProfile}
           onClose={() => setShowInvoiceGenerator(false)}
-          onSaved={() => {
+          onSaved={({ savedToSupabase, message } = {}) => {
             setShowInvoiceGenerator(false);
-            refreshInvoices();
-            setSaveNotice("Facture enregistrée ✅");
+            if (savedToSupabase) {
+              refreshInvoices();
+            }
+            setSaveNotice(message || "Facture enregistrée ✅");
             setTimeout(() => setSaveNotice(null), 2500);
           }}
         />

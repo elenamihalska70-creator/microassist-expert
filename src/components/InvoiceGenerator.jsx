@@ -85,7 +85,7 @@ export default function InvoiceGenerator({
     });
   }
 
-  async function generateInvoiceNumber() {
+async function generateInvoiceNumber() {
     const year = new Date().getFullYear();
     const prefix = `FAC-${year}-`;
 
@@ -113,6 +113,15 @@ export default function InvoiceGenerator({
     }, 0);
 
     return `${prefix}${pad(maxSequence + 1, 4)}`;
+  }
+
+  function generateGuestInvoiceNumber() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const stamp = `${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(
+      now.getHours(),
+    )}${pad(now.getMinutes())}`;
+    return `FAC-${year}-GUEST-${stamp}`;
   }
 
   function getNormalizedAmount() {
@@ -169,19 +178,17 @@ export default function InvoiceGenerator({
       return;
     }
 
-    if (!user?.id) {
-      alert("Impossible d'enregistrer la facture sans compte connecté.");
-      return;
-    }
-
     setSaving(true);
 
     try {
-      const number = await generateInvoiceNumber();
+      const isGuest = !user?.id;
+      const number = isGuest
+        ? generateGuestInvoiceNumber()
+        : await generateInvoiceNumber();
       const amount = getNormalizedAmount();
 
       const payload = {
-        user_id: user.id,
+        user_id: user?.id ?? null,
         invoice_number: number,
         client_name: form.client_name.trim(),
         client_address: form.client_address.trim(),
@@ -193,16 +200,25 @@ export default function InvoiceGenerator({
         status: "sent",
       };
 
-      const { error } = await supabase.from("invoices").insert(payload);
+      if (!isGuest) {
+        const { error } = await supabase.from("invoices").insert(payload);
 
-      if (error) throw error;
+        if (error) throw error;
+      }
 
       generatePDF(number, payload);
 
-      if (onSaved) onSaved();
+      if (onSaved) {
+        onSaved({
+          savedToSupabase: !isGuest,
+          message: isGuest
+            ? "Facture téléchargée. Connecte-toi pour la retrouver dans ton historique."
+            : "Facture enregistrée ✅",
+        });
+      }
     } catch (err) {
       console.error("Erreur sauvegarde facture:", err);
-      alert("Impossible d'enregistrer la facture.");
+      alert("Impossible de créer la facture.");
     } finally {
       setSaving(false);
     }
