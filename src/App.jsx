@@ -24,6 +24,10 @@ const LS_KEY = "microassist_v1";
 const LS_VERSION = 1;
 const UI_KEY = "microassist_ui_sections";
 const CHART_KEY = "microassist_show_chart";
+const GUEST_REVENUES_KEY = "revenues_guest";
+const GUEST_INVOICES_KEY = "guest_invoices";
+const REMINDER_PREFS_KEY = "microassist_reminder_prefs";
+const BETA_SEEN_KEY = "beta_seen";
 const DEFAULT_VISIBLE_SECTIONS = {
   about: true,
   services: true,
@@ -32,7 +36,33 @@ const DEFAULT_VISIBLE_SECTIONS = {
   security: true,
   feedback: true,
 };
-
+const PENDING_AUTH_SUCCESS_KEY = "microassist_pending_auth_success";
+const DEFAULT_REMINDER_PREFS = {
+  declaration: true,
+  tva: true,
+  cfe: true,
+  acre: true,
+  email: true,
+  sms: false,
+};
+const EMPTY_REMINDER_PREFS = {
+  declaration: false,
+  tva: false,
+  cfe: false,
+  acre: false,
+  email: false,
+  sms: false,
+};
+const FULL_RESET_LOCAL_STORAGE_KEYS = [
+  LS_KEY,
+  GUEST_REVENUES_KEY,
+  GUEST_INVOICES_KEY,
+  REMINDER_PREFS_KEY,
+  CHART_KEY,
+  UI_KEY,
+  PENDING_AUTH_SUCCESS_KEY,
+];
+const MIN_REALISTIC_FISCAL_DATE = "2000-01-01";
 // ... константы ...
 function labelFromOptions(stepKey, value) {
   const configStep = FISCAL_STEPS.find((s) => s.key === stepKey);
@@ -44,6 +74,149 @@ function track(eventName, params = {}) {
   if (window.gtag) {
     window.gtag("event", eventName, params);
   }
+}
+
+function normalizeDateValue(value) {
+  const raw = String(value || "").trim();
+
+  if (!raw) return "";
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return raw;
+  }
+
+  const match = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+
+  if (!match) return raw;
+
+  const [, day, month, year] = match;
+  return `${year}-${month}-${day}`;
+}
+
+function parseIsoDate(value) {
+  const normalized = normalizeDateValue(value);
+
+  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (!match) {
+    return null;
+  }
+
+  const [, yearRaw, monthRaw, dayRaw] = match;
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const day = Number(dayRaw);
+
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day)
+  ) {
+    return null;
+  }
+
+  const date = new Date(year, month - 1, day);
+
+  if (
+    Number.isNaN(date.getTime()) ||
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return date;
+}
+
+function getTodayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function getFiscalDateErrors(sourceAnswers = {}) {
+  const businessStartDate = normalizeDateValue(sourceAnswers.business_start_date);
+  const acreStartDate = normalizeDateValue(sourceAnswers.acre_start_date);
+  const businessDate = parseIsoDate(businessStartDate);
+  const acreDate = parseIsoDate(acreStartDate);
+  const today = parseIsoDate(getTodayIsoDate());
+  const minRealisticDate = parseIsoDate(MIN_REALISTIC_FISCAL_DATE);
+  const errors = {};
+
+  if (businessStartDate) {
+    if (!businessDate || businessDate < minRealisticDate) {
+      errors.business_start_date = "Merci de saisir une date réaliste.";
+    } else if (businessDate > today) {
+      errors.business_start_date =
+        "La date de début d’activité ne peut pas être dans le futur.";
+    }
+  }
+
+  if (sourceAnswers.acre === "yes" && !acreStartDate) {
+    errors.acre_start_date = "Merci d’indiquer la date de début de l’ACRE.";
+  } else if (acreStartDate) {
+    if (!acreDate || acreDate < minRealisticDate) {
+      errors.acre_start_date = "Merci de saisir une date réaliste.";
+    } else if (acreDate > today) {
+      errors.acre_start_date = "La date ACRE ne peut pas être dans le futur.";
+    } else if (businessDate && !errors.business_start_date && acreDate < businessDate) {
+      errors.acre_start_date =
+        "La date ACRE doit être postérieure ou égale au début d’activité.";
+    }
+  }
+
+  if (
+    !errors.acre_start_date &&
+    acreDate &&
+    businessDate &&
+    !errors.business_start_date &&
+    acreDate < businessDate
+  ) {
+    errors.acre_start_date =
+      "La date ACRE doit être postérieure ou égale au début d’activité.";
+  }
+
+  return errors;
+}
+
+function sanitizeFiscalAnswers(sourceAnswers = {}) {
+  const nextAnswers = { ...sourceAnswers };
+  const normalizedBusinessStartDate = normalizeDateValue(
+    sourceAnswers.business_start_date,
+  );
+  const normalizedAcreStartDate = normalizeDateValue(sourceAnswers.acre_start_date);
+  const errors = getFiscalDateErrors({
+    ...sourceAnswers,
+    business_start_date: normalizedBusinessStartDate,
+    acre_start_date: normalizedAcreStartDate,
+  });
+
+  nextAnswers.business_start_date = errors.business_start_date
+    ? null
+    : normalizedBusinessStartDate || null;
+
+  if (sourceAnswers.acre !== "yes") {
+    nextAnswers.acre_start_date = null;
+  } else {
+    nextAnswers.acre_start_date = errors.acre_start_date
+      ? null
+      : normalizedAcreStartDate || null;
+  }
+
+  return nextAnswers;
+}
+
+function getCurrentStepValidationMessage(stepKey, sourceAnswers = {}) {
+  const errors = getFiscalDateErrors(sourceAnswers);
+
+  if (stepKey === "business_start_date") {
+    return errors.business_start_date || errors.acre_start_date || "";
+  }
+
+  if (stepKey === "acre_start_date") {
+    return errors.acre_start_date || "";
+  }
+
+  return "";
 }
 
 function buildFiscalSummary(answers = {}, computed = {}) {
@@ -123,6 +296,51 @@ function buildFiscalChecklist(computed = {}) {
   return items.join("\n");
 }
 
+function buildInitialAssistantMessages(userName = "") {
+  return [
+    {
+      role: "bot",
+      text: userName
+        ? `Bonjour, ${userName} 👋 On va construire ton projet en 5 étapes. Réponds simplement.`
+        : "Bonjour 👋 On va configurer ton profil fiscal. Réponds simplement.",
+    },
+    {
+      role: "bot",
+      text: `Étape 1 — ${FISCAL_STEPS[0].title}\n${FISCAL_STEPS[0].question}`,
+    },
+  ];
+}
+
+function getAssistantAnswersFromProfile(profile) {
+  if (!profile) return {};
+
+  return sanitizeFiscalAnswers({
+    entry_status:
+      profile.business_status === "micro_entreprise" ? "micro_yes" : "micro_no",
+    status:
+      profile.business_status === "micro_entreprise"
+        ? "auto_entrepreneur"
+        : null,
+    activity_type: profile.activity_type || null,
+    declaration_frequency: profile.declaration_frequency || null,
+    acre: profile.acre || null,
+    acre_start_date: profile.acre_start_date || null,
+    business_start_date: profile.business_start_date || null,
+  });
+}
+
+function isStepAvailable(stepConfig, sourceAnswers) {
+  if (!stepConfig?.condition) {
+    return true;
+  }
+
+  try {
+    return stepConfig.condition(sourceAnswers);
+  } catch {
+    return true;
+  }
+}
+
 export default function App() {
   // Основные состояния
   const [stepIndex, setStepIndex] = useState(0);
@@ -130,6 +348,30 @@ export default function App() {
   const [answers, setAnswers] = useState({});
   const [input, setInput] = useState("");
   const [saveNotice, setSaveNotice] = useState(null);
+  const saveNoticeTimeoutRef = useRef(null);
+  const showSaveNotice = useCallback((notice, duration = 4000) => {
+  if (saveNoticeTimeoutRef.current) {
+    clearTimeout(saveNoticeTimeoutRef.current);
+    saveNoticeTimeoutRef.current = null;
+  }
+
+  setSaveNotice(notice);
+
+  if (duration > 0) {
+    saveNoticeTimeoutRef.current = window.setTimeout(() => {
+      setSaveNotice(null);
+      saveNoticeTimeoutRef.current = null;
+    }, duration);
+  }
+}, []);
+
+useEffect(() => {
+  return () => {
+    if (saveNoticeTimeoutRef.current) {
+      clearTimeout(saveNoticeTimeoutRef.current);
+    }
+  };
+}, []);
   const [invoiceNotice, setInvoiceNotice] = useState(null);
   const [lastSavedAt, setLastSavedAt] = useState(null);
   const [hasDraft, setHasDraft] = useState(false);
@@ -138,8 +380,15 @@ export default function App() {
   // UI состояния
   const [helpOpen, setHelpOpen] = useState(false); // ✅ ДОБАВИТЬ
   const [authOpen, setAuthOpen] = useState(false);
+  const [authInitialMode, setAuthInitialMode] = useState("signup");
+  const [logoutPending, setLogoutPending] = useState(false);
+  const [assistantFieldError, setAssistantFieldError] = useState("");
+  const [assistantEditMode, setAssistantEditMode] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetInProgress, setResetInProgress] = useState(false);
+  
   const [focusMode, setFocusMode] = useState(false); // ✅ ДОБАВИТЬ
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [appView, setAppView] = useState("landing");
   const [userName, setUserName] = useState("");
   const [hydrated, setHydrated] = useState(false);
@@ -147,7 +396,22 @@ export default function App() {
   const [showAddRevenue, setShowAddRevenue] = useState(false);
   const [revenues, setRevenues] = useState([]);
   const [showBetaNotice, setShowBetaNotice] = useState(() => {
-    return !localStorage.getItem("beta_seen");
+    const hash = window.location.hash;
+
+    if (hash) {
+      const hashParams = new URLSearchParams(
+        hash.startsWith("#") ? hash.slice(1) : hash,
+      );
+
+      if (
+        hashParams.get("type") === "signup" &&
+        hashParams.get("access_token")
+      ) {
+        return false;
+      }
+    }
+
+    return !localStorage.getItem(BETA_SEEN_KEY);
   });
   const [showCGU, setShowCGU] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
@@ -156,7 +420,7 @@ export default function App() {
   const [invoices, setInvoices] = useState([]);
   const [guestInvoices, setGuestInvoices] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem("guest_invoices") || "[]");
+      return JSON.parse(localStorage.getItem(GUEST_INVOICES_KEY) || "[]");
     } catch {
       return [];
     }
@@ -165,18 +429,16 @@ export default function App() {
   const [pdfExportCount, setPdfExportCount] = useState(0);
   const [showCFEModal, setShowCFEModal] = useState(false);
   // состояния
+  const [premiumModalSource, setPremiumModalSource] = useState("unknown");
+  const [premiumWaitlistEmail, setPremiumWaitlistEmail] = useState("");
+  const [premiumWaitlistError, setPremiumWaitlistError] = useState("");
+  const [isJoiningPremiumWaitlist, setIsJoiningPremiumWaitlist] =
+    useState(false);
 // Modals pédagogiques
   const [showTVAModal, setShowTVAModal] = useState(false);
   const [showReminderModal, setShowReminderModal] = useState(false);
 
-  const [reminderPrefs, setReminderPrefs] = useState({
-  declaration: true,
-  tva: true,
-  cfe: true,
-  acre: true,
-  email: true,
-  sms: false,
-});
+  const [reminderPrefs, setReminderPrefs] = useState(DEFAULT_REMINDER_PREFS);
 // Plan par défaut côté invité uniquement. Les droits reconnectés viennent du profil Supabase.
   const defaultGuestPlan = BETA_MODE ? "beta_founder" : "free";
 
@@ -215,27 +477,141 @@ export default function App() {
     localStorage.setItem(CHART_KEY, "false");
   };
 
+  const openAuthModal = useCallback((mode = "signup") => {
+    setAuthInitialMode(mode);
+    setAuthOpen(true);
+  }, []);
+
+  const clearAuthenticatedRuntimeState = useCallback(
+    ({ clearLocalSessionKeys = false } = {}) => {
+      setAuthOpen(false);
+      setAuthInitialMode("signup");
+      setAppView("landing");
+      setFocusMode(false);
+      setFiscalProfile(null);
+      setFiscalProfileLoaded(false);
+      fiscalProfileFetchRef.current = {
+        inFlight: null,
+        userId: null,
+        lastFetchedAt: 0,
+        lastData: null,
+      };
+      guestMigrationRef.current = {
+        inFlight: null,
+        userId: null,
+        completedForUserId: null,
+      };
+      setAnswers({});
+      setStepIndex(0);
+      setMessages(buildInitialAssistantMessages());
+      setInput("");
+      setAssistantFieldError("");
+      setAssistantEditMode(false);
+      setAssistantCollapsed(false);
+      setHelpOpen(false);
+      setIsTyping(false);
+      setUserName("");
+      setRevenues([]);
+      setInvoices([]);
+      setGuestInvoices([]);
+      setReminderPrefs(DEFAULT_REMINDER_PREFS);
+      setSelectedMonth("all");
+      setHasDraft(false);
+      setLastSavedAt(null);
+      setRestoredAt(null);
+      setInvoiceNotice(null);
+      setSaveNotice(null);
+      setShowAddRevenue(false);
+      setShowRevenueDetails(false);
+      setShowInvoiceGenerator(false);
+      setShowReminderModal(false);
+      setShowPricingModal(false);
+      setShowTVAModal(false);
+      setShowCFEModal(false);
+      setPremiumWaitlistEmail("");
+      setPremiumWaitlistError("");
+      setPremiumModalSource("unknown");
+      resetRevenueForm();
+
+      if (clearLocalSessionKeys) {
+        clearLocalStorageKeys([LS_KEY, REMINDER_PREFS_KEY, PENDING_AUTH_SUCCESS_KEY]);
+      }
+    },
+    [],
+  );
+
+  const handleLogout = useCallback(async () => {
+    if (logoutPending) return;
+
+    setLogoutPending(true);
+
+    try {
+      const { error } = await supabase.auth.signOut();
+
+      if (error) {
+        throw error;
+      }
+
+      clearAuthenticatedRuntimeState({ clearLocalSessionKeys: true });
+      window.location.assign(window.location.pathname + window.location.search);
+    } catch (error) {
+      console.error("Logout error:", error);
+      showSaveNotice("Impossible de te déconnecter pour le moment.", 4000);
+      setLogoutPending(false);
+    }
+  }, [clearAuthenticatedRuntimeState, logoutPending, showSaveNotice]);
+
   const [selectedMonth, setSelectedMonth] = useState("all");
   const [fiscalProfile, setFiscalProfile] = useState(null);
   const [fiscalProfileLoaded, setFiscalProfileLoaded] = useState(false);
+  const fiscalProfileFetchRef = useRef({
+    inFlight: null,
+    userId: null,
+    lastFetchedAt: 0,
+    lastData: null,
+  });
+  const guestMigrationRef = useRef({
+    inFlight: null,
+    userId: null,
+    completedForUserId: null,
+  });
+  const previousUserIdRef = useRef(null);
   
   // Once authenticated, UI rights must come from Supabase only.
   const persistedPlan = fiscalProfile?.plan || null;
 
   // Trial starts the first time we persist a beta founder profile.
-  const trialDaysLeft = useMemo(() => {
-    if (!fiscalProfile?.trial_started_at) return null;
+  const trialEndsAt = useMemo(() => {
+    if (fiscalProfile?.trial_ends_at) {
+      const endsAt = new Date(fiscalProfile.trial_ends_at);
+      if (!Number.isNaN(endsAt.getTime())) {
+        return endsAt;
+      }
+    }
+
+    if (!fiscalProfile?.trial_started_at) {
+      return null;
+    }
 
     const startedAt = new Date(fiscalProfile.trial_started_at);
-    if (Number.isNaN(startedAt.getTime())) return null;
+    if (Number.isNaN(startedAt.getTime())) {
+      return null;
+    }
+
+    const derivedEndsAt = new Date(startedAt);
+    derivedEndsAt.setDate(derivedEndsAt.getDate() + 90);
+    return derivedEndsAt;
+  }, [fiscalProfile?.trial_ends_at, fiscalProfile?.trial_started_at]);
+
+  const trialDaysLeft = useMemo(() => {
+    if (!trialEndsAt) return null;
 
     const now = new Date();
-    const diffMs = now.getTime() - startedAt.getTime();
-    const elapsedDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    const remaining = 90 - elapsedDays;
+    const diffMs = trialEndsAt.getTime() - now.getTime();
+    const remaining = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 
     return Math.max(0, remaining);
-  }, [fiscalProfile?.trial_started_at]);
+  }, [trialEndsAt]);
 
   const isTrialActive = trialDaysLeft !== null && trialDaysLeft > 0;
   const isTrialExpired = trialDaysLeft !== null && trialDaysLeft <= 0;
@@ -323,110 +699,442 @@ export default function App() {
   }, [user]);
 
   // useCallback для refreshFiscalProfile
-  const refreshFiscalProfile = useCallback(async () => {
+  const refreshFiscalProfile = useCallback(async (options = {}) => {
+    const { force = false } = options;
     if (!user) {
       setFiscalProfile(null);
       setFiscalProfileLoaded(false);
+      fiscalProfileFetchRef.current = {
+        inFlight: null,
+        userId: null,
+        lastFetchedAt: 0,
+        lastData: null,
+      };
       return;
+    }
+
+    const fetchState = fiscalProfileFetchRef.current;
+    const now = Date.now();
+
+    if (!force && fetchState.inFlight && fetchState.userId === user.id) {
+      return fetchState.inFlight;
+    }
+
+    if (
+      !force &&
+      fetchState.userId === user.id &&
+      now - fetchState.lastFetchedAt < 500
+    ) {
+      return fetchState.lastData;
     }
 
     try {
       setFiscalProfileLoaded(false);
 
-      const { data, error } = await supabase
-        .from("fiscal_profiles")
-        .select("*")
-        .eq("user_id", user.id)
-        .single();
+      const request = (async () => {
+        const { data, error } = await supabase
+          .from("fiscal_profiles")
+          .select("*")
+          .eq("user_id", user.id)
+          .maybeSingle();
 
-      if (error) {
-        if (error.code === "PGRST116") {
+        if (error) {
+          console.error("Load fiscal profile error:", error.message);
           setFiscalProfile(null);
           setFiscalProfileLoaded(true);
-          return;
+          fetchState.lastFetchedAt = Date.now();
+          fetchState.lastData = null;
+          return null;
         }
-        console.error("Load fiscal profile error:", error.message);
-        setFiscalProfile(null);
-        setFiscalProfileLoaded(true);
-        return;
-      }
 
-      setFiscalProfile(data);
-      setFiscalProfileLoaded(true);
+        setFiscalProfile(data || null);
+        setFiscalProfileLoaded(true);
+        fetchState.lastFetchedAt = Date.now();
+        fetchState.lastData = data || null;
+        return data || null;
+      })();
+
+      fetchState.userId = user.id;
+      fetchState.inFlight = request;
+
+      return await request;
     } catch (error) {
       console.error("Unexpected error in refreshFiscalProfile:", error);
       setFiscalProfile(null);
       setFiscalProfileLoaded(true);
+      fiscalProfileFetchRef.current.lastFetchedAt = Date.now();
+      fiscalProfileFetchRef.current.lastData = null;
+      return null;
+    } finally {
+      if (fiscalProfileFetchRef.current.userId === user.id) {
+        fiscalProfileFetchRef.current.inFlight = null;
+      }
     }
   }, [user]);
 
-  const migrateLocalDataToSupabase = useCallback(async () => {
+  function calculateNextReminder(frequency) {
+    const today = new Date();
+
+    if (frequency === "mensuel") {
+      const nextMonth = new Date(today.getFullYear(), today.getMonth() + 2, 0);
+      nextMonth.setDate(nextMonth.getDate() - 7);
+      return nextMonth.toISOString();
+    }
+
+    if (frequency === "trimestriel") {
+      const month = today.getMonth();
+      let endQuarter;
+
+      if (month <= 2) endQuarter = new Date(today.getFullYear(), 3, 30);
+      else if (month <= 5) endQuarter = new Date(today.getFullYear(), 6, 31);
+      else if (month <= 8) endQuarter = new Date(today.getFullYear(), 9, 31);
+      else endQuarter = new Date(today.getFullYear() + 1, 0, 31);
+
+      endQuarter.setDate(endQuarter.getDate() - 7);
+      return endQuarter.toISOString();
+    }
+
+    return null;
+  }
+
+  const saveFiscalProfileToSupabase = useCallback(async (profileAnswers) => {
+    const normalizedProfileAnswers = sanitizeFiscalAnswers(profileAnswers);
+    if (!user?.id) {
+      return;
+    }
+
+    if (!fiscalProfileLoaded) {
+      return;
+    }
+
+    const planToPersist = persistedPlan || defaultGuestPlan;
+
+    const payload = {
+      user_id: user.id,
+      plan: planToPersist,
+      business_status:
+        normalizedProfileAnswers.entry_status === "micro_yes"
+          ? "micro_entreprise"
+          : "other",
+      activity_type: normalizedProfileAnswers.activity_type,
+      declaration_frequency: normalizedProfileAnswers.declaration_frequency,
+      tva_mode: "franchise_en_base",
+      acre: normalizedProfileAnswers.acre || null,
+      acre_start_date: normalizedProfileAnswers.acre_start_date || null,
+      business_start_date: normalizedProfileAnswers.business_start_date || null,
+    };
+
+    if (planToPersist === "beta_founder") {
+      if (!fiscalProfile?.trial_started_at) {
+        const trialStartedAt = new Date();
+        const trialEndsAt = new Date(trialStartedAt);
+        trialEndsAt.setDate(trialEndsAt.getDate() + 90);
+
+        payload.trial_started_at = trialStartedAt.toISOString();
+        payload.trial_ends_at = trialEndsAt.toISOString();
+      } else if (!fiscalProfile?.trial_ends_at) {
+        const persistedStart = new Date(fiscalProfile.trial_started_at);
+
+        if (!Number.isNaN(persistedStart.getTime())) {
+          const persistedEnd = new Date(persistedStart);
+          persistedEnd.setDate(persistedEnd.getDate() + 90);
+          payload.trial_ends_at = persistedEnd.toISOString();
+        }
+      }
+    }
+
+    const { error } = await supabase
+      .from("fiscal_profiles")
+      .upsert(payload, { onConflict: "user_id" });
+
+    if (error) {
+      console.error("Fiscal profile upsert error:", error.message);
+      return;
+    }
+
+    console.log("Fiscal profile saved ✅");
+
+    const nextRemindAt = calculateNextReminder(
+      normalizedProfileAnswers.declaration_frequency,
+    );
+
+    if (!nextRemindAt) {
+      return;
+    }
+
+    const { error: reminderError } = await supabase.from("reminders").upsert(
+      {
+        user_id: user.id,
+        reminder_type: "declaration",
+        reminder_date: nextRemindAt.slice(0, 10),
+        status: "pending",
+      },
+      { onConflict: "user_id,reminder_type" },
+    );
+
+    if (reminderError) {
+      console.error("Reminder upsert error:", reminderError.message);
+    }
+  }, [
+    user?.id,
+    defaultGuestPlan,
+    fiscalProfile?.trial_ends_at,
+    fiscalProfile?.trial_started_at,
+    fiscalProfileLoaded,
+    persistedPlan,
+  ]);
+
+  async function saveReminderPrefsToSupabase(prefsToSave = reminderPrefs) {
+    try {
+      if (!user) return false;
+      if (!isFiscalProfileComplete) return false;
+      if (!fiscalProfile?.user_id) return false;
+
+      const normalizedReminderPrefs = {
+        ...prefsToSave,
+        sms: hasSmsPremiumAccess ? prefsToSave.sms : false,
+      };
+
+      const payload = {
+        reminder_declaration: normalizedReminderPrefs.declaration,
+        reminder_tva: normalizedReminderPrefs.tva,
+        reminder_cfe: normalizedReminderPrefs.cfe,
+        reminder_acre: normalizedReminderPrefs.acre,
+        reminder_email: normalizedReminderPrefs.email,
+        reminder_sms: normalizedReminderPrefs.sms,
+      };
+
+      const { error } = await supabase
+        .from("fiscal_profiles")
+        .update(payload)
+        .eq("user_id", user.id);
+
+      if (error) {
+        console.error("saveReminderPrefsToSupabase error:", error);
+        return false;
+      }
+
+      await refreshFiscalProfile();
+      return true;
+    } catch (error) {
+      console.error("Unexpected reminder prefs error:", error);
+      return false;
+    }
+  }
+
+  async function saveReminderPreferences() {
+    track("reminder_preferences_saved", reminderPrefs);
+
+    const normalizedReminderPrefs = {
+      ...reminderPrefs,
+      sms: hasSmsPremiumAccess ? reminderPrefs.sms : false,
+    };
+
+    if (!guardPremiumAccess("sms_premium", "sms_premium")) {
+      return;
+    }
+
+    localStorage.setItem(
+      REMINDER_PREFS_KEY,
+      JSON.stringify(normalizedReminderPrefs),
+    );
+
+    const saved = await saveReminderPrefsToSupabase(normalizedReminderPrefs);
+
+    if (saved || !user) {
+      setReminderPrefs(normalizedReminderPrefs);
+      setShowReminderModal(false);
+      showSaveNotice("Préférences de rappels enregistrées ✅", 3000);
+      return;
+    }
+
+    if (user && !isFiscalProfileComplete) {
+      setReminderPrefs(normalizedReminderPrefs);
+      setShowReminderModal(false);
+      showSaveNotice(
+        "Préférences enregistrées localement. Complète ton profil fiscal pour les synchroniser.",
+        3500,
+      );
+      return;
+    }
+
+    showSaveNotice("Impossible d’enregistrer les préférences.", 3000);
+  }
+
+  const migrateLocalDataToSupabase = useCallback(async (options = {}) => {
+    const { silent = false } = options;
     if (!user) return false;
 
-    let migrated = false;
+    const migrationState = guestMigrationRef.current;
 
-    // 1. Migrer les revenus locaux
-    const localRevenues = localStorage.getItem("revenues_guest");
-    if (localRevenues) {
-      try {
-        const revenues = JSON.parse(localRevenues);
-        for (const rev of revenues) {
-          await supabase.from("revenues").insert({
-            user_id: user.id,
-            amount: rev.amount,
-            revenue_date: rev.date,
-            client: rev.client || null,
-            invoice: rev.invoice || null,
-            note: rev.note || null,
-          });
+    if (migrationState.inFlight && migrationState.userId === user.id) {
+      return migrationState.inFlight;
+    }
+
+    const migrationRequest = (async () => {
+      let migrated = false;
+
+      // 1. Migrer les revenus locaux
+      const localRevenues = localStorage.getItem(GUEST_REVENUES_KEY);
+      if (localRevenues) {
+        try {
+          const revenues = JSON.parse(localRevenues);
+          if (Array.isArray(revenues) && revenues.length > 0) {
+            const payload = revenues.map((rev) => ({
+              user_id: user.id,
+              amount: rev.amount,
+              revenue_date: rev.date,
+              client: rev.client || null,
+              invoice: rev.invoice || null,
+              note: rev.note || null,
+            }));
+
+            const { error } = await supabase.from("revenues").insert(payload);
+
+            if (error) {
+              throw error;
+            }
+
+            migrated = true;
+            console.log("✅ Revenus locaux migrés:", revenues.length);
+          }
+        } catch (e) {
+          console.error("Erreur migration revenus:", e);
         }
-        localStorage.removeItem("revenues_guest");
-        migrated = true;
-        console.log("✅ Revenus locaux migrés:", revenues.length);
-      } catch (e) {
-        console.error("Erreur migration revenus:", e);
+      }
+
+      // 2. Migrer les factures invité
+      const localGuestInvoices = localStorage.getItem(GUEST_INVOICES_KEY);
+      if (localGuestInvoices) {
+        try {
+          const invoicesToMigrate = JSON.parse(localGuestInvoices);
+          if (Array.isArray(invoicesToMigrate) && invoicesToMigrate.length > 0) {
+            const payload = invoicesToMigrate.map((invoice) => ({
+              user_id: user.id,
+              invoice_number: invoice.invoice_number,
+              client_name: invoice.client_name || "",
+              client_address: invoice.client_address || "",
+              client_email: invoice.client_email || "",
+              description: invoice.description || "",
+              amount: invoice.amount || 0,
+              invoice_date: invoice.invoice_date,
+              due_date: invoice.due_date,
+              status: invoice.status || "sent",
+            }));
+
+            const { error } = await supabase.from("invoices").insert(payload);
+
+            if (error) {
+              throw error;
+            }
+
+            migrated = true;
+            console.log("✅ Factures invité migrées:", invoicesToMigrate.length);
+          }
+        } catch (e) {
+          console.error("Erreur migration factures:", e);
+        }
+      }
+
+      // 3. Migrer le profil fiscal
+      const localAnswers = localStorage.getItem(LS_KEY);
+      if (localAnswers) {
+        try {
+          const data = JSON.parse(localAnswers);
+          if (
+            data.answers &&
+            (data.answers.activity_type || data.answers.declaration_frequency)
+          ) {
+            await saveFiscalProfileToSupabase(data.answers);
+            migrated = true;
+            console.log("✅ Profil fiscal local migré");
+          }
+        } catch (e) {
+          console.error("Erreur migration profil:", e);
+        }
+      }
+
+      // 4. Migrer les préférences de rappels invité
+      const localReminderPrefs = localStorage.getItem(REMINDER_PREFS_KEY);
+      if (localReminderPrefs) {
+        try {
+          const parsedPrefs = JSON.parse(localReminderPrefs);
+          const didSavePrefs = await saveReminderPrefsToSupabase(parsedPrefs);
+
+          if (didSavePrefs) {
+            migrated = true;
+            console.log("✅ Préférences de rappel migrées");
+          }
+        } catch (e) {
+          console.error("Erreur migration rappels:", e);
+        }
+      }
+
+      if (migrated) {
+        clearLocalStorageKeys([
+          LS_KEY,
+          GUEST_REVENUES_KEY,
+          GUEST_INVOICES_KEY,
+          REMINDER_PREFS_KEY,
+        ]);
+        setGuestInvoices([]);
+        setHasDraft(false);
+        setLastSavedAt(null);
+        setRestoredAt(null);
+
+        await Promise.all([
+          refreshRevenues(),
+          refreshFiscalProfile({ force: true }),
+          refreshInvoices(),
+        ]);
+
+        migrationState.completedForUserId = user.id;
+
+        if (!silent) {
+          showSaveNotice(
+            "📦 Vos données locales ont été sauvegardées dans votre espace !",
+            3000,
+          );
+        }
+      }
+
+      return migrated;
+    })();
+
+    migrationState.userId = user.id;
+    migrationState.inFlight = migrationRequest;
+
+    try {
+      return await migrationRequest;
+    } finally {
+      if (guestMigrationRef.current.userId === user.id) {
+        guestMigrationRef.current.inFlight = null;
       }
     }
-
-    // 2. Migrer le profil fiscal
-    const localAnswers = localStorage.getItem(LS_KEY);
-    if (localAnswers) {
-      try {
-        const data = JSON.parse(localAnswers);
-        if (
-          data.answers &&
-          (data.answers.activity_type || data.answers.declaration_frequency)
-        ) {
-          await saveFiscalProfileToSupabase(data.answers);
-          migrated = true;
-          console.log("✅ Profil fiscal local migré");
-        }
-      } catch (e) {
-        console.error("Erreur migration profil:", e);
-      }
-    }
-
-    if (migrated) {
-      // Rafraîchir les données
-      await refreshRevenues();
-      await refreshFiscalProfile();
-      setSaveNotice(
-        "📦 Vos données locales ont été sauvegardées dans votre espace !",
-      );
-      setTimeout(() => setSaveNotice(null), 3000);
-    }
-
-    return migrated;
-  }, [user, refreshRevenues, refreshFiscalProfile]);
+  }, [
+    user,
+    refreshRevenues,
+    refreshFiscalProfile,
+    refreshInvoices,
+    saveFiscalProfileToSupabase,
+    showSaveNotice,
+  ]);
 
   // Эффекты с правильными зависимостями
   useEffect(() => {
+    if (authLoading) return;
+
     if (!user) {
       setFiscalProfile(null);
       return;
     }
-    refreshFiscalProfile();
-  }, [user, refreshFiscalProfile]);
+
+    const timer = setTimeout(() => {
+      refreshFiscalProfile();
+    }, 180);
+
+    return () => clearTimeout(timer);
+  }, [authLoading, user, refreshFiscalProfile]);
 
   useEffect(() => {
     if (!user) {
@@ -443,6 +1151,51 @@ export default function App() {
     }
     refreshInvoices();
   }, [user, refreshInvoices]);
+
+  useEffect(() => {
+    const hash = window.location.hash;
+
+    if (!hash) return;
+
+    const hashParams = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
+    const authType = hashParams.get("type");
+    const accessToken = hashParams.get("access_token");
+    const authError = hashParams.get("error");
+    const authErrorCode = hashParams.get("error_code");
+
+    if (
+      authError === "access_denied" ||
+      authErrorCode === "otp_expired"
+    ) {
+      showSaveNotice(
+        "Le lien a expiré. Demande un nouveau lien ou connecte-toi avec ton mot de passe.",
+        5000,
+      );
+      window.history.replaceState(
+        null,
+        "",
+        window.location.pathname + window.location.search,
+      );
+      openAuthModal("signin");
+      return;
+    }
+
+    if (!accessToken) {
+      return;
+    }
+
+    if (authType === "signup") {
+      localStorage.setItem(PENDING_AUTH_SUCCESS_KEY, "email_confirmed");
+      localStorage.setItem(BETA_SEEN_KEY, "1");
+      setShowBetaNotice(false);
+      return;
+    }
+
+    if (authType === "recovery") {
+      setShowBetaNotice(false);
+      openAuthModal("recovery");
+    }
+  }, [openAuthModal, showSaveNotice]);
 
 // sync reminder prefs depuis Supabase
 useEffect(() => {
@@ -461,16 +1214,7 @@ useEffect(() => {
 
   const steps = FISCAL_STEPS;
 
-  const [messages, setMessages] = useState([
-    {
-      role: "bot",
-      text: "Bonjour 👋 On va configurer ton profil fiscal. Réponds simplement.",
-    },
-    {
-      role: "bot",
-      text: `Étape 1 — ${steps[0].title}\n${steps[0].question}`,
-    },
-  ]);
+  const [messages, setMessages] = useState(() => buildInitialAssistantMessages());
 
   const step = steps[stepIndex];
 
@@ -712,8 +1456,15 @@ useEffect(() => {
     }, 150);
   }
 
-  function goNext(forcedNextIndex = null) {
-    const nextIndex = forcedNextIndex ?? stepIndex + 1;
+  function goNext(forcedNextIndex = null, sourceAnswers = answers) {
+    let nextIndex = forcedNextIndex ?? stepIndex + 1;
+
+    while (
+      nextIndex < FISCAL_STEPS.length &&
+      !isStepAvailable(FISCAL_STEPS[nextIndex], sourceAnswers)
+    ) {
+      nextIndex += 1;
+    }
 
     setIsTyping(true);
 
@@ -796,7 +1547,7 @@ useEffect(() => {
 
 useEffect(() => {
   try {
-    const saved = localStorage.getItem("microassist_reminder_prefs");
+    const saved = localStorage.getItem(REMINDER_PREFS_KEY);
     if (saved) {
       setReminderPrefs(JSON.parse(saved));
     }
@@ -805,32 +1556,49 @@ useEffect(() => {
   }
 }, []);
 
+  const sanitizedAnswers = useMemo(() => sanitizeFiscalAnswers(answers), [answers]);
+  const fiscalDateErrors = useMemo(() => getFiscalDateErrors(answers), [answers]);
+  const hasBlockingFiscalDateError =
+    Boolean(fiscalDateErrors.business_start_date) ||
+    Boolean(fiscalDateErrors.acre_start_date);
+
   useEffect(() => {
     const canSaveFiscalProfile =
-      answers?.entry_status &&
-      answers?.activity_type &&
-      answers?.declaration_frequency;
+      sanitizedAnswers?.entry_status &&
+      sanitizedAnswers?.activity_type &&
+      sanitizedAnswers?.declaration_frequency;
 
     if (!canSaveFiscalProfile) return;
+    if (hasBlockingFiscalDateError) return;
     if (!user) return;
     if (user && !fiscalProfileLoaded) return;
 
-    // Добавляем debounce
     const timeoutId = setTimeout(() => {
-      saveFiscalProfileToSupabase(answers);
+      saveFiscalProfileToSupabase(sanitizedAnswers);
+
+      if (assistantEditMode) {
+        showSaveNotice(
+          "Profil mis à jour. Les estimations ont été recalculées.",
+          3000,
+        );
+      }
     }, 2000);
 
     return () => clearTimeout(timeoutId);
   }, [
-    answers?.entry_status,
-    answers?.activity_type,
-    answers?.declaration_frequency,
-    answers?.acre,
-    answers?.acre_start_date,
-    answers?.business_start_date,
+    assistantEditMode,
+    sanitizedAnswers?.entry_status,
+    sanitizedAnswers?.activity_type,
+    sanitizedAnswers?.declaration_frequency,
+    sanitizedAnswers?.acre,
+    sanitizedAnswers?.acre_start_date,
+    sanitizedAnswers?.business_start_date,
+    hasBlockingFiscalDateError,
     fiscalProfileLoaded,
+    saveFiscalProfileToSupabase,
     user,
-  ]); // Убираем answers из зависимостей
+    showSaveNotice,
+  ]);
   useEffect(() => {
     if (!userName) return;
 
@@ -909,11 +1677,16 @@ useEffect(() => {
     return () => {
       window.removeEventListener("popstate", handlePopState);
     };
-  }, [defaultGuestPlan, fiscalProfile?.trial_started_at, persistedPlan]);
+  }, [
+    defaultGuestPlan,
+    fiscalProfile?.trial_ends_at,
+    fiscalProfile?.trial_started_at,
+    persistedPlan,
+  ]);
 
   useEffect(() => {
     if (!user) {
-      const savedRevenues = localStorage.getItem("revenues_guest");
+      const savedRevenues = localStorage.getItem(GUEST_REVENUES_KEY);
       if (savedRevenues) {
         try {
           setRevenues(JSON.parse(savedRevenues));
@@ -924,37 +1697,60 @@ useEffect(() => {
     }
   }, [user]);
 
+  useEffect(() => {
+    setAssistantFieldError("");
+  }, [stepIndex, appView]);
+
   const dashboardAnswers = useMemo(() => {
-    const hasActivity = answers?.activity_type || fiscalProfile?.activity_type;
+    const hasActivity =
+      sanitizedAnswers?.activity_type || fiscalProfile?.activity_type;
     const hasFrequency =
-      answers?.declaration_frequency || fiscalProfile?.declaration_frequency;
+      sanitizedAnswers?.declaration_frequency ||
+      fiscalProfile?.declaration_frequency;
 
     if (!hasActivity && !hasFrequency) {
       return {
         activity_type: null,
         declaration_frequency: null,
         acre: null,
-        business_start_date: answers?.business_start_date || null, // ✅ AJOUTER
+        business_start_date: sanitizedAnswers?.business_start_date || null,
         _isComplete: false,
       };
     }
 
     return {
-      ...answers,
+      ...sanitizedAnswers,
       activity_type:
-        answers?.activity_type || fiscalProfile?.activity_type || null,
+        sanitizedAnswers?.activity_type || fiscalProfile?.activity_type || null,
       declaration_frequency:
-        answers?.declaration_frequency ||
+        sanitizedAnswers?.declaration_frequency ||
         fiscalProfile?.declaration_frequency ||
         null,
-      acre: answers?.acre || fiscalProfile?.acre || null,
+      acre: sanitizedAnswers?.acre || fiscalProfile?.acre || null,
       business_start_date:
-        answers?.business_start_date ||
+        sanitizedAnswers?.business_start_date ||
         fiscalProfile?.business_start_date ||
-        null, // ✅ AJOUTER
+        null,
+      acre_start_date:
+        sanitizedAnswers?.acre_start_date || fiscalProfile?.acre_start_date || null,
       _isComplete: !!(hasActivity && hasFrequency),
     };
-  }, [answers, fiscalProfile]);
+  }, [sanitizedAnswers, fiscalProfile]);
+
+  const hasProfileCore =
+    Boolean(dashboardAnswers?.activity_type) &&
+    Boolean(dashboardAnswers?.declaration_frequency);
+  const requiresAcreStartDate = dashboardAnswers?.acre === "yes";
+  const isFiscalProfileComplete =
+    hasProfileCore &&
+    Boolean(dashboardAnswers?.business_start_date) &&
+    (!requiresAcreStartDate || Boolean(dashboardAnswers?.acre_start_date));
+  const profileReady = hasProfileCore;
+  const shouldShowGuestLocalMessage = !user && (
+    hasProfileCore ||
+    revenues.length > 0 ||
+    guestInvoices.length > 0
+  );
 
   const currentMonthTotal = useMemo(() => {
     return revenues.reduce((sum, item) => {
@@ -963,10 +1759,7 @@ useEffect(() => {
   }, [revenues]);
 
   const computed = useMemo(() => {
-    if (
-      !dashboardAnswers?.activity_type ||
-      !dashboardAnswers?.declaration_frequency
-    ) {
+    if (!hasProfileCore) {
       return {
         nextDeclarationLabel: "Profil à compléter",
         amountEstimatedLabel: "—",
@@ -977,6 +1770,41 @@ useEffect(() => {
         tvaUrgency: null,
         recommendations: [],
         treasuryRecommended: null,
+        rate: null,
+        acreStatus: null,
+        acreHint: "Ajoute les informations clés du profil pour activer les estimations.",
+        cfeAlert: null,
+        financialHealth: null,
+        financialHealthMessage: null,
+        savingsRecommended: 0,
+      };
+    }
+
+    if (!isFiscalProfileComplete) {
+      return {
+        nextDeclarationLabel: "Profil à compléter",
+        amountEstimatedLabel: "Estimation en attente",
+        deadlineLabel: "Complète ton profil fiscal",
+        tvaStatusLabel: "À confirmer",
+        tvaHint: "Complète ton profil fiscal pour obtenir des estimations fiables.",
+        urgency: null,
+        tvaUrgency: null,
+        recommendations: [
+          {
+            key: "complete-profile",
+            title: "Profil à compléter",
+            text: "Ajoute ton début d’activité et, si besoin, la date ACRE pour fiabiliser tes repères.",
+            level: "warning",
+          },
+        ],
+        treasuryRecommended: null,
+        rate: null,
+        acreStatus: null,
+        acreHint: "Le statut ACRE sera fiable après complétion du profil.",
+        cfeAlert: null,
+        financialHealth: null,
+        financialHealthMessage: null,
+        savingsRecommended: 0,
       };
     }
 
@@ -1019,7 +1847,7 @@ useEffect(() => {
         treasuryRecommended: null,
       };
     }
-  }, [dashboardAnswers, currentMonthTotal, revenues]);
+  }, [dashboardAnswers, currentMonthTotal, revenues, hasProfileCore, isFiscalProfileComplete]);
 
   const activityLabel = useMemo(
     () => labelFromOptions("activity_type", dashboardAnswers.activity_type),
@@ -1046,8 +1874,18 @@ useEffect(() => {
     activityLabel,
     freqLabel,
   ]);
+  const connectedAccountLabel = user?.email?.trim() || userName || "";
+  const hasLoadedFiscalProfile = Boolean(user && fiscalProfile);
+  const showAssistantCompletionBanner =
+    profileReady && !assistantEditMode && !hasLoadedFiscalProfile;
+  const isExistingProfileEditMode =
+    assistantEditMode && hasLoadedFiscalProfile;
 
   const canSend = useMemo(() => input.trim().length > 0, [input]);
+  const canSubmitCurrentStep = useMemo(
+    () => canSend && !assistantFieldError,
+    [canSend, assistantFieldError],
+  );
 
   // ==================== CALCULS POUR DASHBOARD ====================
   const estimatedCharges = useMemo(() => {
@@ -1115,9 +1953,6 @@ useEffect(() => {
     }
     return "Bon réflexe : sépare cette somme tout de suite pour éviter les surprises.";
   }, [revenueAmount, previewCharges]);
-
-  const profileReady =
-    dashboardAnswers?.activity_type && dashboardAnswers?.declaration_frequency;
 
   const monthlyHistory = useMemo(() => {
     const map = {};
@@ -1216,9 +2051,15 @@ useEffect(() => {
         key: "charges",
         icon: "💰",
         label: "À prévoir",
-        value: `${estimatedCharges.toLocaleString("fr-FR")} €`,
+        value: isFiscalProfileComplete
+          ? `${estimatedCharges.toLocaleString("fr-FR")} €`
+          : "Profil à compléter",
         hint:
-          revenues.length > 0 ? "Montant à mettre de côté" : "Ajoute un revenu",
+          isFiscalProfileComplete
+            ? revenues.length > 0
+              ? "Montant à mettre de côté"
+              : "Ajoute un revenu"
+            : "Complète ton profil pour débloquer ce repère",
       },
       {
         key: "tva",
@@ -1229,12 +2070,12 @@ useEffect(() => {
       },
       
     ];
-  }, [computed, revenues.length, estimatedCharges]);
+  }, [computed, revenues.length, estimatedCharges, isFiscalProfileComplete]);
 
   const smartTips = useMemo(() => {
     const tips = [];
 
-    if (currentMonthTotal > 0) {
+    if (isFiscalProfileComplete && currentMonthTotal > 0) {
       tips.push({
         key: "reserve",
         title: "Montant à mettre de côté",
@@ -1297,9 +2138,19 @@ useEffect(() => {
     }
 
     return tips.slice(0, 3);
-  }, [currentMonthTotal, estimatedCharges, computed, revenues.length]);
+  }, [currentMonthTotal, estimatedCharges, computed, revenues.length, isFiscalProfileComplete]);
 
   const mainAction = useMemo(() => {
+    if (!isFiscalProfileComplete) {
+      return {
+        title: "Profil à compléter",
+        text: "Complète ton profil fiscal pour obtenir des estimations fiables.",
+        cta: "Créer mon profil fiscal",
+        action: "profile",
+        level: "warning",
+      };
+    }
+
     if (revenues.length === 0) {
       return {
         title: "Commence ton suivi",
@@ -1347,9 +2198,17 @@ useEffect(() => {
       action: null,
       level: "ok",
     };
-  }, [revenues.length, dashboardAnswers?.declaration_frequency, computed]);
+  }, [revenues.length, dashboardAnswers?.declaration_frequency, computed, isFiscalProfileComplete]);
 
   const visibleInvoices = user ? invoices : guestInvoices;
+  const guestConversionEligible =
+    !user &&
+    (profileReady ||
+      revenues.length > 0 ||
+      guestInvoices.length > 0 ||
+      (computed?.deadlineLabel &&
+        computed.deadlineLabel !== "—" &&
+        computed.deadlineLabel !== "Profil à compléter"));
 
   const invoicesThisMonth = useMemo(() => {
   const now = new Date();
@@ -1444,8 +2303,11 @@ const goToView = useCallback((nextView, options = {}) => {
   if (nextView === "assistant") setAssistantCollapsed(false);
 }, []);
 
-  const goToDashboard = useCallback(() => {
+  const goToDashboard = useCallback((options = {}) => {
+    const { scroll = true } = options;
     goToView("dashboard", { push: true, focus: true });
+
+    if (!scroll) return;
 
     setTimeout(() => {
       fiscalRef.current?.scrollIntoView({
@@ -1455,6 +2317,63 @@ const goToView = useCallback((nextView, options = {}) => {
     }, 100);
   }, [goToView]);
 
+  useEffect(() => {
+  const pendingAuthSuccess = localStorage.getItem(PENDING_AUTH_SUCCESS_KEY);
+
+  if (authLoading || !pendingAuthSuccess || !user) return;
+
+  let cancelled = false;
+
+  async function finalizeAuthSuccess() {
+    const migrated = await migrateLocalDataToSupabase({ silent: true });
+
+    await Promise.all([
+      refreshRevenues(),
+      refreshFiscalProfile(),
+      refreshInvoices(),
+    ]);
+
+    if (cancelled) return;
+
+    localStorage.removeItem(PENDING_AUTH_SUCCESS_KEY);
+    localStorage.setItem(BETA_SEEN_KEY, "1");
+    setShowBetaNotice(false);
+
+    if (window.location.hash) {
+      window.history.replaceState(
+        null,
+        "",
+        window.location.pathname + window.location.search,
+      );
+    }
+
+    goToDashboard({ scroll: false });
+
+    showSaveNotice(
+      pendingAuthSuccess === "email_confirmed"
+        ? "Bienvenue ✅ Ton espace fiscal est prêt."
+        : migrated
+          ? "Connexion réussie ✅ Tes données ont été importées et ton espace fiscal est prêt."
+          : "Connexion réussie ✅ Ton espace fiscal est prêt.",
+      5000,
+    );
+  }
+
+  finalizeAuthSuccess();
+
+  return () => {
+    cancelled = true;
+  };
+}, [
+  user,
+  authLoading,
+  migrateLocalDataToSupabase,
+  refreshRevenues,
+  refreshFiscalProfile,
+  refreshInvoices,
+  goToDashboard,
+  showSaveNotice,
+]);
 
   const handleResumeDraft = useCallback(() => {
     setAppView("assistant");
@@ -1482,7 +2401,7 @@ function handleReminderToggle(key) {
       [key]: !prev[key],
     };
 
-    localStorage.setItem("microassist_reminder_prefs", JSON.stringify(next));
+    localStorage.setItem(REMINDER_PREFS_KEY, JSON.stringify(next));
     return next;
   });
 }
@@ -1554,39 +2473,248 @@ function handleOpenInvoiceGenerator() {
     [deleteRevenueFromSupabase, refreshRevenues],
   );
 
-  function handleReset() {
-    localStorage.removeItem(LS_KEY);
-
-    setAppView("landing");
+  function resetAssistantSession(message = "Bonjour 👋 On recommence. Réponds simplement.") {
     setStepIndex(0);
     setAnswers({});
     setInput("");
     setUserName("");
     setHelpOpen(false);
+    setAssistantFieldError("");
     setIsTyping(false);
     setFocusMode(false);
     setHasDraft(false);
     setLastSavedAt(null);
     setRestoredAt(null);
+    setAssistantCollapsed(false);
+    setAssistantEditMode(false);
 
+    const [firstMessage, ...rest] = buildInitialAssistantMessages();
     setMessages([
       {
-        role: "bot",
-        text: "Bonjour 👋 On recommence. Réponds simplement.",
+        ...firstMessage,
+        text: message,
       },
-      {
-        role: "bot",
-        text: `Étape 1 — ${FISCAL_STEPS[0].title}\n${FISCAL_STEPS[0].question}`,
-      },
+      ...rest,
     ]);
+  }
 
-    setTimeout(() => {
-      scrollToTopSection("hero");
-    }, 120);
+  function resetDashboardState() {
+    setSelectedMonth("all");
+    setShowChart(true);
+    setShowAddRevenue(false);
+    setShowRevenueDetails(false);
+    setShowInvoiceGenerator(false);
+    setShowReminderModal(false);
+    setShowPricingModal(false);
+    setShowTVAModal(false);
+    setShowCFEModal(false);
+    setInvoiceNotice(null);
+    setSaveNotice(null);
+    resetRevenueForm();
+  }
+
+  function clearLocalStorageKeys(keys) {
+    keys.forEach((key) => {
+      localStorage.removeItem(key);
+    });
+  }
+
+  useEffect(() => {
+    if (authLoading) return;
+
+    const currentUserId = user?.id ?? null;
+    const previousUserId = previousUserIdRef.current;
+
+    if (previousUserId === currentUserId) {
+      return;
+    }
+
+    previousUserIdRef.current = currentUserId;
+
+    setAuthOpen(false);
+    setFiscalProfile(null);
+    setFiscalProfileLoaded(false);
+    fiscalProfileFetchRef.current = {
+      inFlight: null,
+      userId: null,
+      lastFetchedAt: 0,
+      lastData: null,
+    };
+    guestMigrationRef.current = {
+      inFlight: null,
+      userId: null,
+      completedForUserId: null,
+    };
+    setRevenues([]);
+    setInvoices([]);
+    if (currentUserId) {
+      setGuestInvoices([]);
+    } else {
+      try {
+        setGuestInvoices(
+          JSON.parse(localStorage.getItem(GUEST_INVOICES_KEY) || "[]"),
+        );
+      } catch {
+        setGuestInvoices([]);
+      }
+    }
+    setReminderPrefs(DEFAULT_REMINDER_PREFS);
+    setSelectedMonth("all");
+    setAnswers({});
+    setStepIndex(0);
+    setMessages(buildInitialAssistantMessages());
+    setInput("");
+    setAssistantFieldError("");
+    setHasDraft(false);
+    setLastSavedAt(null);
+    setRestoredAt(null);
+    setShowAddRevenue(false);
+    setShowRevenueDetails(false);
+    setShowInvoiceGenerator(false);
+    setShowReminderModal(false);
+    setInvoiceNotice(null);
+    setSaveNotice(null);
+    setUserName("");
+    setAssistantEditMode(false);
+  }, [authLoading, user?.id]);
+
+  async function resetFiscalProfileData() {
+    if (!user) return true;
+
+    const { error } = await supabase
+      .from("fiscal_profiles")
+      .delete()
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("Fiscal profile reset error:", error.message);
+      return false;
+    }
+
+    return true;
+  }
+
+  async function deleteUserRecords(table) {
+    if (!user) return true;
+
+    const { error } = await supabase.from(table).delete().eq("user_id", user.id);
+
+    if (error) {
+      console.error(`Delete ${table} error:`, error.message);
+      return false;
+    }
+
+    return true;
+  }
+
+  async function handleProfileOnlyReset() {
+    if (resetInProgress) return;
+
+    setResetInProgress(true);
+
+    try {
+      if (user) {
+        const didResetProfile = await resetFiscalProfileData();
+
+        if (!didResetProfile) {
+          showSaveNotice("Impossible de réinitialiser le profil fiscal.", 4000);
+          return;
+        }
+      }
+
+      localStorage.removeItem(LS_KEY);
+      resetAssistantSession();
+      setAppView("assistant");
+      await refreshFiscalProfile();
+
+      showSaveNotice(
+        "Profil fiscal réinitialisé ✅ Tes revenus, factures et rappels sont conservés.",
+        4500,
+      );
+      setShowResetModal(false);
+
+      setTimeout(() => {
+        assistantRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }, 120);
+    } finally {
+      setResetInProgress(false);
+    }
+  }
+
+  async function handleFullReset() {
+    if (resetInProgress) return;
+
+    setResetInProgress(true);
+
+    try {
+      if (user) {
+        const results = await Promise.all([
+          resetFiscalProfileData(),
+          deleteUserRecords("revenues"),
+          deleteUserRecords("invoices"),
+          deleteUserRecords("reminders"),
+        ]);
+
+        if (results.some((result) => result === false)) {
+          showSaveNotice("Impossible de réinitialiser tout l’espace.", 4000);
+          return;
+        }
+      }
+
+      clearLocalStorageKeys(FULL_RESET_LOCAL_STORAGE_KEYS);
+      setRevenues([]);
+      setInvoices([]);
+      setGuestInvoices([]);
+      setReminderPrefs(EMPTY_REMINDER_PREFS);
+      setFiscalProfile(null);
+      setFiscalProfileLoaded(Boolean(user));
+      resetDashboardState();
+      resetAssistantSession();
+      setAppView("assistant");
+      setVisibleSections(DEFAULT_VISIBLE_SECTIONS);
+
+      if (!user) {
+        setHydrated(true);
+      } else {
+        await Promise.all([
+          refreshRevenues(),
+          refreshInvoices(),
+          refreshFiscalProfile(),
+        ]);
+      }
+
+      showSaveNotice("Espace fiscal réinitialisé ✅ Aucun ancien calcul n’est conservé.", 5000);
+      setShowResetModal(false);
+
+      setTimeout(() => {
+        assistantRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }, 120);
+    } finally {
+      setResetInProgress(false);
+    }
+  }
+
+  function handleReset() {
+    setShowResetModal(true);
   }
 
   // Оставьте только goToView и используйте везде
   const goToAssistant = useCallback(() => {
+    if (user && fiscalProfile) {
+      setAnswers(getAssistantAnswersFromProfile(fiscalProfile));
+      setStepIndex(0);
+      setInput("");
+      setHelpOpen(false);
+      setAssistantFieldError("");
+    }
+    setAssistantEditMode(false);
+
     goToView("assistant", { push: true, focus: true });
 
     requestAnimationFrame(() => {
@@ -1597,7 +2725,7 @@ function handleOpenInvoiceGenerator() {
         });
       });
     });
-  }, [goToView]);
+  }, [user, fiscalProfile, goToView]);
 
   // А в handleTipAction используйте goToAssistant
   // Вместо текущей неполной функции, вставьте эту:
@@ -1622,102 +2750,6 @@ function handleOpenInvoiceGenerator() {
     }));
   }
 
-  function calculateNextReminder(frequency) {
-    const today = new Date();
-
-    if (frequency === "mensuel") {
-      // За 7 дней до конца следующего месяца
-      const nextMonth = new Date(today.getFullYear(), today.getMonth() + 2, 0);
-      nextMonth.setDate(nextMonth.getDate() - 7);
-      return nextMonth.toISOString();
-    }
-
-    if (frequency === "trimestriel") {
-      // За 7 дней до конца квартала
-      const month = today.getMonth();
-      let endQuarter;
-      if (month <= 2) endQuarter = new Date(today.getFullYear(), 3, 30);
-      else if (month <= 5) endQuarter = new Date(today.getFullYear(), 6, 31);
-      else if (month <= 8) endQuarter = new Date(today.getFullYear(), 9, 31);
-      else endQuarter = new Date(today.getFullYear() + 1, 0, 31);
-
-      endQuarter.setDate(endQuarter.getDate() - 7);
-      return endQuarter.toISOString();
-    }
-
-    return null;
-  }
-
-  const saveFiscalProfileToSupabase = useCallback(async (profileAnswers) => {
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      if (userError && userError.message !== "Auth session missing") {
-        console.error("User not found:", userError?.message);
-      }
-      return;
-    }
-
-    if (!fiscalProfileLoaded) {
-      return;
-    }
-
-    const planToPersist = persistedPlan || defaultGuestPlan;
-
-    const payload = {
-      user_id: user.id,
-      plan: planToPersist,
-      business_status:
-        profileAnswers.entry_status === "micro_yes"
-          ? "micro_entreprise"
-          : "other",
-      activity_type: profileAnswers.activity_type,
-      declaration_frequency: profileAnswers.declaration_frequency,
-      tva_mode: "franchise_en_base",
-      acre: profileAnswers.acre || null,
-      acre_start_date: profileAnswers.acre_start_date || null,
-      business_start_date: profileAnswers.business_start_date || null, // ✅ AJOUTER
-    };
-
-    if (planToPersist === "beta_founder" && !fiscalProfile?.trial_started_at) {
-      payload.trial_started_at = new Date().toISOString();
-    }
-
-    const { error } = await supabase
-      .from("fiscal_profiles")
-      .upsert(payload, { onConflict: "user_id" });
-
-    if (error) {
-      console.error("Fiscal profile upsert error:", error.message);
-    } else {
-      console.log("Fiscal profile saved ✅");
-
-      const nextRemindAt = calculateNextReminder(
-        profileAnswers.declaration_frequency,
-      );
-
-      if (nextRemindAt) {
-        await supabase.from("reminders").upsert(
-          {
-            user_id: user.id,
-            reminder_type: "declaration",
-            reminder_date: nextRemindAt.slice(0, 10),
-            status: "pending",
-          },
-          { onConflict: "user_id" },
-        );
-      }
-    }
-  }, [
-    defaultGuestPlan,
-    fiscalProfile?.trial_started_at,
-    fiscalProfileLoaded,
-    persistedPlan,
-  ]);
-
   async function deleteRevenueFromSupabase(id) {
     const { error } = await supabase.from("revenues").delete().eq("id", id);
 
@@ -1730,13 +2762,8 @@ function handleOpenInvoiceGenerator() {
   }
 
   async function saveRevenueToSupabase(revenue) {
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      console.error("User not authenticated:", userError?.message);
+    if (!user?.id) {
+      console.error("User not authenticated.");
       return null;
     }
 
@@ -1763,41 +2790,6 @@ function handleOpenInvoiceGenerator() {
     console.log("Revenue saved ✅");
     return data;
   }
-
-async function saveReminderPrefsToSupabase() {
-  try {
-    if (!user) return false;
-    const normalizedReminderPrefs = {
-      ...reminderPrefs,
-      sms: hasSmsPremiumAccess ? reminderPrefs.sms : false,
-    };
-
-    const payload = {
-      reminder_declaration: normalizedReminderPrefs.declaration,
-      reminder_tva: normalizedReminderPrefs.tva,
-      reminder_cfe: normalizedReminderPrefs.cfe,
-      reminder_acre: normalizedReminderPrefs.acre,
-      reminder_email: normalizedReminderPrefs.email,
-      reminder_sms: normalizedReminderPrefs.sms,
-    };
-
-    const { error } = await supabase
-      .from("fiscal_profiles")
-      .update(payload)
-      .eq("user_id", user.id);
-
-    if (error) {
-      console.error("Reminder prefs update error:", error.message);
-      return false;
-    }
-
-    await refreshFiscalProfile();
-    return true;
-  } catch (error) {
-    console.error("Unexpected reminder prefs error:", error);
-    return false;
-  }
-}
 
   async function saveRevenueEntry() {
     const amount = Number(String(revenueForm.amount).replace(",", "."));
@@ -1829,16 +2821,13 @@ async function saveReminderPrefsToSupabase() {
     const charges = Math.round(amount * rate);
     const disponible = Math.max(0, amount - charges);
 
-    setSaveNotice(
+    showSaveNotice(
       `Revenu enregistré • charges estimées : ${charges.toLocaleString("fr-FR")} € • disponible estimé : ${disponible.toLocaleString("fr-FR")} €`,
+      2500,
     );
 
     setShowAddRevenue(false);
     resetRevenueForm();
-
-    setTimeout(() => {
-      setSaveNotice(null);
-    }, 2500);
 
     setTimeout(() => {
       fiscalRef.current?.scrollIntoView({
@@ -1862,15 +2851,15 @@ async function saveReminderPrefsToSupabase() {
 
       const updatedRevenues = [newRevenue, ...revenues];
       setRevenues(updatedRevenues);
-      localStorage.setItem("revenues_guest", JSON.stringify(updatedRevenues));
+      localStorage.setItem(GUEST_REVENUES_KEY, JSON.stringify(updatedRevenues));
 
       setShowAddRevenue(false);
       resetRevenueForm();
 
-      setSaveNotice(
+      showSaveNotice(
         `Revenu enregistré localement • ${revenueAmount.toLocaleString("fr-FR")} €`,
+        2500,
       );
-      setTimeout(() => setSaveNotice(null), 2500);
 
       return;
     }
@@ -2248,10 +3237,25 @@ function handleExportPDFWithLimit() {
   function handleSend() {
     if (!canSend || isTyping) return;
 
-    const userText = input.trim();
+    const key = step?.key;
+    const normalizedValue =
+      key === "business_start_date" || key === "acre_start_date"
+        ? normalizeDateValue(input)
+        : input.trim();
+    const nextAnswers = key
+      ? { ...answers, [key]: normalizedValue }
+      : { ...answers };
+    const validationMessage = getCurrentStepValidationMessage(key, nextAnswers);
+
+    if (validationMessage) {
+      setAssistantFieldError(validationMessage);
+      return;
+    }
+
+    setAssistantFieldError("");
     setInput("");
 
-    submitAnswer({ chatText: userText, value: userText });
+    submitAnswer({ chatText: normalizedValue, value: normalizedValue });
   }
 
   function submitAnswer({ chatText, value }) {
@@ -2278,6 +3282,13 @@ function handleExportPDFWithLimit() {
       updatedAnswers = { ...updatedAnswers, status: "auto_entrepreneur" };
     }
 
+    if (key === "acre" && value !== "yes") {
+      updatedAnswers = {
+        ...updatedAnswers,
+        acre_start_date: null,
+      };
+    }
+
     setAnswers(updatedAnswers);
 
     if (key === "declaration_frequency") {
@@ -2294,12 +3305,13 @@ function handleExportPDFWithLimit() {
     }
 
     setTimeout(() => {
-      goNext(forcedNextIndex);
+      goNext(forcedNextIndex, updatedAnswers);
     }, 250);
   }
 
   function handleSelectOption(opt) {
     if (isTyping) return;
+    setAssistantFieldError("");
     submitAnswer({ chatText: opt.label, value: opt.value });
   }
 
@@ -2369,43 +3381,142 @@ function handleExportPDFWithLimit() {
     }, 120);
   }, []);
 
-function handleOpenSaveModal(source = "unknown") {
+async function handleOpenSaveModal(source = "unknown") {
   track("pricing_modal_opened", { source });
+  setPremiumModalSource(source);
+  setPremiumWaitlistEmail(user?.email?.trim().toLowerCase() ?? "");
+  setPremiumWaitlistError("");
+
+  if (user?.email?.trim()) {
+    await joinPremiumWaitlist({
+      email: user.email,
+      source,
+      isAuthenticatedEmail: true,
+    });
+    return;
+  }
+
   setShowPricingModal(true);
 }
 
-const handlePremiumWaitlistCTA = useCallback(() => {
-  track("signup_cta_clicked", {
-    source: isTrialExpired ? "premium_after_trial" : "pricing_modal",
+
+const joinPremiumWaitlist = useCallback(
+  async ({ email, source, isAuthenticatedEmail = false }) => {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedEmail) {
+      setPremiumWaitlistError("Merci d’indiquer ton email.");
+      return false;
+    }
+
+    const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail);
+    if (!isValidEmail) {
+      setPremiumWaitlistError("Merci d’indiquer un email valide.");
+      return false;
+    }
+
+    try {
+      setIsJoiningPremiumWaitlist(true);
+      setPremiumWaitlistError("");
+
+      const { data, error } = await supabase.rpc("join_premium_waitlist", {
+        p_email: normalizedEmail,
+        p_user_id: user?.id ?? null,
+        p_source: source,
+      });
+
+      if (error) {
+        console.error("Premium waitlist RPC error:", error.message);
+        showSaveNotice("Impossible de rejoindre la liste Premium.", 4000);
+        return false;
+      }
+
+      const status = Array.isArray(data) ? data[0]?.status : data?.status;
+
+      setShowPricingModal(false);
+      setPremiumWaitlistEmail("");
+      setPremiumWaitlistError("");
+
+      if (status === "already_exists") {
+        showSaveNotice(
+          isAuthenticatedEmail
+            ? "Ton email connecté est déjà sur la liste Premium."
+            : "✨ Tu es déjà sur la liste Premium.",
+          8000,
+        );
+      } else {
+        showSaveNotice(
+          isAuthenticatedEmail
+            ? "Ton email connecté a bien été ajouté à la liste Premium."
+            : "✨ Tu es bien sur la liste Premium. Nous te préviendrons au lancement.",
+          8000,
+        );
+      }
+
+      window.scrollTo({
+        top: 0,
+        behavior: "smooth",
+      });
+
+      return true;
+    } catch (error) {
+      console.error("Unexpected premium waitlist error:", error);
+      showSaveNotice("Impossible de rejoindre la liste Premium.", 4000);
+      return false;
+    } finally {
+      setIsJoiningPremiumWaitlist(false);
+    }
+  },
+  [user, showSaveNotice],
+);
+
+const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
+  const source =
+    sourceOverride ||
+    premiumModalSource ||
+    (isTrialExpired ? "premium_after_trial" : "pricing_modal");
+
+  track("signup_cta_clicked", { source });
+  await joinPremiumWaitlist({
+    email: premiumWaitlistEmail,
+    source,
   });
-  setShowPricingModal(false);
-  if (!user) {
-    setAuthOpen(true);
-    return;
-  }
-  setAuthOpen(true);
-}, [isTrialExpired, user]);
+}, [
+  isTrialExpired,
+  joinPremiumWaitlist,
+  premiumModalSource,
+  premiumWaitlistEmail,
+]);
 
   function handleEditProfile() {
     setAppView("assistant");
+    setAssistantEditMode(true);
     setAssistantCollapsed(false);
     setStepIndex(0);
     setHelpOpen(false);
+    setInput("");
+    setAssistantFieldError("");
 
-    setAnswers({
-      activity_type: dashboardAnswers.activity_type,
-      declaration_frequency: dashboardAnswers.declaration_frequency,
-      acre: dashboardAnswers.acre,
-      acre_start_date: dashboardAnswers.acre_start_date,
-      business_start_date: dashboardAnswers.business_start_date,
-      monthly_expenses: dashboardAnswers.monthly_expenses,
-      // другие поля, если есть
-    });
+    setAnswers(
+      user && fiscalProfile
+        ? getAssistantAnswersFromProfile(fiscalProfile)
+        : sanitizeFiscalAnswers({
+            entry_status: dashboardAnswers.entry_status || "micro_yes",
+            status: dashboardAnswers.status || "auto_entrepreneur",
+            activity_type: dashboardAnswers.activity_type,
+            declaration_frequency: dashboardAnswers.declaration_frequency,
+            acre: dashboardAnswers.acre,
+            acre_start_date: dashboardAnswers.acre_start_date,
+            business_start_date: dashboardAnswers.business_start_date,
+          }),
+    );
 
     setMessages([
       {
         role: "bot",
-        text: "Bonjour 👋 On va mettre à jour ton profil fiscal. Réponds simplement.",
+        text: user && fiscalProfile
+          ? "Profil chargé ✅ Tu modifies ton profil fiscal existant."
+          : "Bonjour 👋 On va mettre à jour ton profil fiscal. Réponds simplement.",
       },
       {
         role: "bot",
@@ -2448,7 +3559,7 @@ const handlePremiumWaitlistCTA = useCallback(() => {
               className="btn btnPrimary"
               style={{ marginTop: "12px" }}
               onClick={() => {
-                localStorage.setItem("beta_seen", "1");
+                localStorage.setItem(BETA_SEEN_KEY, "1");
                 setShowBetaNotice(false);
               }}
             >
@@ -2478,6 +3589,9 @@ const handlePremiumWaitlistCTA = useCallback(() => {
               <div className="helloMini">Bonjour, {userName} 👋</div>
             )}
             {profileLine && <div className="profileMini">{profileLine}</div>}
+            {connectedAccountLabel && (
+              <div className="profileMini">Connectée : {connectedAccountLabel}</div>
+            )}
           </div>
 
           <div className="topbarRight">
@@ -2531,10 +3645,61 @@ const handlePremiumWaitlistCTA = useCallback(() => {
                 Contact
               </button>
             </nav>
+
+            {user && (
+              <button
+                type="button"
+                className="btn btnGhost btnSmall"
+                onClick={handleLogout}
+                disabled={logoutPending}
+              >
+                {logoutPending ? "Déconnexion..." : "Déconnexion"}
+              </button>
+            )}
           </div>
         </header>
 
         <main className={`container ${focusMode ? "focusMode" : ""}`}>
+        {saveNotice && (
+  <div
+    role="status"
+    aria-live="polite"
+    style={{
+      position: "fixed",
+      top: 88,
+      left: "50%",
+      transform: "translateX(-50%)",
+      zIndex: 3000,
+      width: "min(720px, calc(100vw - 24px))",
+      padding: "14px 16px",
+      borderRadius: 14,
+      background: "#f0fdf4",
+      border: "1px solid #86efac",
+      color: "#166534",
+      boxShadow: "0 16px 40px rgba(22, 101, 52, 0.14)",
+    }}
+  >
+    {typeof saveNotice === "string" ? (
+      <div style={{ fontWeight: 600 }}>{saveNotice}</div>
+    ) : (
+      <div style={{ display: "grid", gap: 8 }}>
+        <div style={{ fontWeight: 700 }}>{saveNotice.title}</div>
+        <div>{saveNotice.body}</div>
+        {saveNotice.cta === "auth" && (
+          <div>
+            <button
+              className="btn btnGhost btnSmall"
+              type="button"
+              onClick={() => openAuthModal("signup")}
+            >
+              Créer mon compte
+            </button>
+          </div>
+        )}
+      </div>
+    )}
+  </div>
+)}
           {appView === "landing" && (
             <section id="home" ref={heroRef} className="card hero heroSaaS">
               <div className="heroGrid">
@@ -2582,7 +3747,7 @@ const handlePremiumWaitlistCTA = useCallback(() => {
                       className="btn btnGhost"
                       onClick={() => {
                         track("landing_auth_cta_clicked", { source: "hero" });
-                        setAuthOpen(true);
+                        openAuthModal("signup");
                       }}
                       type="button"
                     >
@@ -2691,7 +3856,7 @@ const handlePremiumWaitlistCTA = useCallback(() => {
                   <button
                     className="btn btnGhost"
                     type="button"
-                    onClick={() => setAuthOpen(true)}
+                    onClick={() => openAuthModal("signup")}
                   >
                     Créer mon compte
                   </button>
@@ -2866,7 +4031,7 @@ const handlePremiumWaitlistCTA = useCallback(() => {
             </section>
           )}
 
-          {focusMode && (
+          {focusMode && appView !== "assistant" && (
             <div className="focusBar">
               <div className="focusLeft">
                 <strong>Mode démo</strong>
@@ -2905,10 +4070,12 @@ const handlePremiumWaitlistCTA = useCallback(() => {
               <div className="assistantHeader">
                 <div>
                   <div className="assistantTitleRow">
-                    <h2>Créer mon profil fiscal</h2>
+                    <h2>{user && fiscalProfile ? "Modifier mon profil fiscal" : "Créer mon profil fiscal"}</h2>
 
                     <div className="profileStatus">
-                      {profileReady ? (
+                      {user && fiscalProfile ? (
+                        <span className="statusOk">🟢 Profil chargé</span>
+                      ) : profileReady ? (
                         <span className="statusOk">
                           🟢 Profil fiscal configuré
                         </span>
@@ -2924,6 +4091,7 @@ const handlePremiumWaitlistCTA = useCallback(() => {
                         className="btn btnGhost btnSmall"
                         onClick={() => setAssistantCollapsed((v) => !v)}
                         type="button"
+                        disabled={showAssistantCompletionBanner || isExistingProfileEditMode}
                       >
                         {assistantCollapsed ? "Afficher" : "Réduire"}
                       </button>
@@ -2940,7 +4108,16 @@ const handlePremiumWaitlistCTA = useCallback(() => {
                         Accéder à mon espace fiscal
                       </button>
                     )}
-                    {hasDraft && (
+                    {showAssistantCompletionBanner && (
+                      <button
+                        className="btn btnGhost btnSmall"
+                        onClick={handleEditProfile}
+                        type="button"
+                      >
+                        Modifier mon profil
+                      </button>
+                    )}
+                    {hasDraft && !isExistingProfileEditMode && (
                       <button
                         className="btn btnGhost btnSmall"
                         onClick={handleResumeDraft}
@@ -2952,65 +4129,128 @@ const handlePremiumWaitlistCTA = useCallback(() => {
                   </div>
 
                   <p className="muted assistantIntro">
-                    Configure ton profil en quelques étapes pour obtenir un
-                    repère fiscal clair.
+                    {showAssistantCompletionBanner
+                      ? "Ton profil fiscal est prêt. Continue dans Mon espace fiscal pour suivre tes revenus et ton historique."
+                      : isExistingProfileEditMode
+                      ? "Modifie les champs utiles puis vérifie tout de suite l’impact sur ta situation fiscale."
+                      : user && fiscalProfile
+                      ? "Ton profil enregistré est chargé. Modifie uniquement les champs fiscaux que tu veux mettre à jour."
+                      : "Configure ton profil en quelques étapes pour obtenir un repère fiscal clair."}
                   </p>
 
-                  <ul className="assistantBenefits">
-                    <li>une estimation simple de tes charges</li>
-                    <li>un repère sur ta prochaine échéance</li>
-                    <li>une vision claire de ta TVA</li>
-                    <li>
-                      un accès à ton espace fiscal pour suivre tes revenus
-                    </li>
-                  </ul>
-                </div>
-
-                <div className="progress">
-                  <div className="progressBar">
-                    <div
-                      className="progressFill"
-                      style={{
-                        width: `${((stepIndex + 1) / FISCAL_STEPS.length) * 100}%`,
-                      }}
-                    />
-                  </div>
-
-                  {(hasDraft || lastSavedAt) && (
-                    <div className="savedHint">
-                      💾{" "}
-                      {lastSavedAt
-                        ? `Sauvegardé à ${new Date(
-                            lastSavedAt,
-                          ).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}`
-                        : "Sauvegarde trouvée"}
-                      {restoredAt && " — restauré ✅"}
-                      <div className="savedActions">
-                        <button
-                          className="btn btnGhost"
-                          onClick={handleNewSession}
-                          type="button"
-                        >
-                          Recommencer
-                        </button>
-                      </div>
-                    </div>
+                  {!showAssistantCompletionBanner && !isExistingProfileEditMode && (
+                    <ul className="assistantBenefits">
+                      <li>une estimation simple de tes charges</li>
+                      <li>un repère sur ta prochaine échéance</li>
+                      <li>une vision claire de ta TVA</li>
+                      <li>
+                        un accès à ton espace fiscal pour suivre tes revenus
+                      </li>
+                    </ul>
                   )}
 
-                  <div>
-                    Étape{" "}
-                    <strong>
-                      {Math.min(stepIndex + 1, FISCAL_STEPS.length)}
-                    </strong>{" "}
-                    / {FISCAL_STEPS.length}
-                  </div>
+                  {isExistingProfileEditMode && (
+                    <div className="assistantSummaryBox assistantEditSummary">
+                      <h3>Profil actuel</h3>
+                      <ul className="assistantSummaryList">
+                        <li>
+                          <strong>Activité :</strong>{" "}
+                          {labelFromOptions(
+                            "activity_type",
+                            answers.activity_type || dashboardAnswers.activity_type,
+                          ) || "—"}
+                        </li>
+                        <li>
+                          <strong>Déclaration :</strong>{" "}
+                          {labelFromOptions(
+                            "declaration_frequency",
+                            answers.declaration_frequency || dashboardAnswers.declaration_frequency,
+                          ) || "—"}
+                        </li>
+                        <li>
+                          <strong>ACRE :</strong>{" "}
+                          {labelFromOptions(
+                            "acre",
+                            answers.acre || dashboardAnswers.acre,
+                          ) || "—"}
+                        </li>
+                      </ul>
+                    </div>
+                  )}
                 </div>
+
+                {!showAssistantCompletionBanner && !isExistingProfileEditMode && (
+                  <div className="progress">
+                    <div className="progressBar">
+                      <div
+                        className="progressFill"
+                        style={{
+                          width: `${((stepIndex + 1) / FISCAL_STEPS.length) * 100}%`,
+                        }}
+                      />
+                    </div>
+
+                    {(hasDraft || lastSavedAt) && (
+                      <div className="savedHint">
+                        💾{" "}
+                        {lastSavedAt
+                          ? `Sauvegardé à ${new Date(
+                              lastSavedAt,
+                            ).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}`
+                          : "Sauvegarde trouvée"}
+                        {restoredAt && " — restauré ✅"}
+                        <div className="savedActions">
+                          <button
+                            className="btn btnGhost"
+                            onClick={handleNewSession}
+                            type="button"
+                          >
+                            Recommencer
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      Étape{" "}
+                      <strong>
+                        {Math.min(stepIndex + 1, FISCAL_STEPS.length)}
+                      </strong>{" "}
+                      / {FISCAL_STEPS.length}
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {assistantCollapsed ? (
+              {showAssistantCompletionBanner ? (
+                <div className="assistantCompletionBanner">
+                  <div className="assistantCompletionTitle">
+                    Profil fiscal prêt ✅
+                  </div>
+                  <p className="muted" style={{ marginTop: 8, marginBottom: 0 }}>
+                    Ton profil est enregistré. Mon espace fiscal est maintenant le bon endroit pour suivre tes revenus, tes factures et tes repères.
+                  </p>
+                  <div className="miniActions" style={{ marginTop: 16 }}>
+                    <button
+                      className="btn btnPrimary"
+                      type="button"
+                      onClick={goToDashboard}
+                    >
+                      Accéder à mon espace fiscal
+                    </button>
+                    <button
+                      className="btn btnGhost"
+                      type="button"
+                      onClick={handleEditProfile}
+                    >
+                      Modifier mon profil
+                    </button>
+                  </div>
+                </div>
+              ) : assistantCollapsed ? (
                 <div className="assistantCollapsedBox">
                   <p className="muted">Ton repère est prêt.</p>
 
@@ -3134,7 +4374,7 @@ const handlePremiumWaitlistCTA = useCallback(() => {
                         </div>
                       )}
 
-                      {computed?.acreHint && (
+                      {!isExistingProfileEditMode && computed?.acreHint && (
                         <div className="tvaWarning">{computed.acreHint}</div>
                       )}
 
@@ -3149,47 +4389,54 @@ const handlePremiumWaitlistCTA = useCallback(() => {
                         >
                           <li>
                             <strong>💰 À mettre de côté :</strong>{" "}
-                            {computed?.estimatedAmount?.toLocaleString(
-                              "fr-FR",
-                            ) ?? "—"}{" "}
-                            €
+                            {isFiscalProfileComplete
+                              ? `${computed?.estimatedAmount?.toLocaleString("fr-FR") ?? "—"} €`
+                              : "Profil à compléter"}
                           </li>
                           <li>
                             <strong>📅 Prochaine déclaration :</strong>{" "}
-                            {computed?.deadlineLabel || "—"}
+                            {isFiscalProfileComplete
+                              ? computed?.deadlineLabel || "—"
+                              : "Complète ton profil fiscal"}
                           </li>
                           <li>
                             <strong>⚠️ TVA :</strong>{" "}
-                            {computed?.tvaStatus === "exceeded"
-                              ? "seuil dépassé"
-                              : computed?.tvaStatus === "soon"
-                                ? "vigilance"
-                                : "aucun risque immédiat"}
+                            {!isFiscalProfileComplete
+                              ? "à confirmer"
+                              : computed?.tvaStatus === "exceeded"
+                                ? "seuil dépassé"
+                                : computed?.tvaStatus === "soon"
+                                  ? "vigilance"
+                                  : "aucun risque immédiat"}
                           </li>
                          <li>
   <strong>🧾 ACRE :</strong>{" "}
-  {computed?.acreStatus === "active"
-    ? "taux réduit actif"
-    : computed?.acreStatus === "expired"
-    ? "terminée"
-    : "non renseignée"}
+  {!isFiscalProfileComplete
+    ? "à confirmer"
+    : computed?.acreStatus === "active"
+      ? "taux réduit actif"
+      : computed?.acreStatus === "expired"
+        ? "terminée"
+        : "non renseignée"}
 </li>
-<div style={{ marginTop: 12 }}>
-  <a
-    href="https://autoentrepreneur.urssaf.fr"
-    target="_blank"
-    rel="noopener noreferrer"
-    className="btn btnGhost btnSmall"
-  >
-    📅 Déclarer mon CA sur URSSAF →
-  </a>
-</div>
+{!isExistingProfileEditMode && (
+  <div style={{ marginTop: 12 }}>
+    <a
+      href="https://autoentrepreneur.urssaf.fr"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="btn btnGhost btnSmall"
+    >
+      📅 Déclarer mon CA sur URSSAF →
+    </a>
+  </div>
+)}
                         </ul>
 
                         
                         {/* Dans assistant, après la ligne TVA */}
 
-                        {computed?.cfeAlert?.show && (
+                        {!isExistingProfileEditMode && computed?.cfeAlert?.show && (
                           <div style={{ marginTop: 8 }}>
                             <span>🏛️ CFE :</span>
                             <strong>
@@ -3209,12 +4456,9 @@ const handlePremiumWaitlistCTA = useCallback(() => {
                             Ce que tu dois faire maintenant
                           </div>
                           <div className="mainActionText">
-                            Mets de côté environ{" "}
-                            {computed?.estimatedAmount?.toLocaleString(
-                              "fr-FR",
-                            ) ?? "—"}{" "}
-                            € et pense à vérifier ta situation avant ta
-                            prochaine déclaration.
+                            {isFiscalProfileComplete
+                              ? `Mets de côté environ ${computed?.estimatedAmount?.toLocaleString("fr-FR") ?? "—"} € et pense à vérifier ta situation avant ta prochaine déclaration.`
+                              : "Complète ton profil fiscal pour débloquer des repères fiables sur tes charges, ta TVA et tes échéances."}
                           </div>
                         </div>
 
@@ -3235,81 +4479,54 @@ const handlePremiumWaitlistCTA = useCallback(() => {
                           >
                             Accéder à mon espace fiscal
                           </button>
-<button
-  className="btn btnGhost"
-  type="button"
-  onClick={() => {
-    if (!user) {
-      handleOpenSaveModal("save_followup_button");
-    } else {
-      setSaveNotice(
-        "Ton profil fiscal, tes revenus et ton historique sont déjà liés à ton espace personnel sécurisé."
-      );
-      setTimeout(() => setSaveNotice(null), 3500);
-    }
-  }}
->
-  Sauvegarder mon suivi
-</button>
+{user && !isExistingProfileEditMode ? (
+  <div
+    style={{
+      display: "inline-flex",
+      alignItems: "center",
+      padding: "10px 14px",
+      borderRadius: 999,
+      background: "#ecfdf5",
+      border: "1px solid #a7f3d0",
+      color: "#166534",
+      fontSize: 13,
+      fontWeight: 700,
+    }}
+  >
+    ✅ Ton suivi est déjà sauvegardé
+  </div>
+) : null}
 
-                          <button
+                          {!isExistingProfileEditMode && (
+                            <button
                             className="btn btnGhost"
                             type="button"
                             onClick={handleDownloadTxt}
                           >
                             Télécharger mon résumé
-                          </button>
+                            </button>
+                          )}
                         </div>
                       </div>
 
-                      {saveNotice && (
-  <div
-    style={{
-      marginTop: 12,
-      padding: "10px 12px",
-      borderRadius: 10,
-      background: "#f0fdf4",
-      border: "1px solid #bbf7d0",
-      color: "#166534",
-      fontSize: 14,
-    }}
-  >
-    {typeof saveNotice === "string" ? (
-      <div style={{ fontWeight: 500 }}>{saveNotice}</div>
-    ) : (
-      <div style={{ display: "grid", gap: 8 }}>
-        <div style={{ fontWeight: 700 }}>{saveNotice.title}</div>
-        <div>{saveNotice.body}</div>
-        {saveNotice.cta === "auth" && (
-          <div>
-            <button
-              className="btn btnGhost btnSmall"
-              type="button"
-              onClick={() => setAuthOpen(true)}
-            >
-              Créer mon compte
-            </button>
-          </div>
-        )}
-      </div>
-    )}
-  </div>
-)}
-
-                      <div className="disclaimer">
+                      {!isExistingProfileEditMode && (
+                        <div className="disclaimer">
                         ⚠️ Indication simplifiée. Ne remplace pas un
                         expert-comptable.
-                      </div>
+                        </div>
+                      )}
 
-                      <div className="miniActions">
-                        <button
-                          className="btn btnGhost"
-                          type="button"
-                          onClick={handleReset}
-                        >
-                          Recommencer
-                        </button>
-                      </div>
+                      {!isExistingProfileEditMode && (
+                        <div className="miniActions">
+                          <button
+                            className="btn btnGhost"
+                            type="button"
+                            onClick={handleReset}
+                          >
+                            Recommencer
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <>
@@ -3317,24 +4534,73 @@ const handlePremiumWaitlistCTA = useCallback(() => {
                         <input
                           ref={inputRef}
                           value={input}
-                          onChange={(e) => setInput(e.target.value)}
+                          onChange={(e) => {
+                            const nextValue = e.target.value;
+                            const key = step?.key;
+                            const normalizedValue =
+                              key === "business_start_date" ||
+                              key === "acre_start_date"
+                                ? normalizeDateValue(nextValue)
+                                : nextValue;
+
+                            setInput(nextValue);
+
+                            const validationMessage =
+                              getCurrentStepValidationMessage(key, {
+                                ...answers,
+                                [key]: normalizedValue,
+                              });
+
+                            setAssistantFieldError(validationMessage);
+                          }}
                           onKeyDown={handleKeyDown}
                           placeholder={step?.placeholder || "Écris ici…"}
                           aria-label="Message"
                           disabled={isTyping}
+                          type={
+                            step?.key === "business_start_date" ||
+                            step?.key === "acre_start_date"
+                              ? "date"
+                              : "text"
+                          }
+                          max={
+                            step?.key === "business_start_date" ||
+                            step?.key === "acre_start_date"
+                              ? getTodayIsoDate()
+                              : undefined
+                          }
                         />
                         <button
                           className="btn"
                           onClick={handleSend}
-                          disabled={!canSend || isTyping}
+                          disabled={!canSubmitCurrentStep || isTyping}
                           type="button"
                         >
                           Envoyer
                         </button>
                       </div>
 
+                      {assistantFieldError && (
+                        <div
+                          role="alert"
+                          style={{
+                            marginTop: 8,
+                            padding: "10px 12px",
+                            borderRadius: 10,
+                            background: "#fff1f2",
+                            border: "1px solid #fecdd3",
+                            color: "#be123c",
+                            fontSize: 13,
+                          }}
+                        >
+                          {assistantFieldError}
+                        </div>
+                      )}
+
                       <div className="autoSaveHint" aria-live="polite">
-                        💾 Sauvegarde locale dans ton navigateur.
+                        {user
+                          ? "✅ Ton espace est lié à ton compte."
+                          : "💾 Tes données restent locales tant que tu n’as pas créé ton compte."}
                       </div>
                     </>
                   )}
@@ -3450,30 +4716,6 @@ const handlePremiumWaitlistCTA = useCallback(() => {
                 </div>
               </div>
 
-              {saveNotice && (
-                <div className="saveNotice">
-                  {typeof saveNotice === "string" ? (
-                    <>✅ {saveNotice}</>
-                  ) : (
-                    <div style={{ display: "grid", gap: 8 }}>
-                      <div style={{ fontWeight: 700 }}>{saveNotice.title}</div>
-                      <div>{saveNotice.body}</div>
-                      {saveNotice.cta === "auth" && (
-                        <div>
-                          <button
-                            className="btn btnGhost btnSmall"
-                            type="button"
-                            onClick={() => setAuthOpen(true)}
-                          >
-                            Créer mon compte
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
               <div className="monthActionCard">
                 <div className="monthActionHeader">
                   <h3>Ce mois-ci</h3>
@@ -3482,11 +4724,55 @@ const handlePremiumWaitlistCTA = useCallback(() => {
                   </p>
                 </div>
 
+                {!user && shouldShowGuestLocalMessage && (
+                  <div
+                    style={{
+                      marginBottom: 16,
+                      padding: "12px 14px",
+                      borderRadius: 12,
+                      background: "#fff7ed",
+                      border: "1px solid #fdba74",
+                      color: "#9a3412",
+                      fontSize: 14,
+                    }}
+                  >
+                    Tes données restent locales tant que tu n’as pas créé ton compte.
+                  </div>
+                )}
+
+                {user && !isFiscalProfileComplete && (
+                  <div
+                    style={{
+                      marginBottom: 16,
+                      padding: 16,
+                      borderRadius: 14,
+                      background: "#fffaf1",
+                      border: "1px solid #fcd34d",
+                    }}
+                  >
+                    <div style={{ fontWeight: 800, color: "#92400e" }}>
+                      Profil à compléter
+                    </div>
+                    <p style={{ marginTop: 8, marginBottom: 12, color: "#92400e" }}>
+                      Complète ton profil fiscal pour obtenir des estimations fiables.
+                    </p>
+                    <button
+                      className="btn btnPrimary"
+                      type="button"
+                      onClick={handleEditProfile}
+                    >
+                      Créer mon profil fiscal
+                    </button>
+                  </div>
+                )}
+
                 <div className="monthActionGrid">
                   <div className="monthActionItem">
                     <span>💰 À mettre de côté</span>
                     <strong>
-                      {estimatedCharges.toLocaleString("fr-FR")} €
+                      {isFiscalProfileComplete
+                        ? `${estimatedCharges.toLocaleString("fr-FR")} €`
+                        : "Profil à compléter"}
                     </strong>
                   </div>
 
@@ -3504,7 +4790,9 @@ const handlePremiumWaitlistCTA = useCallback(() => {
                   <div className="monthActionItem">
                     <span>⚠️ TVA</span>
                     <strong>
-                      {computed?.tvaStatus === "exceeded"
+                      {!isFiscalProfileComplete
+                        ? "à confirmer"
+                        : computed?.tvaStatus === "exceeded"
                         ? "seuil dépassé"
                         : computed?.tvaStatus === "soon"
                           ? "vigilance"
@@ -3578,6 +4866,49 @@ const handlePremiumWaitlistCTA = useCallback(() => {
                 </div>
               </div>
 
+              {guestConversionEligible && (
+                <div
+                  style={{
+                    marginBottom: 18,
+                    padding: 18,
+                    borderRadius: 16,
+                    background: "linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%)",
+                    border: "1px solid #bfdbfe",
+                    boxShadow: "0 12px 30px rgba(59, 130, 246, 0.08)",
+                  }}
+                >
+                  <div style={{ fontSize: 18, fontWeight: 800, color: "#0f172a" }}>
+                    🔒 Sauvegarde ton espace fiscal
+                  </div>
+                  <p
+                    style={{
+                      marginTop: 8,
+                      marginBottom: 14,
+                      color: "#334155",
+                      lineHeight: 1.6,
+                    }}
+                  >
+                    Pour conserver ton profil, tes revenus et tes calculs.
+                  </p>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 12,
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                    }}
+                  >
+                    <button
+                      className="btn btnPrimary"
+                      type="button"
+                      onClick={() => openAuthModal("signup")}
+                    >
+                      Créer mon compte gratuitement
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Анонс Premium */}
 {effectivePlan === "beta_founder" && isTrialActive ? (
   <div className="premiumBanner">
@@ -3641,6 +4972,22 @@ const handlePremiumWaitlistCTA = useCallback(() => {
                 </div>
               )}
 
+              {!isFiscalProfileComplete && (
+                <div
+                  style={{
+                    marginBottom: 18,
+                    padding: 16,
+                    borderRadius: 14,
+                    background: "#f8fafc",
+                    border: "1px solid #cbd5e1",
+                    color: "#334155",
+                  }}
+                >
+                  Les revenus et l’historique restent visibles, mais les conclusions fiscales
+                  finales restent limitées tant que le profil n’est pas complété.
+                </div>
+              )}
+
               {/* Cartes principales */}
               <div className="fiscalDashboard">
                 <div className="fiscalCard">
@@ -3656,20 +5003,28 @@ const handlePremiumWaitlistCTA = useCallback(() => {
                 <div className="fiscalCard">
                   <div className="fiscalLabel">Charges</div>
                   <div className="fiscalValue">
-                    {estimatedCharges.toLocaleString("fr-FR")} €
+                    {isFiscalProfileComplete
+                      ? `${estimatedCharges.toLocaleString("fr-FR")} €`
+                      : "Profil à compléter"}
                   </div>
                   <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                    Estimation selon ton activité
+                    {isFiscalProfileComplete
+                      ? "Estimation selon ton activité"
+                      : "Complète le profil pour afficher une estimation fiable"}
                   </div>
                 </div>
 
                 <div className="fiscalCard">
                   <div className="fiscalLabel">Disponible</div>
                   <div className="fiscalValue">
-                    {availableAmount.toLocaleString("fr-FR")} €
+                    {isFiscalProfileComplete
+                      ? `${availableAmount.toLocaleString("fr-FR")} €`
+                      : "En attente"}
                   </div>
                   <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                    Après estimation des charges
+                    {isFiscalProfileComplete
+                      ? "Après estimation des charges"
+                      : "Le disponible fiable apparaîtra après complétion du profil"}
                   </div>
                 </div>
               </div>
@@ -3825,7 +5180,7 @@ const handlePremiumWaitlistCTA = useCallback(() => {
 </section>
 
               {/* Analyse financière */}
-              {computed.monthlyExpenses !== undefined && (
+              {isFiscalProfileComplete && computed.monthlyExpenses !== undefined && (
                 <div className="financialAnalysis" style={{ marginTop: 24 }}>
                   <h3>📊 Analyse financière</h3>
                   <div className="fiscalDashboard" style={{ marginTop: 12 }}>
@@ -3880,7 +5235,7 @@ const handlePremiumWaitlistCTA = useCallback(() => {
               )}
 
               {/* Добавьте после fiscalDashboard */}
-              {currentMonthTotal > 0 && (
+              {isFiscalProfileComplete && currentMonthTotal > 0 && (
                 <div
                   className="progressIndicators"
                   style={{ marginTop: 20, display: "grid", gap: 12 }}
@@ -3927,7 +5282,7 @@ const handlePremiumWaitlistCTA = useCallback(() => {
               )}
 
               {/* ACRE Expiration Warning */}
-{acreExpiration && !acreExpiration.expired && computed?.acreStatus !== "expired" && (
+              {isFiscalProfileComplete && acreExpiration && !acreExpiration.expired && computed?.acreStatus !== "expired" && (
   <div className="acreExpirationWarning"
                   style={{
                     marginTop: 16,
@@ -3970,7 +5325,7 @@ const handlePremiumWaitlistCTA = useCallback(() => {
               {/* Main action */}
 
               {/* Santé financière */}
-              {computed.financialHealth && computed.financialHealthMessage && (
+              {isFiscalProfileComplete && computed.financialHealth && computed.financialHealthMessage && (
                 <div
                   className={`financialHealthBox health-${computed.financialHealth}`}
                   style={{
@@ -4390,7 +5745,7 @@ const handlePremiumWaitlistCTA = useCallback(() => {
                             <button
                               className="btn btnGhost btnSmall"
                               type="button"
-                              onClick={() => setAuthOpen(true)}
+                              onClick={() => openAuthModal("signup")}
                             >
                               Créer mon compte pour garder cette facture
                             </button>
@@ -4501,7 +5856,7 @@ const handlePremiumWaitlistCTA = useCallback(() => {
                 <div className="securityItem">
                   <strong>🔐 Accès sécurisé</strong>
                   <p className="muted">
-                    Connexion par lien magique envoyé par email.
+                    Connexion sécurisée par email et mot de passe.
                   </p>
                 </div>
 
@@ -4888,22 +6243,116 @@ const handlePremiumWaitlistCTA = useCallback(() => {
         {/* Modal d'authentification */}
         {authOpen && (
           <AuthGate
+            initialMode={authInitialMode}
+            isAuthenticated={Boolean(user)}
             onClose={() => setAuthOpen(false)}
-            onSuccess={async () => {
-              track("signup_success", { source: "auth_gate" });
+            onLogout={handleLogout}
+            onGoToDashboard={() => {
               setAuthOpen(false);
-              // Attendre que l'utilisateur soit chargé
-              setTimeout(async () => {
-                await migrateLocalDataToSupabase();
-                await refreshRevenues();
-                await refreshFiscalProfile();
-                setSaveNotice(
-                  "Connexion réussie ✅ Ton profil fiscal, tes revenus et ton historique sont maintenant enregistrés dans ton espace personnel sécurisé.",
-                );
-                setTimeout(() => setSaveNotice(null), 3000);
-              }, 500);
+              goToDashboard({ scroll: false });
+            }}
+            onSuccess={() => {
+              localStorage.setItem(PENDING_AUTH_SUCCESS_KEY, "manual_auth");
+              setAuthOpen(false);
             }}
           />
+        )}
+
+        {showResetModal && (
+          <div className="modalOverlay" onClick={() => !resetInProgress && setShowResetModal(false)}>
+            <div
+              className="modalCard"
+              style={{ maxWidth: "560px" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="sectionHead">
+                <h3>Réinitialiser ton espace</h3>
+                <button
+                  className="iconBtn"
+                  type="button"
+                  onClick={() => setShowResetModal(false)}
+                  disabled={resetInProgress}
+                >
+                  ✕
+                </button>
+              </div>
+
+              <p style={{ marginTop: 16, lineHeight: 1.6 }}>
+                Choisis le niveau de réinitialisation. L’objectif est d’éviter tout
+                mélange entre ancien profil et nouveaux calculs.
+              </p>
+
+              <div style={{ display: "grid", gap: 14, marginTop: 18 }}>
+                <div
+                  style={{
+                    border: "1px solid #dbeafe",
+                    background: "#f8fbff",
+                    borderRadius: 16,
+                    padding: 16,
+                  }}
+                >
+                  <div style={{ fontWeight: 800, color: "#0f172a" }}>
+                    Recommencer le profil fiscal
+                  </div>
+                  <p style={{ marginTop: 8, marginBottom: 12, color: "#334155", lineHeight: 1.6 }}>
+                    Réinitialise seulement le profil fiscal et les étapes de l’assistant.
+                    Tes revenus, factures et rappels restent disponibles.
+                  </p>
+                  <button
+                    className="btn btnGhost"
+                    type="button"
+                    onClick={handleProfileOnlyReset}
+                    disabled={resetInProgress}
+                  >
+                    Réinitialiser le profil
+                  </button>
+                </div>
+
+                <div
+                  style={{
+                    border: "1px solid #fecaca",
+                    background: "#fff7f7",
+                    borderRadius: 16,
+                    padding: 16,
+                  }}
+                >
+                  <div style={{ fontWeight: 800, color: "#7f1d1d" }}>
+                    Réinitialiser tout mon espace
+                  </div>
+                  <p style={{ marginTop: 8, marginBottom: 12, color: "#7f1d1d", lineHeight: 1.6 }}>
+                    Supprime le profil, les revenus, les factures, les rappels et remet
+                    l’interface à zéro pour repartir sans aucune donnée résiduelle.
+                  </p>
+                  <button
+                    className="btn btnPrimary"
+                    type="button"
+                    onClick={handleFullReset}
+                    disabled={resetInProgress}
+                    style={{ background: "#b91c1c", borderColor: "#b91c1c" }}
+                  >
+                    {resetInProgress ? "Réinitialisation..." : "Tout réinitialiser"}
+                  </button>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  marginTop: 16,
+                  padding: 12,
+                  borderRadius: 12,
+                  background: "#f8fafc",
+                  color: "#475569",
+                  fontSize: 13,
+                  lineHeight: 1.6,
+                }}
+              >
+                Clés locales concernées par la réinitialisation complète :
+                <code style={{ marginLeft: 6 }}>
+                  {FULL_RESET_LOCAL_STORAGE_KEYS.join(", ")}
+                </code>
+              </div>
+            </div>
+          </div>
         )}
 
  
@@ -4953,7 +6402,7 @@ const handlePremiumWaitlistCTA = useCallback(() => {
   <p style={{ fontSize: 14, lineHeight: 1.6, marginTop: 0, marginBottom: 0 }}>
   La version Premium est en cours de finalisation.
   <br />
-  Laisse ton email pour être informé(e) dès l’ouverture.
+  Laisse simplement ton email pour recevoir l’accès en avant-première.
 </p>
 
   <div
@@ -4969,8 +6418,45 @@ const handlePremiumWaitlistCTA = useCallback(() => {
   Ouverture prochaine
   </div>
   <p style={{ fontSize: 14, lineHeight: 1.6, margin: 0 }}>
-    Tu peux déjà laisser ton email pour recevoir l’accès en avant-première.
+    Aucun compte n’est nécessaire pour rejoindre la liste Premium.
   </p>
+  </div>
+
+  <div style={{ display: "grid", gap: 8, marginBottom: 20 }}>
+    <label
+      htmlFor="premium-waitlist-email"
+      style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}
+    >
+      Ton email
+    </label>
+    <input
+      id="premium-waitlist-email"
+      type="email"
+      value={premiumWaitlistEmail}
+      onChange={(e) => {
+        setPremiumWaitlistEmail(e.target.value);
+        if (premiumWaitlistError) {
+          setPremiumWaitlistError("");
+        }
+      }}
+      placeholder="prenom@email.com"
+      autoComplete="email"
+      disabled={isJoiningPremiumWaitlist}
+      style={{
+        width: "100%",
+        padding: "12px 14px",
+        borderRadius: 12,
+        border: premiumWaitlistError
+          ? "1px solid #fca5a5"
+          : "1px solid #d1d5db",
+        fontSize: 14,
+      }}
+    />
+    {premiumWaitlistError && (
+      <div style={{ fontSize: 12, color: "#b91c1c" }}>
+        {premiumWaitlistError}
+      </div>
+    )}
   </div>
 
   <div
@@ -5009,13 +6495,16 @@ const handlePremiumWaitlistCTA = useCallback(() => {
       flexWrap: "wrap",
     }}
   >
-    <button
+<button
   className="btn btnPrimary"
   type="button"
-  onClick={handlePremiumWaitlistCTA}
+  onClick={() => handlePremiumWaitlistCTA(premiumModalSource)}
+  disabled={isJoiningPremiumWaitlist}
   style={{ flex: 1 }}
 >
-  Recevoir l’accès en avant-première
+  {isJoiningPremiumWaitlist
+    ? "Inscription en cours..."
+    : "Recevoir l’accès en avant-première"}
 </button>
 
     <button
@@ -5185,7 +6674,7 @@ const handlePremiumWaitlistCTA = useCallback(() => {
             } else if (invoice) {
               setGuestInvoices((prev) => {
                 const next = [invoice, ...prev];
-                localStorage.setItem("guest_invoices", JSON.stringify(next));
+                localStorage.setItem(GUEST_INVOICES_KEY, JSON.stringify(next));
                 return next;
               });
               setInvoiceNotice({
@@ -5334,36 +6823,7 @@ const handlePremiumWaitlistCTA = useCallback(() => {
           <button
             className="btn btnPrimary"
             type="button"
-            onClick={async () => {
-  track("reminder_preferences_saved", reminderPrefs);
-  const normalizedReminderPrefs = {
-    ...reminderPrefs,
-    sms: hasSmsPremiumAccess ? reminderPrefs.sms : false,
-  };
-
-  // SMS = premium après période beta
-  if (!guardPremiumAccess("sms_premium", "sms_premium")) {
-    return;
-  }
-
-  // localStorage backup
-  localStorage.setItem(
-    "microassist_reminder_prefs",
-    JSON.stringify(normalizedReminderPrefs),
-  );
-
-  // sauvegarde Supabase si connecté
-  const saved = await saveReminderPrefsToSupabase();
-
-  if (saved || !user) {
-    setShowReminderModal(false);
-    setSaveNotice("Préférences de rappels enregistrées ✅");
-    setTimeout(() => setSaveNotice(null), 3000);
-  } else {
-    setSaveNotice("Impossible d’enregistrer les préférences.");
-    setTimeout(() => setSaveNotice(null), 3000);
-  }
-}}
+            onClick={saveReminderPreferences}
             style={{ flex: 1 }}
           >
             Enregistrer mes préférences

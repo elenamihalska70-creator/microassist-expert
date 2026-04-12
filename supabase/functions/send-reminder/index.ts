@@ -19,13 +19,20 @@ interface FiscalProfile {
   declaration_frequency: string;
 }
 
-serve(async (req) => {
+serve(async (req: Request) => {
+  console.log("🚀 Fonction send-reminder démarrée");
+  console.log("📅 Timestamp:", new Date().toISOString());
+  
   const authHeader = req.headers.get("Authorization");
+  console.log("🔑 Auth header present:", !!authHeader);
+  
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    console.error("❌ Unauthorized - missing or invalid token");
     return new Response("Unauthorized", { status: 401 });
   }
 
   try {
+    console.log("🔄 Création du client Supabase...");
     const supabaseClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
@@ -36,42 +43,49 @@ serve(async (req) => {
         },
       }
     );
+    console.log("✅ Client Supabase initialisé");
 
     const resend = new Resend(RESEND_API_KEY);
+    console.log("✅ Client Resend initialisé");
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-
     const dayAfterTomorrow = new Date(today);
     dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
+
+    const dateString = today.toISOString().split("T")[0];
+    console.log(`📅 Date cible: ${dateString}`);
 
     const { data: reminders, error: remindersError } = await supabaseClient
       .from("reminders")
       .select("*")
       .eq("status", "pending")
       .lte("reminder_date", dayAfterTomorrow.toISOString().split("T")[0])
-      .gte("reminder_date", today.toISOString().split("T")[0]);
+      .gte("reminder_date", dateString);
 
     if (remindersError) {
-      console.error("Error fetching reminders:", remindersError);
+      console.error("❌ Error fetching reminders:", remindersError);
       return new Response(JSON.stringify({ error: remindersError.message }), { status: 500 });
     }
 
+    console.log(`📊 ${reminders?.length || 0} reminders trouvés`);
+
     if (!reminders || reminders.length === 0) {
-      console.log("No reminders to send");
+      console.log("ℹ️ Aucun rappel à envoyer");
       return new Response(JSON.stringify({ message: "No reminders to send" }), { status: 200 });
     }
 
-    console.log(`Found ${reminders.length} reminders to process`);
-
+    console.log(`📋 ${reminders.length} rappels à traiter`);
     const results = [];
 
     for (const reminder of reminders) {
-      // Получаем email пользователя
+      console.log(`🔄 Traitement du reminder ${reminder.id}, type: ${reminder.reminder_type}`);
+      
       const { data: userData } = await supabaseClient.auth.admin.getUserById(reminder.user_id);
+      console.log(`👤 Utilisateur trouvé: ${userData?.user?.email ? "oui" : "non"}`);
+      
       const user = { id: reminder.user_id, email: userData?.user?.email || "" } as User;
 
-      // Получаем fiscal profile
       const { data: fiscalProfileData } = await supabaseClient
         .from("fiscal_profiles")
         .select("activity_type, declaration_frequency")
@@ -80,8 +94,9 @@ serve(async (req) => {
       const fiscalProfile = fiscalProfileData as FiscalProfile | null;
 
       if (!user?.email) {
-        console.error(`No email for user ${reminder.user_id}`);
+        console.error(`❌ No email for user ${reminder.user_id}`);
         results.push({ id: reminder.id, status: "failed", reason: "No email" });
+        await supabaseClient.from("reminders").update({ status: "failed" }).eq("id", reminder.id);
         continue;
       }
 
@@ -101,105 +116,59 @@ serve(async (req) => {
         const period = fiscalProfile?.declaration_frequency === "mensuel" ? "mensuelle" : "trimestrielle";
         subject = `🔔 Rappel : Votre déclaration ${period} est prévue ${daysText}`;
         htmlContent = `
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <meta charset="UTF-8">
-            <style>
-              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
-              .header { background: #7c3aed; color: white; padding: 20px; text-align: center; border-radius: 10px 10px 0 0; }
-              .content { background: #f9fafb; padding: 20px; border-radius: 0 0 10px 10px; border: 1px solid #e5e7eb; }
-              .button { display: inline-block; background: #7c3aed; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; margin-top: 16px; }
-              .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #6b7280; }
-              .highlight { background: #fef3c7; padding: 12px; border-radius: 8px; margin: 16px 0; }
-            </style>
-          </head>
-          <body>
-            <div class="header"><h1>📋 Microassist</h1></div>
-            <div class="content">
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <div style="background: #7c3aed; color: white; padding: 20px; text-align: center;">
+              <h1>📋 Microassist</h1>
+            </div>
+            <div style="padding: 20px; border: 1px solid #e5e7eb;">
               <h2>Bonjour 👋</h2>
               <p>Votre <strong>déclaration ${period}</strong> est prévue <strong>${daysText}</strong>.</p>
-              <div class="highlight">
+              <div style="background: #fef3c7; padding: 12px; border-radius: 8px; margin: 16px 0;">
                 <strong>📊 Points à vérifier :</strong>
                 <ul>
-                  <li>Ton chiffre d'affaires est-il à jour dans ton espace ?</li>
-                  <li>As-tu pensé à mettre de côté les charges estimées ?</li>
-                  <li>Connecte-toi à autoentrepreneur.urssaf.fr pour déclarer.</li>
+                  <li>Ton chiffre d'affaires est-il à jour ?</li>
+                  <li>As-tu pensé à mettre de côté les charges ?</li>
                 </ul>
               </div>
-              <a href="${APP_URL}" class="button">Accéder à mon espace fiscal →</a>
-              <p style="font-size: 14px; color: #6b7280; margin-top: 16px;">💡 Conseil : Prévois 10 minutes pour faire ta déclaration sans stress.</p>
+              <a href="${APP_URL}" style="background: #7c3aed; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px;">Accéder à mon espace →</a>
             </div>
-            <div class="footer">
-              <p>Microassist - Assistant fiscal pour micro-entrepreneurs</p>
-              <p>Cet email est automatique, merci de ne pas y répondre.</p>
-            </div>
-          </body>
-          </html>
+          </div>
         `;
       } else if (reminder.reminder_type === "tva") {
         const tvaThreshold = fiscalProfile?.activity_type === "vente" ? 91900 : 36800;
         subject = `⚠️ Alerte TVA : Seuil bientôt atteint ${daysText}`;
         htmlContent = `
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <meta charset="UTF-8">
-            <style>
-              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
-              .header { background: #ef4444; color: white; padding: 20px; text-align: center; border-radius: 10px 10px 0 0; }
-              .content { background: #f9fafb; padding: 20px; border-radius: 0 0 10px 10px; border: 1px solid #e5e7eb; }
-              .button { display: inline-block; background: #ef4444; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; margin-top: 16px; }
-              .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #6b7280; }
-              .warning { background: #fee2e2; padding: 12px; border-radius: 8px; margin: 16px 0; border-left: 4px solid #ef4444; }
-            </style>
-          </head>
-          <body>
-            <div class="header"><h1>⚠️ Microassist</h1></div>
-            <div class="content">
-              <h2>Bonjour 👋</h2>
-              <div class="warning">
-                <strong>🚨 Attention seuil TVA !</strong>
-                <p>Ton chiffre d'affaires approche du seuil de ${tvaThreshold.toLocaleString("fr-FR")} €.</p>
-              </div>
-              <ul>
-                <li>La TVA devient obligatoire dès le dépassement du seuil</li>
-                <li>Tu devras facturer la TVA sur tes prochaines factures</li>
-                <li>Anticipe les démarches pour ne pas être surpris</li>
-              </ul>
-              <a href="${APP_URL}" class="button">Voir mon tableau de bord →</a>
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <div style="background: #ef4444; color: white; padding: 20px; text-align: center;">
+              <h1>⚠️ Microassist</h1>
             </div>
-            <div class="footer"><p>Microassist - Assistant fiscal pour micro-entrepreneurs</p></div>
-          </body>
-          </html>
+            <div style="padding: 20px; border: 1px solid #e5e7eb;">
+              <h2>Bonjour 👋</h2>
+              <div style="background: #fee2e2; padding: 12px; border-radius: 8px; margin: 16px 0; border-left: 4px solid #ef4444;">
+                <strong>🚨 Attention seuil TVA !</strong>
+                <p>Ton CA approche du seuil de ${tvaThreshold.toLocaleString("fr-FR")} €.</p>
+              </div>
+              <a href="${APP_URL}" style="background: #ef4444; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px;">Voir mon tableau de bord →</a>
+            </div>
+          </div>
         `;
       } else {
         subject = `🔔 Rappel Microassist ${daysText}`;
         htmlContent = `
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <meta charset="UTF-8">
-            <style>
-              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
-              .header { background: #7c3aed; color: white; padding: 20px; text-align: center; border-radius: 10px 10px 0 0; }
-              .content { background: #f9fafb; padding: 20px; border-radius: 0 0 10px 10px; border: 1px solid #e5e7eb; }
-              .button { display: inline-block; background: #7c3aed; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; margin-top: 16px; }
-            </style>
-          </head>
-          <body>
-            <div class="header"><h1>📋 Microassist</h1></div>
-            <div class="content">
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <div style="background: #7c3aed; color: white; padding: 20px; text-align: center;">
+              <h1>📋 Microassist</h1>
+            </div>
+            <div style="padding: 20px; border: 1px solid #e5e7eb;">
               <h2>Bonjour 👋</h2>
               <p>Tu as un rappel prévu ${daysText}.</p>
-              <a href="${APP_URL}" class="button">Accéder à mon espace →</a>
+              <a href="${APP_URL}" style="background: #7c3aed; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px;">Accéder à mon espace →</a>
             </div>
-            <div class="footer"><p>Microassist - Assistant fiscal pour micro-entrepreneurs</p></div>
-          </body>
-          </html>
+          </div>
         `;
       }
 
+      console.log(`📧 Envoi d'email à ${user.email}`);
       try {
         const { data: emailData, error: emailError } = await resend.emails.send({
           from: FROM_EMAIL,
@@ -209,27 +178,28 @@ serve(async (req) => {
         });
 
         if (emailError) {
-          console.error(`Error sending email to ${user.email}:`, emailError);
+          console.error(`❌ Error sending email:`, emailError);
           results.push({ id: reminder.id, status: "failed", reason: emailError.message });
           await supabaseClient.from("reminders").update({ status: "failed" }).eq("id", reminder.id);
         } else {
-          console.log(`Email sent to ${user.email}, id: ${emailData?.id}`);
-          results.push({ id: reminder.id, status: "sent", email_id: emailData?.id });
+          console.log(`✅ Email envoyé à ${user.email}`);
+          results.push({ id: reminder.id, status: "sent" });
           await supabaseClient.from("reminders").update({ status: "sent" }).eq("id", reminder.id);
         }
       } catch (emailError) {
-        console.error(`Error sending email to ${user.email}:`, emailError);
+        console.error(`❌ Exception:`, emailError);
         results.push({ id: reminder.id, status: "failed", reason: String(emailError) });
         await supabaseClient.from("reminders").update({ status: "failed" }).eq("id", reminder.id);
       }
     }
 
+    console.log(`🏁 Fin. ${results.length} rappels traités`);
     return new Response(
       JSON.stringify({ success: true, results }),
       { headers: { "Content-Type": "application/json" } }
     );
   } catch (error) {
-    console.error("Unexpected error:", error);
+    console.error("❌ Unexpected error:", error);
     return new Response(
       JSON.stringify({ error: "Internal server error", details: String(error) }),
       { status: 500, headers: { "Content-Type": "application/json" } }
