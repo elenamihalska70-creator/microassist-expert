@@ -384,6 +384,9 @@ useEffect(() => {
   const [logoutPending, setLogoutPending] = useState(false);
   const [assistantFieldError, setAssistantFieldError] = useState("");
   const [assistantEditMode, setAssistantEditMode] = useState(false);
+  const [profileEditMode, setProfileEditMode] = useState("idle");
+  const [selectedProfileField, setSelectedProfileField] = useState(null);
+  const [profileEditDraft, setProfileEditDraft] = useState({});
   const [showResetModal, setShowResetModal] = useState(false);
   const [resetInProgress, setResetInProgress] = useState(false);
   
@@ -507,6 +510,9 @@ useEffect(() => {
       setInput("");
       setAssistantFieldError("");
       setAssistantEditMode(false);
+      setProfileEditMode("idle");
+      setSelectedProfileField(null);
+      setProfileEditDraft({});
       setAssistantCollapsed(false);
       setHelpOpen(false);
       setIsTyping(false);
@@ -1576,17 +1582,10 @@ useEffect(() => {
     const timeoutId = setTimeout(() => {
       saveFiscalProfileToSupabase(sanitizedAnswers);
 
-      if (assistantEditMode) {
-        showSaveNotice(
-          "Profil mis à jour. Les estimations ont été recalculées.",
-          3000,
-        );
-      }
     }, 2000);
 
     return () => clearTimeout(timeoutId);
   }, [
-    assistantEditMode,
     sanitizedAnswers?.entry_status,
     sanitizedAnswers?.activity_type,
     sanitizedAnswers?.declaration_frequency,
@@ -1875,11 +1874,17 @@ useEffect(() => {
     freqLabel,
   ]);
   const connectedAccountLabel = user?.email?.trim() || userName || "";
-  const hasLoadedFiscalProfile = Boolean(user && fiscalProfile);
-  const showAssistantCompletionBanner =
-    profileReady && !assistantEditMode && !hasLoadedFiscalProfile;
-  const isExistingProfileEditMode =
-    assistantEditMode && hasLoadedFiscalProfile;
+  const fiscalProfilePageMode = profileReady
+    ? assistantEditMode
+      ? "edit"
+      : "summary"
+    : "create";
+  const isFiscalProfileCreateMode = fiscalProfilePageMode === "create";
+  const isFiscalProfileSummaryMode = fiscalProfilePageMode === "summary";
+  const isFiscalProfileEditMode = fiscalProfilePageMode === "edit";
+  const showProfileTargetedStep =
+    isFiscalProfileEditMode && profileEditMode === "edit_step";
+  const showCreateWizard = isFiscalProfileCreateMode && !assistantCollapsed;
 
   const canSend = useMemo(() => input.trim().length > 0, [input]);
   const canSubmitCurrentStep = useMemo(
@@ -2487,6 +2492,9 @@ function handleOpenInvoiceGenerator() {
     setRestoredAt(null);
     setAssistantCollapsed(false);
     setAssistantEditMode(false);
+    setProfileEditMode("idle");
+    setSelectedProfileField(null);
+    setProfileEditDraft({});
 
     const [firstMessage, ...rest] = buildInitialAssistantMessages();
     setMessages([
@@ -2576,6 +2584,9 @@ function handleOpenInvoiceGenerator() {
     setSaveNotice(null);
     setUserName("");
     setAssistantEditMode(false);
+    setProfileEditMode("idle");
+    setSelectedProfileField(null);
+    setProfileEditDraft({});
   }, [authLoading, user?.id]);
 
   async function resetFiscalProfileData() {
@@ -3488,10 +3499,121 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
   premiumWaitlistEmail,
 ]);
 
+  const activityOptions =
+    FISCAL_STEPS.find((candidate) => candidate.key === "activity_type")?.options || [];
+  const acreOptions =
+    FISCAL_STEPS.find((candidate) => candidate.key === "acre")?.options || [];
+  const declarationOptions =
+    FISCAL_STEPS.find((candidate) => candidate.key === "declaration_frequency")?.options || [];
+
+  function updateProfileEditDraft(nextValues) {
+    setProfileEditDraft((prev) => ({
+      ...prev,
+      ...nextValues,
+    }));
+  }
+
+  function handleProfileEditChoice(field, value) {
+    if (field === "acre") {
+      updateProfileEditDraft({
+        acre: value,
+        acre_start_date: value === "yes" ? profileEditDraft.acre_start_date || "" : "",
+      });
+      return;
+    }
+
+    updateProfileEditDraft({ [field]: value });
+  }
+
+  function handleProfileEditDateChange(field, value) {
+    updateProfileEditDraft({
+      [field]: normalizeDateValue(value),
+    });
+  }
+
+  function handleProfileEditCancel() {
+    setProfileEditMode("pick_field");
+    setAssistantFieldError("");
+    setInput("");
+    setProfileEditDraft({});
+  }
+
+  function handleCloseProfileEdit() {
+    setAssistantEditMode(false);
+    setProfileEditMode("idle");
+    setSelectedProfileField(null);
+    setAssistantFieldError("");
+    setInput("");
+    setProfileEditDraft({});
+  }
+
+  function handleSaveProfileFieldEdit() {
+    const nextAnswers = sanitizeFiscalAnswers({
+      ...answers,
+      activity_type:
+        selectedProfileField === "activity_type"
+          ? profileEditDraft.activity_type
+          : answers.activity_type,
+      acre:
+        selectedProfileField === "acre"
+          ? profileEditDraft.acre
+          : answers.acre,
+      business_start_date:
+        selectedProfileField === "dates"
+          ? profileEditDraft.business_start_date
+          : answers.business_start_date,
+      acre_start_date:
+        selectedProfileField === "acre"
+          ? profileEditDraft.acre === "yes"
+            ? profileEditDraft.acre_start_date
+            : null
+          : selectedProfileField === "dates"
+            ? answers.acre === "yes"
+              ? profileEditDraft.acre_start_date
+              : null
+            : answers.acre_start_date,
+      declaration_frequency:
+        selectedProfileField === "declaration_frequency"
+          ? profileEditDraft.declaration_frequency
+          : answers.declaration_frequency,
+    });
+
+    const targetKeys =
+      selectedProfileField === "activity_type"
+        ? ["activity_type"]
+        : selectedProfileField === "acre"
+          ? ["acre", "acre_start_date"]
+          : selectedProfileField === "dates"
+            ? ["business_start_date", "acre_start_date"]
+            : selectedProfileField === "declaration_frequency"
+              ? ["declaration_frequency"]
+              : [];
+
+    const firstError = targetKeys
+      .map((key) => getCurrentStepValidationMessage(key, nextAnswers))
+      .find(Boolean);
+
+    if (firstError) {
+      setAssistantFieldError(firstError);
+      return;
+    }
+
+    setAssistantFieldError("");
+    setAnswers(nextAnswers);
+    showSaveNotice(
+      "Profil mis à jour. Les estimations ont été recalculées.",
+      3000,
+    );
+    finishSelectiveEdit();
+  }
+
   function handleEditProfile() {
     setAppView("assistant");
     setAssistantEditMode(true);
     setAssistantCollapsed(false);
+    setProfileEditMode("pick_field");
+    setSelectedProfileField(null);
+    setProfileEditDraft({});
     setStepIndex(0);
     setHelpOpen(false);
     setInput("");
@@ -3515,12 +3637,8 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
       {
         role: "bot",
         text: user && fiscalProfile
-          ? "Profil chargé ✅ Tu modifies ton profil fiscal existant."
+          ? "Profil chargé ✅ Tu peux mettre à jour un champ ciblé."
           : "Bonjour 👋 On va mettre à jour ton profil fiscal. Réponds simplement.",
-      },
-      {
-        role: "bot",
-        text: `Étape 1 — ${FISCAL_STEPS[0].title}\n${FISCAL_STEPS[0].question}`,
       },
     ]);
 
@@ -3532,7 +3650,58 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
     }, 120);
   }
 
+  function openSelectiveEditStep(stepKey) {
+    const firstStepKey =
+      stepKey === "dates" ? "business_start_date" : stepKey;
+    const targetStepIndex = getIndexByKey(firstStepKey);
 
+    if (targetStepIndex === -1) {
+      return;
+    }
+
+    setAssistantEditMode(true);
+    setProfileEditMode("edit_step");
+    setSelectedProfileField(stepKey);
+    setProfileEditDraft({
+      activity_type: answers?.activity_type || "",
+      acre: answers?.acre || "",
+      business_start_date: normalizeDateValue(answers?.business_start_date || ""),
+      acre_start_date: normalizeDateValue(answers?.acre_start_date || ""),
+      declaration_frequency: answers?.declaration_frequency || "",
+    });
+    setAssistantCollapsed(false);
+    setHelpOpen(false);
+    setAssistantFieldError("");
+    setStepIndex(targetStepIndex);
+    setInput(
+      firstStepKey === "business_start_date" || firstStepKey === "acre_start_date"
+        ? normalizeDateValue(answers?.[firstStepKey] || "")
+        : "",
+    );
+
+    setTimeout(() => {
+      assistantRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 120);
+  }
+
+  function finishSelectiveEdit() {
+    setAssistantEditMode(false);
+    setProfileEditMode("idle");
+    setSelectedProfileField(null);
+    setProfileEditDraft({});
+    setInput("");
+    setHelpOpen(false);
+    setAssistantFieldError("");
+    setMessages([
+      {
+        role: "bot",
+        text: "Profil chargé ✅ Le champ a été mis à jour.",
+      },
+    ]);
+  }
 
   return (
     <>
@@ -4070,12 +4239,18 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
               <div className="assistantHeader">
                 <div>
                   <div className="assistantTitleRow">
-                    <h2>{user && fiscalProfile ? "Modifier mon profil fiscal" : "Créer mon profil fiscal"}</h2>
+                    <h2>
+                      {isFiscalProfileCreateMode
+                        ? "Créer mon profil fiscal"
+                        : isFiscalProfileEditMode
+                          ? "Modifier mon profil fiscal"
+                          : "Mon profil fiscal"}
+                    </h2>
 
                     <div className="profileStatus">
-                      {user && fiscalProfile ? (
-                        <span className="statusOk">🟢 Profil chargé</span>
-                      ) : profileReady ? (
+                      {isFiscalProfileEditMode ? (
+                        <span className="statusOk">🟢 Mode édition</span>
+                      ) : isFiscalProfileSummaryMode ? (
                         <span className="statusOk">
                           🟢 Profil fiscal configuré
                         </span>
@@ -4086,12 +4261,11 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                       )}
                     </div>
 
-                    {revenues.length > 0 && (
+                    {isFiscalProfileCreateMode && revenues.length > 0 && (
                       <button
                         className="btn btnGhost btnSmall"
                         onClick={() => setAssistantCollapsed((v) => !v)}
                         type="button"
-                        disabled={showAssistantCompletionBanner || isExistingProfileEditMode}
                       >
                         {assistantCollapsed ? "Afficher" : "Réduire"}
                       </button>
@@ -4099,7 +4273,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                   </div>
 
                   <div className="topActions">
-                    {profileReady && (
+                    {!isFiscalProfileCreateMode && profileReady && (
                       <button
                         className="btn btnPrimary btnSmall"
                         onClick={goToDashboard}
@@ -4108,7 +4282,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                         Accéder à mon espace fiscal
                       </button>
                     )}
-                    {showAssistantCompletionBanner && (
+                    {isFiscalProfileSummaryMode && (
                       <button
                         className="btn btnGhost btnSmall"
                         onClick={handleEditProfile}
@@ -4117,7 +4291,16 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                         Modifier mon profil
                       </button>
                     )}
-                    {hasDraft && !isExistingProfileEditMode && (
+                    {isFiscalProfileEditMode && (
+                      <button
+                        className="btn btnGhost btnSmall"
+                        onClick={handleCloseProfileEdit}
+                        type="button"
+                      >
+                        Retour au résumé
+                      </button>
+                    )}
+                    {hasDraft && isFiscalProfileCreateMode && (
                       <button
                         className="btn btnGhost btnSmall"
                         onClick={handleResumeDraft}
@@ -4129,16 +4312,14 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                   </div>
 
                   <p className="muted assistantIntro">
-                    {showAssistantCompletionBanner
-                      ? "Ton profil fiscal est prêt. Continue dans Mon espace fiscal pour suivre tes revenus et ton historique."
-                      : isExistingProfileEditMode
-                      ? "Modifie les champs utiles puis vérifie tout de suite l’impact sur ta situation fiscale."
-                      : user && fiscalProfile
-                      ? "Ton profil enregistré est chargé. Modifie uniquement les champs fiscaux que tu veux mettre à jour."
-                      : "Configure ton profil en quelques étapes pour obtenir un repère fiscal clair."}
+                    {isFiscalProfileCreateMode
+                      ? "Configure ton profil en quelques étapes pour obtenir un repère fiscal clair."
+                      : isFiscalProfileSummaryMode
+                        ? "Ton profil fiscal est prêt. Continue dans Mon espace fiscal pour suivre tes revenus et ton historique."
+                        : "Choisis un bloc à mettre à jour. Les estimations seront recalculées dès l’enregistrement."}
                   </p>
 
-                  {!showAssistantCompletionBanner && !isExistingProfileEditMode && (
+                  {isFiscalProfileCreateMode && (
                     <ul className="assistantBenefits">
                       <li>une estimation simple de tes charges</li>
                       <li>un repère sur ta prochaine échéance</li>
@@ -4149,37 +4330,9 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                     </ul>
                   )}
 
-                  {isExistingProfileEditMode && (
-                    <div className="assistantSummaryBox assistantEditSummary">
-                      <h3>Profil actuel</h3>
-                      <ul className="assistantSummaryList">
-                        <li>
-                          <strong>Activité :</strong>{" "}
-                          {labelFromOptions(
-                            "activity_type",
-                            answers.activity_type || dashboardAnswers.activity_type,
-                          ) || "—"}
-                        </li>
-                        <li>
-                          <strong>Déclaration :</strong>{" "}
-                          {labelFromOptions(
-                            "declaration_frequency",
-                            answers.declaration_frequency || dashboardAnswers.declaration_frequency,
-                          ) || "—"}
-                        </li>
-                        <li>
-                          <strong>ACRE :</strong>{" "}
-                          {labelFromOptions(
-                            "acre",
-                            answers.acre || dashboardAnswers.acre,
-                          ) || "—"}
-                        </li>
-                      </ul>
-                    </div>
-                  )}
                 </div>
 
-                {!showAssistantCompletionBanner && !isExistingProfileEditMode && (
+                {isFiscalProfileCreateMode && (
                   <div className="progress">
                     <div className="progressBar">
                       <div
@@ -4225,31 +4378,335 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 )}
               </div>
 
-              {showAssistantCompletionBanner ? (
-                <div className="assistantCompletionBanner">
-                  <div className="assistantCompletionTitle">
-                    Profil fiscal prêt ✅
+              {isFiscalProfileSummaryMode ? (
+                <>
+                  <div className="assistantCompletionBanner">
+                    <div className="assistantCompletionTitle">
+                      Profil fiscal prêt ✅
+                    </div>
+                    <p className="muted" style={{ marginTop: 8, marginBottom: 0 }}>
+                      Ton profil est enregistré. Mon espace fiscal est maintenant le bon endroit pour suivre tes revenus, tes factures et tes repères.
+                    </p>
+                    <div className="miniActions" style={{ marginTop: 16 }}>
+                      <button
+                        className="btn btnPrimary"
+                        type="button"
+                        onClick={goToDashboard}
+                      >
+                        Accéder à mon espace fiscal
+                      </button>
+                      <button
+                        className="btn btnGhost"
+                        type="button"
+                        onClick={handleEditProfile}
+                      >
+                        Modifier mon profil
+                      </button>
+                    </div>
                   </div>
-                  <p className="muted" style={{ marginTop: 8, marginBottom: 0 }}>
-                    Ton profil est enregistré. Mon espace fiscal est maintenant le bon endroit pour suivre tes revenus, tes factures et tes repères.
-                  </p>
-                  <div className="miniActions" style={{ marginTop: 16 }}>
-                    <button
-                      className="btn btnPrimary"
-                      type="button"
-                      onClick={goToDashboard}
-                    >
-                      Accéder à mon espace fiscal
-                    </button>
-                    <button
-                      className="btn btnGhost"
-                      type="button"
-                      onClick={handleEditProfile}
-                    >
-                      Modifier mon profil
-                    </button>
+
+                  <div className="dashboardZone">
+                    <div className="assistantSummaryBox">
+                      <h3>Ton profil</h3>
+
+                      <ul className="assistantSummaryList">
+                        <li>
+                          <strong>Activité :</strong>{" "}
+                          {labelFromOptions(
+                            "activity_type",
+                            answers.activity_type || dashboardAnswers.activity_type,
+                          ) || "—"}
+                        </li>
+                        <li>
+                          <strong>Déclaration :</strong>{" "}
+                          {labelFromOptions(
+                            "declaration_frequency",
+                            answers.declaration_frequency || dashboardAnswers.declaration_frequency,
+                          ) || "—"}
+                        </li>
+                        <li>
+                          <strong>ACRE :</strong>{" "}
+                          {labelFromOptions(
+                            "acre",
+                            answers.acre || dashboardAnswers.acre,
+                          ) || "—"}
+                        </li>
+                      </ul>
+                    </div>
+
+                    <div className="assistantNextStep">
+                      <div className="assistantNextStepTitle">
+                        Voilà ta situation
+                      </div>
+
+                      <ul className="assistantSummaryList" style={{ marginTop: 12 }}>
+                        <li>
+                          <strong>💰 À mettre de côté :</strong>{" "}
+                          {isFiscalProfileComplete
+                            ? `${computed?.estimatedAmount?.toLocaleString("fr-FR") ?? "—"} €`
+                            : "Profil à compléter"}
+                        </li>
+                        <li>
+                          <strong>📅 Prochaine déclaration :</strong>{" "}
+                          {isFiscalProfileComplete
+                            ? computed?.deadlineLabel || "—"
+                            : "Complète ton profil fiscal"}
+                        </li>
+                        <li>
+                          <strong>⚠️ TVA :</strong>{" "}
+                          {!isFiscalProfileComplete
+                            ? "à confirmer"
+                            : computed?.tvaStatus === "exceeded"
+                              ? "seuil dépassé"
+                              : computed?.tvaStatus === "soon"
+                                ? "vigilance"
+                                : "aucun risque immédiat"}
+                        </li>
+                        <li>
+                          <strong>🧾 ACRE :</strong>{" "}
+                          {!isFiscalProfileComplete
+                            ? "à confirmer"
+                            : computed?.acreStatus === "active"
+                              ? "taux réduit actif"
+                              : computed?.acreStatus === "expired"
+                                ? "terminée"
+                                : "non renseignée"}
+                        </li>
+                      </ul>
+                    </div>
                   </div>
-                </div>
+                </>
+              ) : isFiscalProfileEditMode ? (
+                <>
+                  <div className="assistantSummaryBox">
+                    <h3>Profil actuel</h3>
+                    <ul className="assistantSummaryList">
+                      <li>
+                        <strong>Activité :</strong>{" "}
+                        {labelFromOptions(
+                          "activity_type",
+                          answers.activity_type || dashboardAnswers.activity_type,
+                        ) || "—"}
+                      </li>
+                      <li>
+                        <strong>Déclaration :</strong>{" "}
+                        {labelFromOptions(
+                          "declaration_frequency",
+                          answers.declaration_frequency || dashboardAnswers.declaration_frequency,
+                        ) || "—"}
+                      </li>
+                      <li>
+                        <strong>ACRE :</strong>{" "}
+                        {labelFromOptions(
+                          "acre",
+                          answers.acre || dashboardAnswers.acre,
+                        ) || "—"}
+                      </li>
+                      <li>
+                        <strong>Début activité :</strong>{" "}
+                        {answers.business_start_date || dashboardAnswers.business_start_date || "—"}
+                      </li>
+                      {answers.acre === "yes" && (answers.acre_start_date || dashboardAnswers.acre_start_date) && (
+                        <li>
+                          <strong>Début ACRE :</strong>{" "}
+                          {answers.acre_start_date || dashboardAnswers.acre_start_date}
+                        </li>
+                      )}
+                    </ul>
+                  </div>
+
+                  <div className="assistantSummaryBox assistantEditSelector">
+                    <h3>Que veux-tu modifier ?</h3>
+                    <p className="muted" style={{ marginTop: 6 }}>
+                      Choisis un bloc à ajuster. L’éditeur s’ouvre juste dessous.
+                    </p>
+                    <div className="choiceRow" style={{ marginTop: 12 }}>
+                      <button
+                        className="btn btnChoice"
+                        type="button"
+                        onClick={() => openSelectiveEditStep("activity_type")}
+                      >
+                        Activité
+                      </button>
+                      <button
+                        className="btn btnChoice"
+                        type="button"
+                        onClick={() => openSelectiveEditStep("acre")}
+                      >
+                        ACRE
+                      </button>
+                      <button
+                        className="btn btnChoice"
+                        type="button"
+                        onClick={() => openSelectiveEditStep("dates")}
+                      >
+                        Dates
+                      </button>
+                      <button
+                        className="btn btnChoice"
+                        type="button"
+                        onClick={() => openSelectiveEditStep("declaration_frequency")}
+                      >
+                        Déclaration
+                      </button>
+                    </div>
+                  </div>
+
+                  {showProfileTargetedStep && (
+                    <div className="assistantSummaryBox assistantEditSelector">
+                      <h3>
+                        {selectedProfileField === "activity_type"
+                          ? "Modifier ton activité"
+                          : selectedProfileField === "acre"
+                            ? "Mettre à jour l’ACRE"
+                            : selectedProfileField === "dates"
+                              ? "Mettre à jour les dates"
+                              : "Mettre à jour la déclaration"}
+                      </h3>
+                      <p className="muted" style={{ marginTop: 6 }}>
+                        {selectedProfileField === "activity_type"
+                          ? "Choisis simplement l’activité qui correspond à ton profil actuel."
+                          : selectedProfileField === "acre"
+                            ? "Ajuste ton statut ACRE et sa date si elle s’applique."
+                            : selectedProfileField === "dates"
+                              ? "Mets à jour les dates utiles pour recalculer tes estimations."
+                              : "Choisis le rythme de déclaration qui te correspond."}
+                      </p>
+
+                      {selectedProfileField === "activity_type" && (
+                        <div className="choiceRow" style={{ marginTop: 12 }}>
+                          {activityOptions.map((opt) => (
+                            <button
+                              key={opt.value}
+                              className="btn btnChoice"
+                              type="button"
+                              onClick={() => handleProfileEditChoice("activity_type", opt.value)}
+                              aria-pressed={profileEditDraft.activity_type === opt.value}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {selectedProfileField === "acre" && (
+                        <>
+                          <div className="choiceRow" style={{ marginTop: 12 }}>
+                            {acreOptions.map((opt) => (
+                              <button
+                                key={opt.value}
+                                className="btn btnChoice"
+                                type="button"
+                                onClick={() => handleProfileEditChoice("acre", opt.value)}
+                                aria-pressed={profileEditDraft.acre === opt.value}
+                              >
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+
+                          {profileEditDraft.acre === "yes" && (
+                            <div className="chatInput" style={{ marginTop: 12 }}>
+                              <input
+                                ref={inputRef}
+                                value={profileEditDraft.acre_start_date || ""}
+                                onChange={(e) =>
+                                  handleProfileEditDateChange("acre_start_date", e.target.value)
+                                }
+                                aria-label="Date ACRE"
+                                type="date"
+                                max={getTodayIsoDate()}
+                              />
+                            </div>
+                          )}
+                        </>
+                      )}
+
+                      {selectedProfileField === "dates" && (
+                        <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
+                          <div className="chatInput">
+                            <input
+                              ref={inputRef}
+                              value={profileEditDraft.business_start_date || ""}
+                              onChange={(e) =>
+                                handleProfileEditDateChange("business_start_date", e.target.value)
+                              }
+                              aria-label="Date début activité"
+                              type="date"
+                              max={getTodayIsoDate()}
+                            />
+                          </div>
+
+                          {(answers.acre === "yes" || profileEditDraft.acre === "yes") && (
+                            <div className="chatInput">
+                              <input
+                                value={profileEditDraft.acre_start_date || ""}
+                                onChange={(e) =>
+                                  handleProfileEditDateChange("acre_start_date", e.target.value)
+                                }
+                                aria-label="Date ACRE"
+                                type="date"
+                                max={getTodayIsoDate()}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {selectedProfileField === "declaration_frequency" && (
+                        <div className="choiceRow" style={{ marginTop: 12 }}>
+                          {declarationOptions.map((opt) => (
+                            <button
+                              key={opt.value}
+                              className="btn btnChoice"
+                              type="button"
+                              onClick={() =>
+                                handleProfileEditChoice("declaration_frequency", opt.value)
+                              }
+                              aria-pressed={profileEditDraft.declaration_frequency === opt.value}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {assistantFieldError && (
+                        <div
+                          role="alert"
+                          style={{
+                            marginTop: 8,
+                            padding: "10px 12px",
+                            borderRadius: 10,
+                            background: "#fff1f2",
+                            border: "1px solid #fecdd3",
+                            color: "#be123c",
+                            fontSize: 13,
+                          }}
+                        >
+                          {assistantFieldError}
+                        </div>
+                      )}
+
+                      <div className="miniActions" style={{ marginTop: 16 }}>
+                        <button
+                          className="btn btnGhost"
+                          type="button"
+                          onClick={handleProfileEditCancel}
+                        >
+                          Annuler
+                        </button>
+                        <button
+                          className="btn btnPrimary"
+                          type="button"
+                          onClick={handleSaveProfileFieldEdit}
+                        >
+                          Enregistrer
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : assistantCollapsed ? (
                 <div className="assistantCollapsedBox">
                   <p className="muted">Ton repère est prêt.</p>
@@ -4262,31 +4719,8 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                     Afficher
                   </button>
                 </div>
-              ) : (
+              ) : showCreateWizard ? (
                 <div className="chat">
-                  <div className="chatLog">
-                    {messages.map((m, idx) => (
-                      <div key={idx} className={`msg ${m.role}`}>
-                        {m.text.split("\n").map((line, i) => (
-                          <div key={i}>{line}</div>
-                        ))}
-                      </div>
-                    ))}
-
-                    {isTyping && (
-                      <div className="msg bot typing">
-                        <span className="typingDots">
-                          <span className="dot" />
-                          <span className="dot" />
-                          <span className="dot" />
-                        </span>
-                        <span className="typingText">L’assistant écrit…</span>
-                      </div>
-                    )}
-
-                    <div ref={chatEndRef} />
-                  </div>
-
                   {step?.mode === "choice" ? (
                     <div className="choiceZone">
                       <div className="stepMiniHeader">
@@ -4297,234 +4731,24 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                       </div>
 
                       <div className="choiceRow">
-                        {step.options?.map((opt) => (
-                          <button
-                            key={opt.value}
-                            className="btn btnChoice"
-                            onClick={() => handleSelectOption(opt)}
-                            disabled={isTyping}
-                            type="button"
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
-
-                        {step.help && (
-                          <button
-                            className="btn btnGhost btnHelp"
-                            onClick={() => setHelpOpen((v) => !v)}
-                            type="button"
-                          >
-                            ❓
-                          </button>
+                        {step.options?.map((opt) =>
+                          opt.value === "unknown" ? null : (
+                            <button
+                              key={opt.value}
+                              className="btn btnChoice"
+                              onClick={() => handleSelectOption(opt)}
+                              disabled={isTyping}
+                              type="button"
+                            >
+                              {opt.label}
+                            </button>
+                          ),
                         )}
                       </div>
 
                       {helpOpen && step.help && (
                         <div className="helpBox" role="note">
                           {step.help}
-                        </div>
-                      )}
-                    </div>
-                  ) : step?.mode === "dashboard" ? (
-                    <div className="dashboardZone">
-                      <div className="assistantSummaryBox">
-                        <h3>Ton profil</h3>
-
-                        <ul className="assistantSummaryList">
-                          <li>
-                            <strong>Activité :</strong>{" "}
-                            {labelFromOptions(
-                              "activity_type",
-                              answers.activity_type,
-                            ) || "—"}
-                          </li>
-                          <li>
-                            <strong>Déclaration :</strong>{" "}
-                            {labelFromOptions(
-                              "declaration_frequency",
-                              answers.declaration_frequency,
-                            ) || "—"}
-                          </li>
-                        </ul>
-                      </div>
-
-                      {computed?.recommendations?.length > 0 && (
-                        <div className="dashRecs">
-                          <div className="dashRecsTitle">À retenir</div>
-
-                          <div className="dashRecsList">
-                            {computed.recommendations.map((r) => (
-                              <div
-                                key={r.key}
-                                className={[
-                                  "dashRecItem",
-                                  r.level === "danger" ? "recDanger" : "",
-                                  r.level === "warning" ? "recWarning" : "",
-                                  r.level === "ok" ? "recOk" : "",
-                                ]
-                                  .join(" ")
-                                  .trim()}
-                              >
-                                <div className="dashRecTitle">{r.title}</div>
-                                <div className="dashRecText">{r.text}</div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {!isExistingProfileEditMode && computed?.acreHint && (
-                        <div className="tvaWarning">{computed.acreHint}</div>
-                      )}
-
-                      <div className="assistantNextStep">
-                        <div className="assistantNextStepTitle">
-                          Voilà ta situation
-                        </div>
-
-                        <ul
-                          className="assistantSummaryList"
-                          style={{ marginTop: 12 }}
-                        >
-                          <li>
-                            <strong>💰 À mettre de côté :</strong>{" "}
-                            {isFiscalProfileComplete
-                              ? `${computed?.estimatedAmount?.toLocaleString("fr-FR") ?? "—"} €`
-                              : "Profil à compléter"}
-                          </li>
-                          <li>
-                            <strong>📅 Prochaine déclaration :</strong>{" "}
-                            {isFiscalProfileComplete
-                              ? computed?.deadlineLabel || "—"
-                              : "Complète ton profil fiscal"}
-                          </li>
-                          <li>
-                            <strong>⚠️ TVA :</strong>{" "}
-                            {!isFiscalProfileComplete
-                              ? "à confirmer"
-                              : computed?.tvaStatus === "exceeded"
-                                ? "seuil dépassé"
-                                : computed?.tvaStatus === "soon"
-                                  ? "vigilance"
-                                  : "aucun risque immédiat"}
-                          </li>
-                         <li>
-  <strong>🧾 ACRE :</strong>{" "}
-  {!isFiscalProfileComplete
-    ? "à confirmer"
-    : computed?.acreStatus === "active"
-      ? "taux réduit actif"
-      : computed?.acreStatus === "expired"
-        ? "terminée"
-        : "non renseignée"}
-</li>
-{!isExistingProfileEditMode && (
-  <div style={{ marginTop: 12 }}>
-    <a
-      href="https://autoentrepreneur.urssaf.fr"
-      target="_blank"
-      rel="noopener noreferrer"
-      className="btn btnGhost btnSmall"
-    >
-      📅 Déclarer mon CA sur URSSAF →
-    </a>
-  </div>
-)}
-                        </ul>
-
-                        
-                        {/* Dans assistant, après la ligne TVA */}
-
-                        {!isExistingProfileEditMode && computed?.cfeAlert?.show && (
-                          <div style={{ marginTop: 8 }}>
-                            <span>🏛️ CFE :</span>
-                            <strong>
-                              {computed.cfeAlert.estimatedAmount
-                                ? ` environ ${computed.cfeAlert.estimatedAmount}€`
-                                : ` ${computed.cfeAlert.message}`}
-                              {computed.businessYear === 2 && " (2ème année)"}
-                            </strong>
-                          </div>
-                        )}
-
-                        <div
-                          className="mainActionBox ok"
-                          style={{ marginTop: 16 }}
-                        >
-                          <div className="mainActionTitle">
-                            Ce que tu dois faire maintenant
-                          </div>
-                          <div className="mainActionText">
-                            {isFiscalProfileComplete
-                              ? `Mets de côté environ ${computed?.estimatedAmount?.toLocaleString("fr-FR") ?? "—"} € et pense à vérifier ta situation avant ta prochaine déclaration.`
-                              : "Complète ton profil fiscal pour débloquer des repères fiables sur tes charges, ta TVA et tes échéances."}
-                          </div>
-                        </div>
-
-
-                        <div className="miniActions" style={{ marginTop: 12 }}>
-                          <button
-                            className="btn btnPrimary"
-                            type="button"
-                            onClick={() => {
-                              setAppView("dashboard");
-                              setTimeout(() => {
-                                fiscalRef.current?.scrollIntoView({
-                                  behavior: "smooth",
-                                  block: "start",
-                                });
-                              }, 100);
-                            }}
-                          >
-                            Accéder à mon espace fiscal
-                          </button>
-{user && !isExistingProfileEditMode ? (
-  <div
-    style={{
-      display: "inline-flex",
-      alignItems: "center",
-      padding: "10px 14px",
-      borderRadius: 999,
-      background: "#ecfdf5",
-      border: "1px solid #a7f3d0",
-      color: "#166534",
-      fontSize: 13,
-      fontWeight: 700,
-    }}
-  >
-    ✅ Ton suivi est déjà sauvegardé
-  </div>
-) : null}
-
-                          {!isExistingProfileEditMode && (
-                            <button
-                            className="btn btnGhost"
-                            type="button"
-                            onClick={handleDownloadTxt}
-                          >
-                            Télécharger mon résumé
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {!isExistingProfileEditMode && (
-                        <div className="disclaimer">
-                        ⚠️ Indication simplifiée. Ne remplace pas un
-                        expert-comptable.
-                        </div>
-                      )}
-
-                      {!isExistingProfileEditMode && (
-                        <div className="miniActions">
-                          <button
-                            className="btn btnGhost"
-                            type="button"
-                            onClick={handleReset}
-                          >
-                            Recommencer
-                          </button>
                         </div>
                       )}
                     </div>
@@ -4604,21 +4828,8 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                       </div>
                     </>
                   )}
-
-                  {(step?.mode === "dashboard" ||
-                    stepIndex >= FISCAL_STEPS.length) && (
-                    <div className="miniActions">
-                      <button
-                        className="btn btnGhost"
-                        onClick={handleDownloadTxt}
-                        type="button"
-                      >
-                        Télécharger
-                      </button>
-                    </div>
-                  )}
                 </div>
-              )}
+              ) : null}
             </section>
           )}
 
