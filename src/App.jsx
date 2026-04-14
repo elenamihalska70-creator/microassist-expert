@@ -239,11 +239,11 @@ function buildSmartAlerts({
       priority: computed.tvaStatus === "exceeded" ? 92 : 76,
       title:
         computed.tvaStatus === "exceeded"
-          ? "Seuil TVA dépassé"
-          : "Seuil TVA à surveiller",
-      text: computed?.tvaHint || computed?.tvaStatusLabel || "Le seuil TVA mérite une vérification.",
-      cta: "Vérifier la TVA",
-      action: "tva",
+          ? "TVA à activer ce mois"
+          : "TVA à anticiper",
+      text: "Prépare ta facturation et ta déclaration.",
+      cta: "Comprendre la TVA",
+      action: "tva_info",
     });
   }
 
@@ -2068,6 +2068,21 @@ useEffect(() => {
     activityLabel,
     freqLabel,
   ]);
+  const authGreetingName = useMemo(() => {
+    const metadataFirstName =
+      user?.user_metadata?.first_name?.trim() ||
+      user?.user_metadata?.full_name?.trim()?.split(" ")?.[0] ||
+      "";
+    const emailName = user?.email?.split("@")?.[0]?.trim() || "";
+    return metadataFirstName || emailName;
+  }, [user]);
+  const topbarGreetingLabel =
+    user && authGreetingName
+      ? `Bonjour ${authGreetingName} 👋`
+      : "Bonjour 👋";
+  const trustBadgeLabel = user
+    ? "🔒 Profil, revenus et historique sécurisés dans ton espace"
+    : "🖥️ Données conservées localement jusqu’à la création du compte";
   const connectedAccountLabel = user?.email?.trim() || "";
   const fiscalProfilePageMode = profileReady
     ? assistantEditMode
@@ -2286,6 +2301,11 @@ useEffect(() => {
       currentMonthTotal,
     ],
   );
+  const smartTipsZoneClass = smartAlerts.some(
+    (alert) => alert.level === "danger" || alert.level === "warning",
+  )
+    ? "dashboardSectionZone dashboardSectionZoneAmber"
+    : "dashboardSectionZone dashboardSectionZoneSuccess";
   const guestConversionEligible =
     !user &&
     (profileReady ||
@@ -3027,6 +3047,11 @@ function handleOpenInvoiceGenerator() {
 
     if (action === "tva") {
       setShowTVADiagnosticModal(true);
+      return;
+    }
+
+    if (action === "tva_info") {
+      setShowTVAModal(true);
       return;
     }
 
@@ -4054,22 +4079,13 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
           </div>
           <div className="topbarLeft">
             <div className="brand">Entrepreneurs Assistant</div>
-
-            <input
-              className="nameInput"
-              value={userName}
-              onChange={(e) => setUserName(e.target.value)}
-              placeholder="Ton prénom"
-              aria-label="Ton prénom"
-            />
-
-            {userName && (
-              <div className="helloMini">Bonjour, {userName} 👋</div>
-            )}
-            {profileLine && <div className="profileMini">{profileLine}</div>}
-            {connectedAccountLabel && (
-              <div className="profileMini">Connectée : {connectedAccountLabel}</div>
-            )}
+            <div className="topbarMeta">
+              <div className="greetingBadge">{topbarGreetingLabel}</div>
+              {profileLine && <div className="profileMini">{profileLine}</div>}
+              {connectedAccountLabel && (
+                <div className="profileMini">Connectée : {connectedAccountLabel}</div>
+              )}
+            </div>
           </div>
 
           <div className="topbarRight">
@@ -5349,12 +5365,9 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
 
               {!dashboardRemindersDismissed && activeReminderItems.length > 0 && (
                 <div
+                  className="dashboardSectionZone dashboardSectionZoneLavender"
                   style={{
                     marginBottom: 18,
-                    padding: 16,
-                    borderRadius: 14,
-                    background: "#ffffff",
-                    border: "1px solid #e2e8f0",
                   }}
                   >
                     <div
@@ -5429,8 +5442,9 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                           style={{
                             padding: "12px 14px",
                             borderRadius: 12,
-                            background: "#f8fafc",
-                            border: "1px solid #e2e8f0",
+                            background: "#ffffff",
+                            border: "1px solid #e5ddf6",
+                            boxShadow: "0 6px 18px rgba(109, 40, 217, 0.05)",
                           }}
                         >
                           <div
@@ -5568,7 +5582,8 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 </div>
               </div>
 
-              <div className="smartTips" style={{ marginTop: 18 }}>
+              <div className={smartTipsZoneClass}>
+              <div className="smartTips" style={{ marginTop: 0 }}>
                 <h3>Smart Priorités</h3>
                 <div className="smartTipsList">
                   {smartAlerts.map((alert) => (
@@ -5594,20 +5609,12 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                           >
                             {alert.cta}
                           </button>
-                          {alert.id === "tva-threshold" && (
-                            <button
-                              className="btn btnGhost btnSmall"
-                              type="button"
-                              onClick={() => setShowTVAModal(true)}
-                            >
-                              Comprendre la TVA
-                            </button>
-                          )}
                         </div>
                       )}
                     </div>
                   ))}
                 </div>
+              </div>
               </div>
 
               {showCashImpactModal && (
@@ -5879,7 +5886,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
 
               {/* Analyse financière */}
               {isFiscalProfileComplete && computed.monthlyExpenses !== undefined && (
-                <div className="financialAnalysis" style={{ marginTop: 24 }}>
+                <div className="financialAnalysis dashboardSectionZone dashboardSectionZoneMint">
                   <h3>📊 Analyse financière</h3>
                   <div className="fiscalDashboard" style={{ marginTop: 12 }}>
                     {computed.annualRevenue !== undefined && (
@@ -5936,16 +5943,9 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
               {isFiscalProfileComplete && currentMonthTotal > 0 && (
                 <div
                   className="progressIndicators"
-                  style={{ marginTop: 20, display: "grid", gap: 12 }}
                 >
                   <div className="progressItem">
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        marginBottom: 4,
-                      }}
-                    >
+                    <div className="progressItemHeader">
                       <span>💰 Objectif d'épargne</span>
                       <span>
                         {Math.min(
@@ -5955,23 +5955,11 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                         %
                       </span>
                     </div>
-                    <div
-                      className="progressBar"
-                      style={{
-                        height: 8,
-                        background: "#e5e7eb",
-                        borderRadius: 4,
-                      }}
-                    >
+                    <div className="progressBar progressBarPremium">
                       <div
                         className="progressFill"
                         style={{
                           width: `${Math.min(100, Math.round((savingsProgress / savingsGoal) * 100))}%`,
-                          background:
-                            savingsProgress >= savingsGoal
-                              ? "#10b981"
-                              : "#f59e0b",
-                          borderRadius: 4,
                         }}
                       />
                     </div>
@@ -6165,6 +6153,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                   </div>
                 </div>
               )}
+              <div className="dashboardSectionZone dashboardSectionZoneCoolNeutral">
               {/* Journal des revenus */}
               <div className="journalHeader">
                 <div>
@@ -6278,7 +6267,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                       </div>
                       <div className="revenueActions">
                         <button
-                          className="btn btnGhost btnSmall"
+                          className="btn btnGhost btnSmall btnSubtleDanger"
                           onClick={() => handleDeleteRevenue(item.id)}
                         >
                           Supprimer
@@ -6397,8 +6386,14 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 </div>
               )}
 
+              </div>
+
               {/* ===== MES FACTURES ===== */}
-              <div id="invoices-section" style={{ marginTop: 32 }}>
+              <div
+                id="invoices-section"
+                className="dashboardSectionZone dashboardSectionZoneSoftNeutral"
+                style={{ marginTop: 24 }}
+              >
                 <div className="journalHeader">
                   <div>
                     <h3>Mes factures ({invoiceSectionSummary.count})</h3>
@@ -6451,7 +6446,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 )}
 
                 {visibleInvoices.length === 0 ? (
-                  <div className="emptyRevenueState">
+                  <div className="emptyRevenueState emptyRevenueStateCompact">
                     <div className="emptyRevenueIcon">🧾</div>
                     <div className="emptyRevenueTitle">Aucune facture</div>
                     <p className="muted">
@@ -6542,8 +6537,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
               </div>
 
               <div className="dataTrustLine">
-                🔒 Ton profil fiscal, tes revenus et ton historique sont liés à
-                ton espace personnel sécurisé.
+                {trustBadgeLabel}
               </div>
             </section>
           )}
@@ -6926,7 +6920,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                   fontWeight: 600,
                 }}
               >
-                🔒 Profil, revenus et historique sécurisés dans ton espace
+                {trustBadgeLabel}
               </span>
               <span style={{ color: "#e2e8f0" }}>•</span>
               <span>
