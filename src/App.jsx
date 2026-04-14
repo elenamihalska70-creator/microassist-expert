@@ -26,11 +26,21 @@ const UI_KEY = "microassist_ui_sections";
 const CHART_KEY = "microassist_show_chart";
 const GUEST_REVENUES_KEY = "revenues_guest";
 const GUEST_INVOICES_KEY = "guest_invoices";
+const PREMIUM_STATUS_KEY = "microassist_is_premium";
 const REMINDER_PREFS_KEY = "microassist_reminder_prefs";
 const DASHBOARD_REMINDERS_DISMISSED_KEY =
   "microassist_dashboard_reminders_dismissed";
 const DASHBOARD_SECTIONS_KEY = "microassist_dashboard_sections";
+const DASHBOARD_TOP_NUDGE_DISMISSED_KEY =
+  "microassist_dashboard_top_nudge_dismissed";
 const BETA_SEEN_KEY = "beta_seen";
+const FOUNDER_OFFER_LIMIT = 100;
+const FREE_EXPORTS_PER_MONTH = 3;
+const EMPTY_EXPORT_USAGE = {
+  csv: 0,
+  pdf: 0,
+  total: 0,
+};
 const DEFAULT_VISIBLE_SECTIONS = {
   about: true,
   services: true,
@@ -85,6 +95,161 @@ function track(eventName, params = {}) {
   if (window.gtag) {
     window.gtag("event", eventName, params);
   }
+}
+
+function getCurrentMonthlyExportStorageKey() {
+  const now = new Date();
+  return `microassist_exports_${now.getFullYear()}_${now.getMonth() + 1}`;
+}
+
+function readLocalPremiumStatus() {
+  try {
+    return localStorage.getItem(PREMIUM_STATUS_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeLocalPremiumStatus(isPremium) {
+  try {
+    localStorage.setItem(PREMIUM_STATUS_KEY, isPremium ? "1" : "0");
+  } catch {
+    // Ignore localStorage write failures for local premium fallback.
+  }
+}
+
+function readMonthlyExportUsage() {
+  try {
+    const saved = localStorage.getItem(getCurrentMonthlyExportStorageKey());
+
+    if (!saved) {
+      return { ...EMPTY_EXPORT_USAGE };
+    }
+
+    const parsed = JSON.parse(saved);
+    return normalizeMonthlyExportUsage(parsed);
+  } catch {
+    try {
+      const saved = localStorage.getItem(getCurrentMonthlyExportStorageKey());
+      const legacyValue = saved ? Number(saved) : 0;
+      return normalizeMonthlyExportUsage(legacyValue);
+    } catch {
+      return { ...EMPTY_EXPORT_USAGE };
+    }
+  }
+}
+
+function normalizeMonthlyExportUsage(rawValue) {
+  if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
+    const safeTotal = Math.max(0, rawValue);
+    return {
+      csv: 0,
+      pdf: safeTotal,
+      total: safeTotal,
+    };
+  }
+
+  if (!rawValue || typeof rawValue !== "object") {
+    return { ...EMPTY_EXPORT_USAGE };
+  }
+
+  const csv = Math.max(0, Number(rawValue.csv) || 0);
+  const pdf = Math.max(0, Number(rawValue.pdf) || 0);
+  const total = Math.max(0, Number(rawValue.total) || csv + pdf);
+
+  return { csv, pdf, total };
+}
+
+function writeMonthlyExportUsage(rawValue) {
+  try {
+    const normalizedUsage = normalizeMonthlyExportUsage(rawValue);
+    localStorage.setItem(
+      getCurrentMonthlyExportStorageKey(),
+      JSON.stringify(normalizedUsage)
+    );
+    return normalizedUsage;
+  } catch {
+    return normalizeMonthlyExportUsage(rawValue);
+  }
+}
+
+function normalizePremiumTrackingSource(source = "unknown") {
+  const normalized = String(source || "unknown").toLowerCase();
+
+  if (normalized.includes("export")) return "exports";
+  if (normalized.includes("tva")) return "tva";
+  if (normalized.includes("history") || normalized.includes("revenue")) {
+    return "revenues";
+  }
+  if (normalized.includes("acre")) return "acre";
+  if (normalized.includes("invoice") || normalized.includes("unpaid")) {
+    return "invoices";
+  }
+
+  return "default";
+}
+
+function normalizePremiumConversionSource(source = "unknown") {
+  const normalized = String(source || "unknown").toLowerCase();
+
+  if (normalized.includes("export")) return "exports";
+  if (normalized.includes("tva")) return "TVA";
+  if (normalized.includes("score")) return "score";
+  if (normalized.includes("reminder") || normalized.includes("sms")) {
+    return "reminders";
+  }
+  if (normalized.includes("dashboard_top") || normalized.includes("founder")) {
+    return "founder_banner";
+  }
+
+  return "founder_banner";
+}
+
+function trackPremiumEvent(source = "unknown", action = "modal_open") {
+  const entry = {
+    source: normalizePremiumConversionSource(source),
+    action,
+    timestamp: new Date().toISOString(),
+  };
+
+  try {
+    if (typeof window !== "undefined") {
+      const storageKey = "premium_conversion_events";
+      const raw = window.localStorage?.getItem(storageKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      const next = Array.isArray(parsed) ? [...parsed, entry] : [entry];
+      window.localStorage?.setItem(storageKey, JSON.stringify(next));
+    }
+  } catch {
+    // Ignore localStorage failures for MVP analytics.
+  }
+
+  console.log("[microassist:premium]", entry);
+}
+
+function trackEvent(name, payload = {}) {
+  const entry = {
+    name,
+    timestamp: new Date().toISOString(),
+    ...payload,
+  };
+
+  if (typeof window !== "undefined") {
+    window.__microassistEventLog = window.__microassistEventLog || [];
+    window.__microassistEventLog.push(entry);
+
+    try {
+      const storageKey = "microassist_analytics_events";
+      const raw = window.localStorage?.getItem(storageKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      const next = Array.isArray(parsed) ? [...parsed, entry] : [entry];
+      window.localStorage?.setItem(storageKey, JSON.stringify(next));
+    } catch {
+      // Ignore localStorage failures and keep console/in-memory logging only.
+    }
+  }
+
+  console.log("[microassist:event]", entry);
 }
 
 function normalizeDateValue(value) {
@@ -198,53 +363,20 @@ function buildSmartAlerts({
   estimatedCharges = 0,
   currentMonthTotal = 0,
 } = {}) {
-  const alerts = [];
   const today = parseIsoDate(getTodayIsoDate());
   const rawAvailable = Number(currentMonthTotal || 0) - Number(estimatedCharges || 0);
 
-  if (computed?.urgency === "late" || computed?.urgency === "soon") {
-    alerts.push({
-      id: "declaration-deadline",
-      level: computed.urgency === "late" ? "danger" : "warning",
-      priority: computed.urgency === "late" ? 100 : 82,
-      title: computed.urgency === "late" ? "Déclaration en retard" : "Déclaration à préparer",
-      text:
-        computed?.deadlineLabel && computed.deadlineLabel !== "—"
-          ? `Échéance : ${computed.deadlineLabel}.`
-          : "Une déclaration URSSAF demande ton attention.",
-      cta: reminderPrefs?.declaration ? "Voir mes échéances" : "Activer mes rappels",
-      action: reminderPrefs?.declaration ? "deadline" : "reminders",
-    });
-  }
-
-  if (rawAvailable < 0 || (currentMonthTotal > 0 && rawAvailable <= Math.max(150, estimatedCharges * 0.15))) {
-    alerts.push({
-      id: "reserve-low",
-      level: rawAvailable < 0 ? "danger" : "warning",
-      priority: rawAvailable < 0 ? 95 : 74,
-      title: rawAvailable < 0 ? "Réserve insuffisante" : "Réserve à renforcer",
-      text:
-        rawAvailable < 0
-          ? "Tes charges estimées dépassent le disponible actuel."
-          : "Le coussin disponible après charges reste faible pour absorber un imprévu.",
-      cta: "Ajouter un revenu",
-      action: "add_revenue",
-    });
-  }
-
-  if (computed?.tvaStatus === "exceeded" || computed?.tvaStatus === "soon") {
-    alerts.push({
+  if (computed?.tvaStatus === "exceeded") {
+    return [
+      {
       id: "tva-threshold",
-      level: computed.tvaStatus === "exceeded" ? "danger" : "warning",
-      priority: computed.tvaStatus === "exceeded" ? 92 : 76,
-      title:
-        computed.tvaStatus === "exceeded"
-          ? "TVA à activer ce mois"
-          : "TVA à anticiper",
+      level: "warning",
+      title: "TVA à activer ce mois",
       text: "Prépare ta facturation et ta déclaration.",
       cta: "Comprendre la TVA",
       action: "tva_info",
-    });
+      },
+    ];
   }
 
   if (answers?.acre === "yes" && answers?.acre_start_date) {
@@ -253,88 +385,46 @@ function buildSmartAlerts({
       const acreEnd = new Date(acreStart);
       acreEnd.setMonth(acreEnd.getMonth() + 12);
       const daysLeft = Math.ceil((acreEnd.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      const monthsLeft = Math.max(1, Math.ceil(daysLeft / 30));
 
-      if (daysLeft > 0 && daysLeft <= 90) {
-        alerts.push({
+      if (daysLeft > 0 && monthsLeft <= 2) {
+        return [
+          {
           id: "acre-ending",
-          level: daysLeft <= 30 ? "warning" : "info",
-          priority: daysLeft <= 30 ? 70 : 58,
-          title: "Fin ACRE à anticiper",
-          text: `Ta réduction ACRE se termine dans ${daysLeft} jours.`,
-          cta: reminderPrefs?.acre ? "Voir mon profil" : "Activer un rappel",
-          action: reminderPrefs?.acre ? "profile" : "reminders",
-        });
+          level: "warning",
+          title: "Fin ACRE bientôt",
+          text: "Anticipe la hausse de cotisations liée à la fin de l’ACRE.",
+          cta: "Modifier mon profil",
+          action: "profile",
+          },
+        ];
       }
     }
   }
 
-  if (Array.isArray(revenues) && revenues.length >= 4) {
-    const sortedRevenues = revenues
-      .filter((item) => item?.date && Number.isFinite(Number(item.amount || 0)))
-      .slice()
-      .sort((a, b) => new Date(`${b.date}T00:00:00`) - new Date(`${a.date}T00:00:00`));
-
-    const lastRevenue = Number(sortedRevenues[0]?.amount || 0);
-    const previousAverage =
-      sortedRevenues.slice(1, 4).reduce((sum, item) => sum + Number(item.amount || 0), 0) /
-        Math.max(1, sortedRevenues.slice(1, 4).length);
-
-    if (lastRevenue > 0 && previousAverage > 0 && lastRevenue >= previousAverage * 1.75 && lastRevenue - previousAverage >= 500) {
-      alerts.push({
-        id: "revenue-spike",
-        level: "info",
-        priority: 48,
-        title: "CA en hausse",
-        text: "Réserve + TVA à vérifier.",
-        cta: "Voir impact",
-        action: "cash_impact",
-      });
-    }
-  }
-
-  if (Array.isArray(invoices) && invoices.length > 0) {
-    const overdueUnpaidCount = invoices.filter((invoice) => {
-      if (!invoice?.due_date || invoice?.status === "paid") return false;
-      const dueDate = parseIsoDate(invoice.due_date);
-      if (!dueDate) return false;
-      return dueDate < today;
-    }).length;
-
-    if (overdueUnpaidCount > 0) {
-      alerts.push({
-        id: "unpaid-invoices",
-        level: "warning",
-        priority: 72,
-        title: "Factures à relancer",
-        text:
-          overdueUnpaidCount === 1
-            ? "Une facture semble impayée après sa date d’échéance."
-            : `${overdueUnpaidCount} factures semblent impayées après échéance.`,
-        cta: "Voir mes factures",
-        action: "invoices",
-      });
-    }
-  }
-
-  const prioritizedAlerts = alerts
-    .sort((a, b) => b.priority - a.priority)
-    .slice(0, 3);
-
-  if (prioritizedAlerts.length === 0) {
+  if (estimatedCharges > 0 && rawAvailable < estimatedCharges) {
     return [
       {
-        id: "all-clear",
-        level: "success",
-        priority: 10,
-        title: "Aucun signal critique",
-        text: "Ton espace fiscal est à jour. Continue à suivre tes revenus régulièrement.",
-        cta: "Ajouter un revenu",
-        action: "add_revenue",
+        id: "reserve-low",
+        level: "warning",
+        title: "Réserve à renforcer",
+        text: "La réserve actuelle couvre moins d’un cycle de charges estimées.",
+        cta: "Ajouter une dépense",
+        action: "profile",
       },
     ];
   }
 
-  return prioritizedAlerts;
+  return [
+    {
+      id: "all-clear",
+      level: "success",
+      title: "Aucun signal critique",
+      text: "Ton espace fiscal est à jour. Continue à alimenter ton suivi pour garder des repères fiables.",
+      cta: "Ajouter un revenu",
+      action: "add_revenue",
+    },
+  ];
 }
 
 function sanitizeFiscalAnswers(sourceAnswers = {}) {
@@ -508,6 +598,8 @@ export default function App() {
   const [input, setInput] = useState("");
   const [saveNotice, setSaveNotice] = useState(null);
   const saveNoticeTimeoutRef = useRef(null);
+  const [successToast, setSuccessToast] = useState(null);
+  const successToastTimeoutRef = useRef(null);
   const showSaveNotice = useCallback((notice, duration = 4000) => {
   if (saveNoticeTimeoutRef.current) {
     clearTimeout(saveNoticeTimeoutRef.current);
@@ -523,11 +615,29 @@ export default function App() {
     }, duration);
   }
 }, []);
+  const showSuccessToast = useCallback((message, duration = 4000) => {
+  if (successToastTimeoutRef.current) {
+    clearTimeout(successToastTimeoutRef.current);
+    successToastTimeoutRef.current = null;
+  }
+
+  setSuccessToast(message);
+
+  if (duration > 0) {
+    successToastTimeoutRef.current = window.setTimeout(() => {
+      setSuccessToast(null);
+      successToastTimeoutRef.current = null;
+    }, duration);
+  }
+}, []);
 
 useEffect(() => {
   return () => {
     if (saveNoticeTimeoutRef.current) {
       clearTimeout(saveNoticeTimeoutRef.current);
+    }
+    if (successToastTimeoutRef.current) {
+      clearTimeout(successToastTimeoutRef.current);
     }
   };
 }, []);
@@ -598,7 +708,9 @@ useEffect(() => {
     }
   });
   const [showPricingModal, setShowPricingModal] = useState(false);
-  const [pdfExportCount, setPdfExportCount] = useState(0);
+  const [monthlyExportUsage, setMonthlyExportUsage] = useState(EMPTY_EXPORT_USAGE);
+  const [isExportingCsv, setIsExportingCsv] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [showCFEModal, setShowCFEModal] = useState(false);
   // состояния
   const [premiumModalSource, setPremiumModalSource] = useState("unknown");
@@ -607,6 +719,7 @@ useEffect(() => {
   const [isJoiningPremiumWaitlist, setIsJoiningPremiumWaitlist] =
     useState(false);
   const [premiumWaitlistJoined, setPremiumWaitlistJoined] = useState(false);
+  const premiumCTAViewSourceRef = useRef(null);
   const [dashboardRemindersDismissed, setDashboardRemindersDismissed] =
     useState(() => {
       try {
@@ -615,6 +728,14 @@ useEffect(() => {
         );
       } catch {
         return false;
+      }
+    });
+  const [dashboardTopNudgeDismissedType, setDashboardTopNudgeDismissedType] =
+    useState(() => {
+      try {
+        return localStorage.getItem(DASHBOARD_TOP_NUDGE_DISMISSED_KEY) || "";
+      } catch {
+        return "";
       }
     });
 // Modals pédagogiques
@@ -723,10 +844,16 @@ useEffect(() => {
       setPremiumWaitlistEmail("");
       setPremiumWaitlistError("");
       setPremiumModalSource("unknown");
+      setLocalPremiumStatus(false);
       resetRevenueForm();
 
       if (clearLocalSessionKeys) {
-        clearLocalStorageKeys([LS_KEY, REMINDER_PREFS_KEY, PENDING_AUTH_SUCCESS_KEY]);
+        clearLocalStorageKeys([
+          LS_KEY,
+          REMINDER_PREFS_KEY,
+          PENDING_AUTH_SUCCESS_KEY,
+          PREMIUM_STATUS_KEY,
+        ]);
       }
     },
     [],
@@ -756,6 +883,9 @@ useEffect(() => {
   const [selectedMonth, setSelectedMonth] = useState("all");
   const [fiscalProfile, setFiscalProfile] = useState(null);
   const [fiscalProfileLoaded, setFiscalProfileLoaded] = useState(false);
+  const [localPremiumStatus, setLocalPremiumStatus] = useState(() =>
+    readLocalPremiumStatus(),
+  );
   const fiscalProfileFetchRef = useRef({
     inFlight: null,
     userId: null,
@@ -771,6 +901,7 @@ useEffect(() => {
   
   // Once authenticated, UI rights must come from Supabase only.
   const persistedPlan = fiscalProfile?.plan || null;
+  const profilePremiumStatus = Boolean(fiscalProfile?.is_premium);
 
   // Trial is anchored to a real persisted creation date so it never restarts on login.
   const trialEndsAt = useMemo(() => {
@@ -823,8 +954,32 @@ useEffect(() => {
   }, [defaultGuestPlan, isTrialActive, persistedPlan, user]);
   const currentPlanLimits =
     PRICING_LIMITS[effectivePlan] || PRICING_LIMITS.free;
+  const isLocalhostQa =
+    typeof window !== "undefined" &&
+    import.meta.env.DEV &&
+    ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+  const restoredPremiumStatus = user
+    ? fiscalProfileLoaded
+      ? profilePremiumStatus
+      : localPremiumStatus
+    : localPremiumStatus;
+  const isPremium = isLocalhostQa
+    ? localPremiumStatus
+    : restoredPremiumStatus || effectivePlan !== "free";
   const hasSmsPremiumAccess =
     effectivePlan !== "free" && effectivePlan !== "beta_founder";
+  const usedExports = monthlyExportUsage.total;
+  const remainingExports =
+    !isPremium
+      ? Math.max(0, FREE_EXPORTS_PER_MONTH - usedExports)
+      : Infinity;
+  const isExportLimitReached = !isPremium && remainingExports <= 0;
+
+  function toggleLocalPremiumQa() {
+    const nextValue = !localPremiumStatus;
+    setLocalPremiumStatus(nextValue);
+    writeLocalPremiumStatus(nextValue);
+  }
 
 
 
@@ -928,20 +1083,26 @@ useEffect(() => {
           .eq("user_id", user.id)
           .maybeSingle();
 
-        if (error) {
-          console.error("Load fiscal profile error:", error.message);
-          setFiscalProfile(null);
-          setFiscalProfileLoaded(true);
-          fetchState.lastFetchedAt = Date.now();
-          fetchState.lastData = null;
-          return null;
-        }
-
-        setFiscalProfile(data || null);
+      if (error) {
+        console.error("Load fiscal profile error:", error.message);
+        setFiscalProfile(null);
         setFiscalProfileLoaded(true);
+        setLocalPremiumStatus(readLocalPremiumStatus());
         fetchState.lastFetchedAt = Date.now();
-        fetchState.lastData = data || null;
-        return data || null;
+        fetchState.lastData = null;
+        return null;
+      }
+
+      setFiscalProfile(data || null);
+      setFiscalProfileLoaded(true);
+      if (data) {
+        const nextPremiumStatus = Boolean(data.is_premium);
+        setLocalPremiumStatus(nextPremiumStatus);
+        writeLocalPremiumStatus(nextPremiumStatus);
+      }
+      fetchState.lastFetchedAt = Date.now();
+      fetchState.lastData = data || null;
+      return data || null;
       })();
 
       fetchState.userId = user.id;
@@ -952,6 +1113,7 @@ useEffect(() => {
       console.error("Unexpected error in refreshFiscalProfile:", error);
       setFiscalProfile(null);
       setFiscalProfileLoaded(true);
+      setLocalPremiumStatus(readLocalPremiumStatus());
       fiscalProfileFetchRef.current.lastFetchedAt = Date.now();
       fiscalProfileFetchRef.current.lastData = null;
       return null;
@@ -987,6 +1149,49 @@ useEffect(() => {
     return null;
   }
 
+  const persistPremiumStatus = useCallback(
+    async (nextIsPremium, options = {}) => {
+      const { refresh = true } = options;
+      const normalizedValue = Boolean(nextIsPremium);
+
+      setLocalPremiumStatus(normalizedValue);
+      writeLocalPremiumStatus(normalizedValue);
+
+      if (!user?.id) {
+        return true;
+      }
+
+      const { error } = await supabase
+        .from("fiscal_profiles")
+        .update({ is_premium: normalizedValue })
+        .eq("user_id", user.id);
+
+      if (error) {
+        const missingColumn =
+          error.code === "PGRST204" ||
+          error.message?.includes("is_premium") ||
+          error.details?.includes?.("is_premium");
+
+        if (missingColumn) {
+          console.warn(
+            "is_premium column not available yet; keeping local premium fallback only.",
+          );
+          return false;
+        }
+
+        console.error("Persist premium status error:", error.message);
+        return false;
+      }
+
+      if (refresh) {
+        await refreshFiscalProfile({ force: true });
+      }
+
+      return true;
+    },
+    [refreshFiscalProfile, user?.id],
+  );
+
   const saveFiscalProfileToSupabase = useCallback(async (profileAnswers) => {
     const normalizedProfileAnswers = sanitizeFiscalAnswers(profileAnswers);
     if (!user?.id) {
@@ -998,10 +1203,13 @@ useEffect(() => {
     }
 
     const planToPersist = persistedPlan || defaultGuestPlan;
+    const nextPremiumStatus =
+      Boolean(fiscalProfile?.is_premium) || planToPersist === "beta_founder";
 
     const payload = {
       user_id: user.id,
       plan: planToPersist,
+      is_premium: nextPremiumStatus,
       business_status:
         normalizedProfileAnswers.entry_status === "micro_yes"
           ? "micro_entreprise"
@@ -1033,15 +1241,32 @@ useEffect(() => {
       }
     }
 
-    const { error } = await supabase
+    let { error } = await supabase
       .from("fiscal_profiles")
       .upsert(payload, { onConflict: "user_id" });
+
+    if (
+      error &&
+      (error.code === "PGRST204" ||
+        error.message?.includes("is_premium") ||
+        error.details?.includes?.("is_premium"))
+    ) {
+      const fallbackPayload = { ...payload };
+      delete fallbackPayload.is_premium;
+
+      const fallbackResponse = await supabase
+        .from("fiscal_profiles")
+        .upsert(fallbackPayload, { onConflict: "user_id" });
+      error = fallbackResponse.error;
+    }
 
     if (error) {
       console.error("Fiscal profile upsert error:", error.message);
       return;
     }
 
+    setLocalPremiumStatus(nextPremiumStatus);
+    writeLocalPremiumStatus(nextPremiumStatus);
     console.log("Fiscal profile saved ✅");
 
     const nextRemindAt = calculateNextReminder(
@@ -1068,6 +1293,7 @@ useEffect(() => {
   }, [
     user?.id,
     defaultGuestPlan,
+    fiscalProfile?.is_premium,
     fiscalProfile?.trial_ends_at,
     fiscalProfile?.trial_started_at,
     fiscalProfileLoaded,
@@ -1135,6 +1361,7 @@ useEffect(() => {
       setReminderPrefs(normalizedReminderPrefs);
       setShowReminderModal(false);
       showSaveNotice("Préférences de rappels enregistrées ✅", 3000);
+      showSuccessToast("✅ Rappel mis à jour.", 4000);
       return;
     }
 
@@ -1741,9 +1968,23 @@ useEffect(() => {
   }, [dashboardSections]);
 
 useEffect(() => {
-  const key = `microassist_pdf_exports_${new Date().getFullYear()}_${new Date().getMonth() + 1}`;
-  const saved = localStorage.getItem(key);
-  setPdfExportCount(saved ? Number(saved) : 0);
+  syncMonthlyExportUsage();
+}, []);
+
+useEffect(() => {
+  const handleVisibilitySync = () => {
+    if (document.visibilityState === "visible") {
+      syncMonthlyExportUsage();
+    }
+  };
+
+  window.addEventListener("focus", syncMonthlyExportUsage);
+  document.addEventListener("visibilitychange", handleVisibilitySync);
+
+  return () => {
+    window.removeEventListener("focus", syncMonthlyExportUsage);
+    document.removeEventListener("visibilitychange", handleVisibilitySync);
+  };
 }, []);
 
 useEffect(() => {
@@ -2306,6 +2547,143 @@ useEffect(() => {
   )
     ? "dashboardSectionZone dashboardSectionZoneAmber"
     : "dashboardSectionZone dashboardSectionZoneSuccess";
+  const savingsGoal = useMemo(() => {
+    // Objectif d'épargne recommandé: 3 mois de charges
+    return Math.max(estimatedCharges * 3, 500);
+  }, [estimatedCharges]);
+
+  const savingsProgress = useMemo(() => {
+    // Épargne actuelle = disponible estimé
+    return availableAmount;
+  }, [availableAmount]);
+  const fiscalCoachingCard = useMemo(() => {
+    const smartAlertIds = new Set(smartAlerts.map((alert) => alert.id));
+    const sortedRevenueDates = revenues
+      .map((item) => parseIsoDate(item?.date))
+      .filter(Boolean)
+      .sort((a, b) => b.getTime() - a.getTime());
+    const latestRevenueDate = sortedRevenueDates[0] || null;
+    const previousRevenueDate = sortedRevenueDates[1] || null;
+
+    if (latestRevenueDate && previousRevenueDate) {
+      const gapDays = Math.ceil(
+        (latestRevenueDate.getTime() - previousRevenueDate.getTime()) /
+          (1000 * 60 * 60 * 24),
+      );
+
+      if (revenues.length >= 2 && gapDays >= 45) {
+        return {
+          text:
+            "Tes encaissements sont irréguliers. Un suivi plus régulier rend tes repères fiscaux plus fiables.",
+          cta: "Ajouter un revenu",
+          onClick: handleOpenRevenuePopup,
+        };
+      }
+    }
+
+    if (
+      !smartAlertIds.has("tva-threshold") &&
+      (computed?.tvaStatus === "soon" || computed?.tvaStatus === "exceeded")
+    ) {
+      return {
+        text:
+          "Le passage à la TVA approche. Vérifie dès maintenant le paramétrage de ta facturation.",
+        cta: "Comprendre la TVA",
+        onClick: () => setShowTVAModal(true),
+      };
+    }
+
+    if (
+      isFiscalProfileComplete &&
+      revenues.length > 0 &&
+      Number(computed?.monthlyExpenses || 0) === 0
+    ) {
+      return {
+        text:
+          "Aucune dépense personnelle n’est renseignée. L’analyse de couverture reste donc partielle.",
+      };
+    }
+
+    if (
+      !smartAlertIds.has("declaration-deadline") &&
+      (computed?.urgency === "late" || computed?.urgency === "soon")
+    ) {
+        return {
+          text:
+            "La prochaine déclaration URSSAF mérite d’être préparée maintenant. Prévois le montant à déclarer avant l’échéance.",
+          cta: "Gérer mes rappels",
+          onClick: () => openReminderManager("coaching_deadline"),
+        };
+      }
+
+    if (
+      !smartAlertIds.has("reserve-low") &&
+      savingsGoal > 0 &&
+      savingsProgress < savingsGoal * 0.35
+    ) {
+      return {
+        text:
+          "Ta réserve reste courte au regard de l’objectif calculé. Sécurise une part des prochains encaissements.",
+      };
+    }
+
+    if (
+      !smartAlertIds.has("acre-ending") &&
+      dashboardAnswers?.acre === "yes" &&
+      dashboardAnswers?.acre_start_date
+    ) {
+      const acreStart = parseIsoDate(dashboardAnswers.acre_start_date);
+
+      if (acreStart) {
+        const acreEnd = new Date(acreStart);
+        acreEnd.setMonth(acreEnd.getMonth() + 12);
+        const daysLeft = Math.ceil(
+          (acreEnd.getTime() - parseIsoDate(getTodayIsoDate()).getTime()) /
+            (1000 * 60 * 60 * 24),
+        );
+
+        if (daysLeft > 0 && daysLeft <= 90) {
+          return {
+            text:
+              "La fin de l’ACRE approche. Anticipe l’évolution de tes cotisations sur les prochains mois.",
+          };
+        }
+      }
+    }
+
+    if (!user && revenues.length >= 3) {
+      return {
+        text:
+          "Ton historique devient utile pour le suivi fiscal. Créer ton compte permet de le conserver dans la durée.",
+        cta: "Créer mon compte",
+        onClick: () => openAuthModal("signup"),
+      };
+    }
+
+    if (revenues.length > 0 && visibleInvoices.length === 0) {
+      return {
+        text:
+          "Tu as déjà de l’activité enregistrée. Formaliser une première facture aide à structurer le suivi client et encaissement.",
+        cta: "Créer une facture",
+        onClick: handleOpenInvoiceGenerator,
+      };
+    }
+
+    return null;
+  }, [
+    smartAlerts,
+    revenues,
+    computed,
+    isFiscalProfileComplete,
+    savingsGoal,
+    savingsProgress,
+    dashboardAnswers,
+    user,
+    visibleInvoices.length,
+    handleOpenRevenuePopup,
+    handleOpenInvoiceGenerator,
+    openAuthModal,
+  ]);
   const guestConversionEligible =
     !user &&
     (profileReady ||
@@ -2345,7 +2723,7 @@ useEffect(() => {
           {
             label: "Gérer",
             kind: "button",
-            onClick: () => setShowReminderModal(true),
+            onClick: () => openReminderManager("reminder_declaration"),
           },
         ],
       });
@@ -2390,7 +2768,7 @@ useEffect(() => {
           {
             label: "Gérer",
             kind: "button",
-            onClick: () => setShowReminderModal(true),
+            onClick: () => openReminderManager("reminder_cfe"),
           },
         ],
       });
@@ -2412,7 +2790,7 @@ useEffect(() => {
           {
             label: "Gérer",
             kind: "button",
-            onClick: () => setShowReminderModal(true),
+            onClick: () => openReminderManager("reminder_cfe"),
           },
         ],
       });
@@ -2444,7 +2822,7 @@ useEffect(() => {
               {
                 label: "Gérer",
                 kind: "button",
-                onClick: () => setShowReminderModal(true),
+                onClick: () => openReminderManager("reminder_acre"),
               },
             ],
           });
@@ -2479,7 +2857,7 @@ useEffect(() => {
           {
             label: "Gérer",
             kind: "button",
-            onClick: () => setShowReminderModal(true),
+            onClick: () => openReminderManager("reminder_channel"),
           },
         ],
       });
@@ -2491,6 +2869,7 @@ useEffect(() => {
     dashboardAnswers,
     handleEditProfile,
     hasSmsPremiumAccess,
+    openReminderManager,
     reminderPrefs,
   ]);
   const urgentReminderSignature = useMemo(
@@ -2501,6 +2880,93 @@ useEffect(() => {
         .join("|"),
     [activeReminderItems],
   );
+  const primarySmartAlertId = smartAlerts[0]?.id || null;
+  const invoiceSectionSummary = useMemo(() => {
+    const unpaidCount = visibleInvoices.filter(
+      (invoice) => invoice?.status && invoice.status !== "paid",
+    ).length;
+
+    return {
+      count: visibleInvoices.length,
+      unpaidCount,
+    };
+  }, [visibleInvoices]);
+  const fiscalRecommendationCard = useMemo(() => {
+    if (
+      primarySmartAlertId !== "tva-threshold" &&
+      computed?.tvaStatus === "exceeded" &&
+      visibleInvoices.length === 0
+    ) {
+      return "💡 Astuce : crée tes factures pour mieux suivre la TVA collectée.";
+    }
+
+    if (
+      Number(computed?.monthlyExpenses || 0) === 0 &&
+      revenues.length > 0
+    ) {
+      return "💡 Astuce : ajoute tes dépenses pour piloter ta marge réelle.";
+    }
+
+    if (
+      primarySmartAlertId !== "acre-ending" &&
+      dashboardAnswers?.acre === "yes" &&
+      dashboardAnswers?.acre_start_date
+    ) {
+      const acreStart = parseIsoDate(dashboardAnswers.acre_start_date);
+
+      if (acreStart) {
+        const acreEnd = new Date(acreStart);
+        acreEnd.setMonth(acreEnd.getMonth() + 12);
+        const daysLeft = Math.ceil(
+          (acreEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+        );
+        const monthsLeft = daysLeft > 0 ? Math.max(1, Math.ceil(daysLeft / 30)) : 0;
+
+        if (monthsLeft > 0 && monthsLeft <= 2) {
+          return "💡 Astuce : anticipe la hausse des cotisations après l’ACRE.";
+        }
+      }
+    }
+
+    if (invoiceSectionSummary.unpaidCount > 0) {
+      return "💡 Astuce : relance les paiements en retard pour sécuriser ta trésorerie.";
+    }
+
+    return null;
+  }, [
+    computed?.monthlyExpenses,
+    computed?.tvaStatus,
+    dashboardAnswers?.acre,
+    dashboardAnswers?.acre_start_date,
+    invoiceSectionSummary.unpaidCount,
+    primarySmartAlertId,
+    revenues.length,
+    visibleInvoices.length,
+  ]);
+  const fiscalScore = useMemo(() => {
+    let score = 0;
+
+    if (revenues.length >= 3) score += 20;
+    if (visibleInvoices.length > 0) score += 20;
+    if (Number(computed?.monthlyExpenses || 0) > 0) score += 20;
+    if (computed?.tvaStatus !== "exceeded") score += 20;
+    if (activeReminderItems.length >= 3) score += 20;
+
+    const interpretation =
+      score >= 80
+        ? "Ton espace est très bien piloté."
+        : score >= 60
+          ? "Ton suivi est bon, encore quelques optimisations."
+          : "Ton espace a besoin de plus de suivi.";
+
+    return { value: score, interpretation };
+  }, [
+    activeReminderItems.length,
+    computed?.monthlyExpenses,
+    computed?.tvaStatus,
+    revenues.length,
+    visibleInvoices.length,
+  ]);
   const premiumTopMessage = useMemo(() => {
     if (!user) {
       return "90 jours offerts après création du compte • Puis 5 €/mois";
@@ -2512,21 +2978,300 @@ useEffect(() => {
 
     return "Premium disponible • 5 €/mois";
   }, [isTrialActive, trialDaysLeft, user]);
+  const premiumBannerContent = useMemo(() => {
+    if (isPremium) {
+      return {
+        line1: "⭐ Offre fondateur activée",
+        line2: "Premium offert pendant 3 mois",
+        line3:
+          "Tu bénéficies déjà des exports illimités et de l’historique complet.",
+      };
+    }
+
+    if (trialDaysLeft !== null) {
+      return premiumWaitlistJoined
+        ? {
+            line1: `🎁 Offre active : J-${trialDaysLeft}`,
+            line2: "Ton accès Premium fondateur est déjà réservé",
+            line3: "Puis 5 €/mois",
+          }
+        : {
+            line1: `🎁 Offre fondateur : J-${trialDaysLeft}`,
+            line2: `3 mois offerts pour les ${FOUNDER_OFFER_LIMIT} premiers utilisateurs`,
+            line3: "Puis 5 €/mois",
+          };
+    }
+
+    return {
+      line1: premiumWaitlistJoined ? "🎁 Offre active" : premiumTopMessage,
+      line2: premiumWaitlistJoined
+        ? "Ton accès Premium fondateur est déjà réservé"
+        : `3 mois offerts pour les ${FOUNDER_OFFER_LIMIT} premiers utilisateurs`,
+      line3: "Puis 5 €/mois",
+    };
+  }, [isPremium, premiumTopMessage, premiumWaitlistJoined, trialDaysLeft]);
+  const premiumModalContent = useMemo(() => {
+    const normalizedSource = String(premiumModalSource || "unknown");
+
+    if (normalizedSource.includes("export")) {
+      return {
+        title: "Premium pour exporter sans limite",
+        intro:
+          "Débloque les exports PDF et CSV illimités pour garder un suivi propre et partageable à tout moment.",
+        heroTitle: "Exports illimités",
+        heroText:
+          "Un historique prêt pour ton comptable, avec archivage automatique et exports disponibles quand tu en as besoin.",
+        firstBenefit: "✔ Exports PDF et CSV illimités",
+      };
+    }
+
+    if (normalizedSource.includes("tva")) {
+      return {
+        title: "Premium pour anticiper la TVA",
+        intro:
+          "Reçois des alertes TVA plus visibles et des rappels SMS pour préparer ta facturation au bon moment.",
+        heroTitle: "Alerte TVA prioritaire",
+        heroText:
+          "Un suivi plus direct pour anticiper l’activation TVA sans manquer une étape clé.",
+        firstBenefit: "✔ Alertes TVA + rappels SMS automatiques",
+      };
+    }
+
+    if (normalizedSource.includes("history") || normalizedSource.includes("revenue")) {
+      return {
+        title: "Premium pour piloter ton historique",
+        intro:
+          "Conserve un historique complet de ton activité et automatise tes exports quand ton suivi devient plus dense.",
+        heroTitle: "Historique sans limite",
+        heroText:
+          "Retrouve tes données sur la durée et exporte-les plus facilement pour ton pilotage.",
+        firstBenefit: "✔ Historique illimité de tes revenus",
+      };
+    }
+
+    if (normalizedSource.includes("acre")) {
+      return {
+        title: "Premium pour anticiper la fin ACRE",
+        intro:
+          "Prépare la sortie ACRE avec des alertes plus ciblées avant l’évolution de tes cotisations.",
+        heroTitle: "Alerte ACRE personnalisée",
+        heroText:
+          "Des rappels plus précis pour anticiper la transition et ajuster ton suivi fiscal à temps.",
+        firstBenefit: "✔ Alertes personnalisées avant la fin ACRE",
+      };
+    }
+
+    if (normalizedSource.includes("invoice") || normalizedSource.includes("unpaid")) {
+      return {
+        title: "Premium pour suivre les factures en attente",
+        intro:
+          "Repère plus vite les factures à surveiller et structure ton suivi d’encaissement dans le temps.",
+        heroTitle: "Suivi facture renforcé",
+        heroText:
+          "Une meilleure visibilité sur les relances et les paiements à surveiller.",
+        firstBenefit: "✔ Suivi des factures impayées",
+      };
+    }
+
+    return {
+      title: "Premium arrive bientôt ✨",
+      intro:
+        "La version Premium est en cours de finalisation. Laisse simplement ton email pour recevoir l’accès en avant-première.",
+      heroTitle: "Ouverture prochaine",
+      heroText: "Aucun compte n’est nécessaire pour rejoindre la liste Premium.",
+      firstBenefit: "✔ Historique complet de tes revenus",
+    };
+  }, [premiumModalSource]);
   const revenueSectionTotal = useMemo(
     () =>
       filteredRevenues.reduce((sum, item) => sum + Number(item.amount || 0), 0),
     [filteredRevenues],
   );
-  const invoiceSectionSummary = useMemo(() => {
-    const unpaidCount = visibleInvoices.filter(
-      (invoice) => invoice?.status && invoice.status !== "paid",
-    ).length;
+  const premiumContextualCTA = useMemo(() => {
+    const acreStart = dashboardAnswers?.acre_start_date
+      ? parseIsoDate(dashboardAnswers.acre_start_date)
+      : null;
+    let acreMonthsLeft = null;
+
+    if (dashboardAnswers?.acre === "yes" && acreStart) {
+      const acreEnd = new Date(acreStart);
+      acreEnd.setMonth(acreEnd.getMonth() + 12);
+      const daysLeft = Math.ceil(
+        (acreEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+      );
+
+      if (daysLeft > 0) {
+        acreMonthsLeft = Math.max(1, Math.ceil(daysLeft / 30));
+      }
+    }
+
+    const candidates = [
+      {
+        visible:
+          computed?.tvaStatus === "soon" || computed?.tvaStatus === "exceeded",
+        blockedBy: "tva-threshold",
+        text: "Passe à Premium pour recevoir les alertes TVA et SMS automatiques",
+        source: "premium_tva_context",
+      },
+      {
+        visible: revenues.length >= 5,
+        blockedBy: null,
+        text: "Historique illimité + exports automatiques en Premium",
+        source: "premium_history_context",
+      },
+      {
+        visible: acreMonthsLeft !== null && acreMonthsLeft <= 2,
+        blockedBy: "acre-ending",
+        text: "Anticipe la fin ACRE avec alertes personnalisées Premium",
+        source: "premium_acre_context",
+      },
+      {
+        visible: invoiceSectionSummary.unpaidCount > 0,
+        blockedBy: null,
+        text: "Suivi des factures impayées en Premium",
+        source: "premium_unpaid_context",
+      },
+    ];
+
+    return (
+      candidates.find(
+        (candidate) =>
+          candidate.visible &&
+          (!candidate.blockedBy || candidate.blockedBy !== primarySmartAlertId),
+      ) || null
+    );
+  }, [
+    dashboardAnswers?.acre,
+    dashboardAnswers?.acre_start_date,
+    computed?.tvaStatus,
+    revenues.length,
+    invoiceSectionSummary.unpaidCount,
+    primarySmartAlertId,
+  ]);
+  const premiumTrackingSource = normalizePremiumTrackingSource(
+    premiumContextualCTA?.source || "default",
+  );
+  const dashboardTopNudge = useMemo(() => {
+    const latestRevenueDate = revenues
+      .map((item) => parseIsoDate(item?.date))
+      .filter(Boolean)
+      .sort((a, b) => b.getTime() - a.getTime())[0];
+
+    if (latestRevenueDate) {
+      const daysSinceLastRevenue = Math.floor(
+        (Date.now() - latestRevenueDate.getTime()) / (1000 * 60 * 60 * 24),
+      );
+
+      if (daysSinceLastRevenue >= 7) {
+        return {
+          type: "revenue_recency",
+          text: "👋 Pense à ajouter ton revenu du mois pour garder tes prévisions à jour.",
+        };
+      }
+    }
+
+    if (
+      primarySmartAlertId !== "tva-threshold" &&
+      (computed?.tvaStatus === "soon" || computed?.tvaStatus === "exceeded")
+    ) {
+      return {
+        type: "tva_watch",
+        text: "⚠️ Ton seuil TVA évolue vite. Vérifie ton diagnostic cette semaine.",
+      };
+    }
+
+    if (
+      primarySmartAlertId !== "invoice_opportunity" &&
+      visibleInvoices.length === 0 &&
+      revenues.length >= 3
+    ) {
+      return {
+        type: "invoice_first",
+        text: "🧾 Crée ta première facture pour suivre tes paiements.",
+      };
+    }
+
+    if (
+      primarySmartAlertId !== "acre-ending" &&
+      dashboardAnswers?.acre === "yes" &&
+      dashboardAnswers?.acre_start_date
+    ) {
+      const acreStart = parseIsoDate(dashboardAnswers.acre_start_date);
+
+      if (acreStart) {
+        const acreEnd = new Date(acreStart);
+        acreEnd.setMonth(acreEnd.getMonth() + 12);
+        const daysLeft = Math.ceil(
+          (acreEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+        );
+        const monthsLeft = daysLeft > 0 ? Math.max(1, Math.ceil(daysLeft / 30)) : 0;
+
+        if (monthsLeft > 0 && monthsLeft <= 2) {
+          return {
+            type: "acre_ending",
+            text: "⏳ Prépare la fin ACRE dès maintenant pour éviter le choc de charges.",
+          };
+        }
+      }
+    }
+
+    return null;
+  }, [
+    computed?.tvaStatus,
+    dashboardAnswers?.acre,
+    dashboardAnswers?.acre_start_date,
+    primarySmartAlertId,
+    revenues,
+    visibleInvoices.length,
+  ]);
+  const shouldShowDashboardTopNudge =
+    dashboardTopNudge &&
+    dashboardTopNudge.type !== dashboardTopNudgeDismissedType;
+  const feedbackContextSnapshot = useMemo(() => {
+    let acreMonthsRemaining = null;
+
+    if (dashboardAnswers?.acre === "yes" && dashboardAnswers?.acre_start_date) {
+      const acreStart = parseIsoDate(dashboardAnswers.acre_start_date);
+
+      if (acreStart) {
+        const acreEnd = new Date(acreStart);
+        acreEnd.setMonth(acreEnd.getMonth() + 12);
+        const daysLeft = Math.ceil(
+          (acreEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+        );
+
+        if (daysLeft > 0) {
+          acreMonthsRemaining = Math.max(1, Math.ceil(daysLeft / 30));
+        } else {
+          acreMonthsRemaining = 0;
+        }
+      }
+    }
 
     return {
-      count: visibleInvoices.length,
-      unpaidCount,
+      totalRevenues: currentMonthTotal || 0,
+      revenuesCount: revenues.length || 0,
+      invoicesCount: visibleInvoices.length || 0,
+      activePriorityType: primarySmartAlertId || null,
+      premiumSource: premiumTrackingSource || "default",
+      remindersCount: activeReminderItems.length || 0,
+      projectedAnnual:
+        typeof computed?.annualRevenue === "number" ? computed.annualRevenue : null,
+      tvaThresholdState: computed?.tvaStatus || null,
+      acreMonthsRemaining,
     };
-  }, [visibleInvoices]);
+  }, [
+    dashboardAnswers?.acre,
+    dashboardAnswers?.acre_start_date,
+    currentMonthTotal,
+    revenues.length,
+    visibleInvoices.length,
+    primarySmartAlertId,
+    premiumTrackingSource,
+    activeReminderItems.length,
+    computed?.annualRevenue,
+    computed?.tvaStatus,
+  ]);
 
   const invoicesThisMonth = useMemo(() => {
   const now = new Date();
@@ -2540,19 +3285,13 @@ useEffect(() => {
   }).length;
 }, [visibleInvoices]);
 
+useEffect(() => {
+  if (appView !== "dashboard") return;
+  if (premiumCTAViewSourceRef.current === premiumTrackingSource) return;
 
-
-  // ==================== PROGRESS INDICATORS ====================
-
-  const savingsGoal = useMemo(() => {
-    // Objectif d'épargne recommandé: 3 mois de charges
-    return Math.max(estimatedCharges * 3, 500);
-  }, [estimatedCharges]);
-
-  const savingsProgress = useMemo(() => {
-    // Épargne actuelle = disponible estimé
-    return availableAmount;
-  }, [availableAmount]);
+  trackEvent("premium_cta_view", { source: premiumTrackingSource });
+  premiumCTAViewSourceRef.current = premiumTrackingSource;
+}, [appView, premiumTrackingSource]);
 
 const goToView = useCallback((nextView, options = {}) => {
   const { push = true, focus = false } = options;
@@ -2690,8 +3429,7 @@ function handleReminderToggle(key) {
       revenue_limit: () => revenues.length >= currentPlanLimits.revenues,
       invoice_limit: () =>
         invoicesThisMonth >= currentPlanLimits.invoicesPerMonth,
-      pdf_export_limit: () =>
-        pdfExportCount >= currentPlanLimits.pdfExportsPerMonth,
+      pdf_export_limit: () => isExportLimitReached,
       sms_premium: () => reminderPrefs.sms && !hasSmsPremiumAccess,
     };
 
@@ -2716,7 +3454,7 @@ function handleReminderToggle(key) {
     setShowRevenueDetails(false);
   }
 
- function handleOpenRevenuePopup() {
+function handleOpenRevenuePopup() {
   if (!guardPremiumAccess("revenue_limit", "revenue_limit")) {
     return;
   }
@@ -2736,6 +3474,15 @@ function handleOpenInvoiceGenerator() {
 
   // Keep every invoice entry point behind the same premium gate.
   setShowInvoiceGenerator(true);
+}
+
+function openReminderManager(source = "default") {
+  trackEvent("reminder_manage", {
+    source,
+    totalRevenues: revenues.length,
+    invoiceCount: visibleInvoices.length,
+  });
+  setShowReminderModal(true);
 }
 
   // ==================== ФУНКЦИИ УДАЛЕНИЯ И СБРОСА ====================
@@ -3056,7 +3803,7 @@ function handleOpenInvoiceGenerator() {
     }
 
     if (action === "reminders") {
-      setShowReminderModal(true);
+      openReminderManager("smart_priority");
       return;
     }
 
@@ -3142,6 +3889,12 @@ function handleOpenInvoiceGenerator() {
     }
 
     await refreshRevenues();
+    trackEvent("revenue_add", {
+      source: user ? "authenticated" : "guest",
+      totalRevenues: revenues.length + 1,
+      invoiceCount: visibleInvoices.length,
+    });
+    showSuccessToast("✅ Revenu ajouté. Tes projections sont à jour.", 4000);
 
     const rate =
       computed?.rate || getEstimatedRate(dashboardAnswers.activity_type);
@@ -3182,6 +3935,12 @@ function handleOpenInvoiceGenerator() {
 
       setShowAddRevenue(false);
       resetRevenueForm();
+      trackEvent("revenue_add", {
+        source: "guest",
+        totalRevenues: updatedRevenues.length,
+        invoiceCount: visibleInvoices.length,
+      });
+      showSuccessToast("✅ Revenu ajouté. Tes projections sont à jour.", 4000);
 
       showSaveNotice(
         `Revenu enregistré localement • ${revenueAmount.toLocaleString("fr-FR")} €`,
@@ -3208,9 +3967,21 @@ function handleOpenInvoiceGenerator() {
     });
   }
 
-  function handleExportCSV() {
-    if (filteredRevenues.length === 0) return;
+function handleExportCSV() {
+  const currentUsage = syncMonthlyExportUsage();
+  const currentRemainingExports = isPremium
+    ? Infinity
+    : Math.max(0, FREE_EXPORTS_PER_MONTH - currentUsage.total);
 
+  if (filteredRevenues.length === 0 || isExportingCsv) return;
+  if (!isPremium && currentRemainingExports <= 0) {
+    handleExportLimitHit(currentUsage);
+    return;
+  }
+
+  setIsExportingCsv(true);
+
+  try {
     const headers = ["Date", "Montant", "Client", "Facture", "Note"];
 
     const rows = filteredRevenues.map((item) => [
@@ -3241,108 +4012,148 @@ function handleOpenInvoiceGenerator() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    incrementMonthlyExportUsage("csv");
+    trackEvent("export_csv", {
+      source: "revenues",
+      totalRevenues: filteredRevenues.length,
+      invoiceCount: visibleInvoices.length,
+    });
+    showSuccessToast("✅ Export prêt. Ton suivi est sauvegardé.", 4000);
+  } finally {
+    setIsExportingCsv(false);
   }
+}
 
-function incrementPdfExportCount() {
-  const nextCount = pdfExportCount + 1;
-  setPdfExportCount(nextCount);
+function incrementMonthlyExportUsage(type) {
+  const usageType = type === "pdf" ? "pdf" : "csv";
+  const currentUsage = readMonthlyExportUsage();
+  const nextUsage = normalizeMonthlyExportUsage({
+    ...currentUsage,
+    [usageType]: currentUsage[usageType] + 1,
+    total: currentUsage.total + 1,
+  });
 
-  const key = `microassist_pdf_exports_${new Date().getFullYear()}_${new Date().getMonth() + 1}`;
-  localStorage.setItem(key, String(nextCount));
+  setMonthlyExportUsage(nextUsage);
+  writeMonthlyExportUsage(nextUsage);
+}
+
+function syncMonthlyExportUsage() {
+  const normalizedUsage = readMonthlyExportUsage();
+  setMonthlyExportUsage(normalizedUsage);
+  writeMonthlyExportUsage(normalizedUsage);
+  return normalizedUsage;
+}
+
+function handleExportLimitHit(currentUsage = monthlyExportUsage) {
+  const remaining = Math.max(
+    0,
+    FREE_EXPORTS_PER_MONTH - Number(currentUsage?.total || 0)
+  );
+
+  trackEvent("export_limit_hit", {
+    source: "exports_limit",
+    usedExports: Number(currentUsage?.total || 0),
+    remainingExports: remaining,
+    totalRevenues: filteredRevenues.length,
+    invoiceCount: visibleInvoices.length,
+  });
+  openPremiumModal("exports_limit");
 }
 
 const handleExportPDF = useCallback(async () => {
-  const doc = new jsPDF();
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
-  const margin = 16;
-  let y = 22;
+  try {
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 16;
+    let y = 22;
 
-  // Palette sérieuse
-  const navy = [30, 41, 59];        // slate-800
-  const dark = [17, 24, 39];        // gray-900
-  const muted = [75, 85, 99];       // gray-600
-  const border = [229, 231, 235];   // gray-200
-  const soft = [249, 250, 251];     // gray-50
-  const softBlue = [241, 245, 249]; // slate-100
+    // Palette sérieuse
+    const navy = [30, 41, 59];        // slate-800
+    const dark = [17, 24, 39];        // gray-900
+    const muted = [75, 85, 99];       // gray-600
+    const border = [229, 231, 235];   // gray-200
+    const soft = [249, 250, 251];     // gray-50
+    const softBlue = [241, 245, 249]; // slate-100
 
-  const cleanPdfText = (text) =>
-    String(text || "")
-      .replace(/[^\x00-\x7F]/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
+    const cleanPdfText = (text) =>
+      String(text || "")
+        .replace(/[^\x00-\x7F]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
 
-  const ensureSpace = (needed = 24) => {
-    if (y + needed > pageHeight - 20) {
-      doc.addPage();
-      y = 20;
-    }
-  };
+    const ensureSpace = (needed = 24) => {
+      if (y + needed > pageHeight - 20) {
+        doc.addPage();
+        y = 20;
+      }
+    };
 
-  const drawTitle = (title) => {
-    ensureSpace(12);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(13);
-    doc.setTextColor(...dark);
-    doc.text(title, margin, y);
-    y += 8;
-  };
+    const drawTitle = (title) => {
+      ensureSpace(12);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.setTextColor(...dark);
+      doc.text(title, margin, y);
+      y += 8;
+    };
 
-  const drawLine = (label, value) => {
-    ensureSpace(8);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.setTextColor(...dark);
-    doc.text(`${label} :`, margin, y);
+    const drawLine = (label, value) => {
+      ensureSpace(8);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.setTextColor(...dark);
+      doc.text(`${label} :`, margin, y);
 
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(...muted);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...muted);
 
-    const text = cleanPdfText(value || "—");
-    const wrapped = doc.splitTextToSize(text, pageWidth - margin * 2 - 38);
-    doc.text(wrapped, margin + 34, y);
-    y += Math.max(7, wrapped.length * 5.5);
-  };
+      const text = cleanPdfText(value || "—");
+      const wrapped = doc.splitTextToSize(text, pageWidth - margin * 2 - 38);
+      doc.text(wrapped, margin + 34, y);
+      y += Math.max(7, wrapped.length * 5.5);
+    };
 
-  const drawBox = (title, lines = [], fill = soft) => {
-    const lineHeight = 6;
-    const wrappedLines = lines.map((line) =>
-      doc.splitTextToSize(cleanPdfText(line), pageWidth - margin * 2 - 14)
-    );
-    const contentHeight =
-      wrappedLines.reduce((sum, arr) => sum + arr.length * lineHeight, 0) + 18;
+    const drawBox = (title, lines = [], fill = soft) => {
+      const lineHeight = 6;
+      const wrappedLines = lines.map((line) =>
+        doc.splitTextToSize(cleanPdfText(line), pageWidth - margin * 2 - 14)
+      );
+      const contentHeight =
+        wrappedLines.reduce((sum, arr) => sum + arr.length * lineHeight, 0) + 18;
 
-    ensureSpace(contentHeight + 8);
+      ensureSpace(contentHeight + 8);
 
-    doc.setFillColor(...fill);
-    doc.setDrawColor(...border);
-    doc.roundedRect(
-      margin,
-      y,
-      pageWidth - margin * 2,
-      contentHeight,
-      3,
-      3,
-      "FD"
-    );
+      doc.setFillColor(...fill);
+      doc.setDrawColor(...border);
+      doc.roundedRect(
+        margin,
+        y,
+        pageWidth - margin * 2,
+        contentHeight,
+        3,
+        3,
+        "FD"
+      );
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.setTextColor(...dark);
-    doc.text(title, margin + 6, y + 8);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.setTextColor(...dark);
+      doc.text(title, margin + 6, y + 8);
 
-    let innerY = y + 16;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.setTextColor(...muted);
+      let innerY = y + 16;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(...muted);
 
-    wrappedLines.forEach((arr) => {
-      doc.text(arr, margin + 6, innerY);
-      innerY += arr.length * lineHeight;
-    });
+      wrappedLines.forEach((arr) => {
+        doc.text(arr, margin + 6, innerY);
+        innerY += arr.length * lineHeight;
+      });
 
-    y += contentHeight + 8;
-  };
+      y += contentHeight + 8;
+    };
 
   // HEADER
   doc.setFillColor(...navy);
@@ -3533,9 +4344,14 @@ const handleExportPDF = useCallback(async () => {
     );
   }
 
-  doc.save(
-    `rapport_microassist_${new Date().toISOString().split("T")[0]}.pdf`
-  );
+    doc.save(
+      `rapport_microassist_${new Date().toISOString().split("T")[0]}.pdf`
+    );
+    return true;
+  } catch (error) {
+    console.error("Erreur export PDF:", error);
+    return false;
+  }
 }, [
   activityLabel,
   freqLabel,
@@ -3551,13 +4367,36 @@ const handleExportPDF = useCallback(async () => {
   savingsProgress,
 ]);
 
-function handleExportPDFWithLimit() {
-  if (!guardPremiumAccess("pdf_export_limit", "pdf_export_limit")) {
+async function handleExportPDFWithLimit() {
+  const currentUsage = syncMonthlyExportUsage();
+  const currentRemainingExports = isPremium
+    ? Infinity
+    : Math.max(0, FREE_EXPORTS_PER_MONTH - currentUsage.total);
+
+  if (isExportingPdf) {
+    return;
+  }
+  if (!isPremium && currentRemainingExports <= 0) {
+    handleExportLimitHit(currentUsage);
     return;
   }
 
-  handleExportPDF();
-  incrementPdfExportCount();
+  setIsExportingPdf(true);
+  try {
+    const exportCompleted = await handleExportPDF();
+
+    if (exportCompleted) {
+      incrementMonthlyExportUsage("pdf");
+      trackEvent("export_pdf", {
+        source: "revenues",
+        totalRevenues: revenues.length,
+        invoiceCount: visibleInvoices.length,
+      });
+      showSuccessToast("✅ Export prêt. Ton suivi est sauvegardé.", 4000);
+    }
+  } finally {
+    setIsExportingPdf(false);
+  }
 }
   
 
@@ -3710,6 +4549,9 @@ function handleExportPDFWithLimit() {
 
 async function handleOpenSaveModal(source = "unknown", options = {}) {
   const { inlineStatusOnly = false } = options;
+  const trackingSource = normalizePremiumTrackingSource(source);
+  trackEvent("premium_cta_click", { source: trackingSource });
+  trackPremiumEvent(source, "modal_open");
   track("pricing_modal_opened", { source });
   setPremiumModalSource(source);
   setPremiumWaitlistEmail(user?.email?.trim().toLowerCase() ?? "");
@@ -3725,11 +4567,25 @@ async function handleOpenSaveModal(source = "unknown", options = {}) {
     return;
   }
 
+  trackEvent("premium_modal_open", { source: trackingSource });
   setShowPricingModal(true);
 }
 
+const closePremiumModal = useCallback((sourceOverride) => {
+  const source = normalizePremiumTrackingSource(
+    sourceOverride || premiumModalSource || "unknown",
+  );
+  trackEvent("premium_modal_close", { source });
+  trackPremiumEvent(sourceOverride || premiumModalSource || "unknown", "dismiss");
+  setShowPricingModal(false);
+}, [premiumModalSource]);
+
 function openPremiumModal(source = "unknown") {
+  const trackingSource = normalizePremiumTrackingSource(source);
+  trackEvent("premium_cta_click", { source: trackingSource });
+  trackPremiumEvent(source, "modal_open");
   track("pricing_modal_opened", { source });
+  trackEvent("premium_modal_open", { source: trackingSource });
   setPremiumModalSource(source);
   setPremiumWaitlistEmail(user?.email?.trim().toLowerCase() ?? "");
   setPremiumWaitlistError("");
@@ -3740,15 +4596,26 @@ function openPremiumModal(source = "unknown") {
 const joinPremiumWaitlist = useCallback(
   async ({ email, source, isAuthenticatedEmail = false, inlineStatusOnly = false }) => {
     const normalizedEmail = email.trim().toLowerCase();
+    const trackingSource = normalizePremiumTrackingSource(source);
 
     if (!normalizedEmail) {
       setPremiumWaitlistError("Merci d’indiquer ton email.");
+      trackEvent("premium_waitlist_submit", {
+        source: trackingSource,
+        success: false,
+        reason: "missing_email",
+      });
       return false;
     }
 
     const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail);
     if (!isValidEmail) {
       setPremiumWaitlistError("Merci d’indiquer un email valide.");
+      trackEvent("premium_waitlist_submit", {
+        source: trackingSource,
+        success: false,
+        reason: "invalid_email",
+      });
       return false;
     }
 
@@ -3765,12 +4632,35 @@ const joinPremiumWaitlist = useCallback(
       if (error) {
         console.error("Premium waitlist RPC error:", error.message);
         showSaveNotice("Impossible de rejoindre la liste Premium.", 4000);
+        trackEvent("premium_waitlist_submit", {
+          source: trackingSource,
+          success: false,
+          reason: "rpc_error",
+        });
         return false;
       }
 
       const status = Array.isArray(data) ? data[0]?.status : data?.status;
+      const grantsPremiumAccess = [
+        "approved",
+        "activated",
+        "active",
+        "premium_active",
+        "founder_granted",
+      ].includes(String(status || "").toLowerCase());
 
-      setShowPricingModal(false);
+      trackEvent("premium_waitlist_submit", {
+        source: trackingSource,
+        success: true,
+        status: status || "submitted",
+      });
+      trackPremiumEvent(source, "waitlist_submit");
+
+      if (showPricingModal) {
+        closePremiumModal(source);
+      } else {
+        setShowPricingModal(false);
+      }
       setPremiumWaitlistEmail("");
       setPremiumWaitlistError("");
 
@@ -3796,6 +4686,10 @@ const joinPremiumWaitlist = useCallback(
         }
       }
 
+      if (grantsPremiumAccess) {
+        await persistPremiumStatus(true);
+      }
+
       if (!inlineStatusOnly) {
         window.scrollTo({
           top: 0,
@@ -3807,12 +4701,17 @@ const joinPremiumWaitlist = useCallback(
     } catch (error) {
       console.error("Unexpected premium waitlist error:", error);
       showSaveNotice("Impossible de rejoindre la liste Premium.", 4000);
+      trackEvent("premium_waitlist_submit", {
+        source: trackingSource,
+        success: false,
+        reason: "unexpected_error",
+      });
       return false;
     } finally {
       setIsJoiningPremiumWaitlist(false);
     }
   },
-  [user, showSaveNotice],
+  [closePremiumModal, persistPremiumStatus, showPricingModal, showSaveNotice, user],
 );
 
 const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
@@ -4140,6 +5039,29 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
               </button>
             </nav>
 
+            {isLocalhostQa && (
+              <button
+                type="button"
+                className="btn btnGhost btnSmall"
+                onClick={toggleLocalPremiumQa}
+                style={{
+                  paddingInline: "0.8rem",
+                  borderRadius: 999,
+                  background: localPremiumStatus
+                    ? "rgba(255, 244, 214, 0.88)"
+                    : "rgba(241, 245, 249, 0.92)",
+                  border: localPremiumStatus
+                    ? "1px solid rgba(217, 168, 41, 0.24)"
+                    : "1px solid rgba(148, 163, 184, 0.22)",
+                  color: localPremiumStatus ? "#7c5a10" : "#475569",
+                  fontWeight: 700,
+                }}
+                title="Basculer le mode Premium QA en local"
+              >
+                🧪 Premium QA
+              </button>
+            )}
+
             {user && (
               <button
                 type="button"
@@ -4192,6 +5114,48 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
         )}
       </div>
     )}
+  </div>
+)}
+        {successToast && (
+  <div
+    role="status"
+    aria-live="polite"
+    style={{
+      position: "fixed",
+      top: 88,
+      right: 16,
+      zIndex: 3001,
+      width: "min(360px, calc(100vw - 24px))",
+      padding: "12px 14px",
+      borderRadius: 14,
+      background: "#f3fbf6",
+      border: "1px solid #bfe7c8",
+      color: "#166534",
+      boxShadow: "0 16px 36px rgba(22, 101, 52, 0.12)",
+      display: "flex",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
+      gap: 12,
+    }}
+  >
+    <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.45 }}>
+      {successToast}
+    </div>
+    <button
+      className="iconBtn"
+      type="button"
+      aria-label="Masquer la notification"
+      onClick={() => {
+        if (successToastTimeoutRef.current) {
+          clearTimeout(successToastTimeoutRef.current);
+          successToastTimeoutRef.current = null;
+        }
+        setSuccessToast(null);
+      }}
+      style={{ padding: "4px 8px", minWidth: "auto" }}
+    >
+      ✕
+    </button>
   </div>
 )}
           {appView === "landing" && (
@@ -5137,6 +6101,46 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
 
           {appView === "dashboard" && (
             <section ref={fiscalRef} className="card">
+              {shouldShowDashboardTopNudge && (
+                <div
+                  style={{
+                    marginBottom: 16,
+                    padding: "12px 14px",
+                    borderRadius: 14,
+                    background: "#f8fafc",
+                    border: "1px solid #dbe4ee",
+                    color: "#334155",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    boxShadow: "0 8px 18px rgba(15, 23, 42, 0.04)",
+                  }}
+                >
+                  <div style={{ fontSize: 14, lineHeight: 1.5 }}>
+                    {dashboardTopNudge.text}
+                  </div>
+                  <button
+                    className="iconBtn"
+                    type="button"
+                    aria-label="Masquer cette suggestion"
+                    onClick={() => {
+                      const dismissedType = dashboardTopNudge?.type || "";
+                      setDashboardTopNudgeDismissedType(dismissedType);
+                      try {
+                        localStorage.setItem(
+                          DASHBOARD_TOP_NUDGE_DISMISSED_KEY,
+                          dismissedType,
+                        );
+                      } catch {
+                        // Ignore localStorage failures for dashboard UI state.
+                      }
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
               <div className="sectionHead">
                 <div>
                   <h2>Mon espace fiscal</h2>
@@ -5158,8 +6162,16 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                       color: "#6d28d9",
                     }}
                   >
-                    <div style={{ fontSize: 13, fontWeight: 700 }}>
-                      {premiumTopMessage}
+                    <div style={{ display: "grid", gap: 2, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 800 }}>
+                        {premiumBannerContent.line1}
+                      </div>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>
+                        {premiumBannerContent.line2}
+                      </div>
+                      <div style={{ fontSize: 12, opacity: 0.9 }}>
+                        {premiumBannerContent.line3}
+                      </div>
                     </div>
                     {premiumWaitlistJoined && (
                       <div style={{ fontSize: 12, fontWeight: 600 }}>
@@ -5169,9 +6181,13 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                     <button
                       className="btn btnGhost btnSmall"
                       type="button"
-                      onClick={() => openPremiumModal("dashboard_top")}
+                      onClick={() =>
+                        openPremiumModal(
+                          premiumContextualCTA?.source || "dashboard_top",
+                        )
+                      }
                     >
-                      Voir les avantages
+                      {premiumContextualCTA ? "Voir les avantages Premium" : "Voir les avantages"}
                     </button>
                   </div>
                 </div>
@@ -5222,7 +6238,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
 <button
   className="btn btnGhost btnSmall"
   type="button"
-  onClick={() => setShowReminderModal(true)}
+  onClick={() => openReminderManager("dashboard_top")}
 >
   🔔 Gérer mes rappels
 </button>
@@ -5605,7 +6621,15 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                           <button
                             className="btn btnGhost btnSmall"
                             type="button"
-                            onClick={() => handleSmartAlertAction(alert.action)}
+                            onClick={() => {
+                              trackEvent("priority_cta_click", {
+                                source: "smart_priorites",
+                                priorityType: alert.id,
+                                totalRevenues: revenues.length,
+                                invoiceCount: visibleInvoices.length,
+                              });
+                              handleSmartAlertAction(alert.action);
+                            }}
                           >
                             {alert.cta}
                           </button>
@@ -5616,6 +6640,32 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 </div>
               </div>
               </div>
+
+              {fiscalCoachingCard && (
+                <div className="fiscalCoachCard">
+                  <div className="fiscalCoachTitle">💡 Conseil fiscal du moment</div>
+                  <div className="fiscalCoachText">{fiscalCoachingCard.text}</div>
+                  {fiscalCoachingCard.cta && fiscalCoachingCard.onClick && (
+                    <div className="fiscalCoachActions">
+                      <button
+                        className="btn btnGhost btnSmall"
+                        type="button"
+                        onClick={fiscalCoachingCard.onClick}
+                      >
+                        {fiscalCoachingCard.cta}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {fiscalRecommendationCard && (
+                <div className="fiscalRecommendationCard">
+                  <div className="fiscalRecommendationText">
+                    {fiscalRecommendationCard}
+                  </div>
+                </div>
+              )}
 
               {showCashImpactModal && (
                 <div
@@ -5939,6 +6989,24 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 </div>
               )}
 
+              <div className="fiscalScoreCard">
+                <div className="fiscalScoreHeader">
+                  <h3>🎯 Score fiscal</h3>
+                </div>
+                <div className="fiscalScoreValue">
+                  {fiscalScore.value} <span>/ 100</span>
+                </div>
+                <div className="fiscalScoreText">
+                  {fiscalScore.interpretation}
+                </div>
+                <div className="fiscalScoreBar">
+                  <div
+                    className="fiscalScoreBarFill"
+                    style={{ width: `${fiscalScore.value}%` }}
+                  />
+                </div>
+              </div>
+
               {/* Добавьте после fiscalDashboard */}
               {isFiscalProfileComplete && currentMonthTotal > 0 && (
                 <div
@@ -6174,20 +7242,76 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                     className="btn btnGhost btnSmall"
                     type="button"
                     onClick={handleExportCSV}
-                    disabled={filteredRevenues.length === 0}
+                    disabled={
+                      filteredRevenues.length === 0 ||
+                      isExportingCsv ||
+                      isExportLimitReached
+                    }
                     title="Exporter les revenus affichés"
+                    style={{
+                      opacity:
+                        filteredRevenues.length === 0 ||
+                        isExportingCsv ||
+                        isExportLimitReached
+                          ? 0.5
+                          : 1,
+                      cursor:
+                        filteredRevenues.length === 0 ||
+                        isExportingCsv ||
+                        isExportLimitReached
+                          ? "not-allowed"
+                          : "pointer",
+                    }}
                   >
-                    Export CSV
+                    {isExportingCsv ? "Export CSV..." : "Export CSV"}
                   </button>
 
                   <button
                     className="btn btnGhost btnSmall"
                     type="button"
                     onClick={handleExportPDFWithLimit}
-                    disabled={revenues.length === 0}
+                    disabled={
+                      revenues.length === 0 ||
+                      isExportingPdf ||
+                      isExportLimitReached
+                    }
+                    style={{
+                      opacity:
+                        revenues.length === 0 ||
+                        isExportingPdf ||
+                        isExportLimitReached
+                          ? 0.5
+                          : 1,
+                      cursor:
+                        revenues.length === 0 ||
+                        isExportingPdf ||
+                        isExportLimitReached
+                          ? "not-allowed"
+                          : "pointer",
+                    }}
                   >
-                    📄 Export PDF
+                    {isExportingPdf ? "Export PDF..." : "📄 Export PDF"}
                   </button>
+
+                  {isPremium && (
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        padding: "0.35rem 0.7rem",
+                        borderRadius: 999,
+                        background: "rgba(255, 244, 214, 0.8)",
+                        border: "1px solid rgba(217, 168, 41, 0.22)",
+                        color: "#7c5a10",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        letterSpacing: "0.01em",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      ⭐ Premium actif
+                    </span>
+                  )}
 
                   <select
                     value={selectedMonth}
@@ -6202,6 +7326,18 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                     ))}
                   </select>
                 </div>
+              </div>
+              <div
+                className="muted"
+                style={{ marginTop: 8, fontSize: 12, color: "#64748b" }}
+              >
+                {isPremium
+                  ? "PDF + CSV illimités • historique complet"
+                  : remainingExports <= 0
+                    ? "Limite atteinte • Passe Premium pour continuer"
+                    : remainingExports <= 1
+                    ? "Dernier export gratuit ce mois-ci"
+                    : `Il te reste ${remainingExports} exports gratuits ce mois-ci`}
               </div>
 
               {filteredRevenues.length === 0 ? (
@@ -6628,6 +7764,9 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 href="https://docs.google.com/forms/d/e/1FAIpQLSfFLqWZajP6Dy0Zm5-bS9cnE5-joWecfCgfyIhzGRMbsk-jqA/viewform"
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={() =>
+                  trackEvent("feedback_open", feedbackContextSnapshot)
+                }
               >
                 Ouvrir le formulaire
               </a>
@@ -7098,7 +8237,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
         {showPricingModal && (
           <div
             className="modalOverlay"
-            onClick={() => setShowPricingModal(false)}
+            onClick={() => closePremiumModal(premiumModalSource)}
           >
             <div
               className="modalCard"
@@ -7106,10 +8245,10 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="sectionHead">
-                <h3>Premium arrive bientôt ✨</h3>
+                <h3>{premiumModalContent.title}</h3>
                 <button
                   className="iconBtn"
-                  onClick={() => setShowPricingModal(false)}
+                  onClick={() => closePremiumModal(premiumModalSource)}
                   type="button"
                 >
                   ✕
@@ -7118,9 +8257,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
 
   <div style={{ marginTop: 20 }}>
   <p style={{ fontSize: 14, lineHeight: 1.6, marginTop: 0, marginBottom: 0 }}>
-  La version Premium est en cours de finalisation.
-  <br />
-  Laisse simplement ton email pour recevoir l’accès en avant-première.
+  {premiumModalContent.intro}
 </p>
 
   {premiumWaitlistJoined && (
@@ -7150,10 +8287,10 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
     }}
   >
   <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.2, marginBottom: 6 }}>
-  Ouverture prochaine
+  {premiumModalContent.heroTitle}
   </div>
   <p style={{ fontSize: 14, lineHeight: 1.6, margin: 0 }}>
-    Aucun compte n’est nécessaire pour rejoindre la liste Premium.
+    {premiumModalContent.heroText}
   </p>
   </div>
 
@@ -7214,7 +8351,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
         lineHeight: 1.7,
       }}
     >
-      <li>✔ Historique complet de tes revenus</li>
+      <li>{premiumModalContent.firstBenefit}</li>
       <li>✔ Alertes SMS urgentes avant échéance</li>
       <li>✔ Export PDF / CSV illimité</li>
       <li>✔ Suivi TVA + ACRE + CFE intelligent</li>
@@ -7245,7 +8382,10 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
     <button
       className="btn btnGhost"
       type="button"
-      onClick={() => setShowPricingModal(false)}
+      onClick={() => {
+        trackPremiumEvent(premiumModalSource || "unknown", "continue_free");
+        setShowPricingModal(false);
+      }}
       style={{ flex: 1 }}
     >
       Continuer en gratuit
@@ -7404,9 +8544,27 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
           onSaved={({ savedToSupabase, message, invoice } = {}) => {
             setShowInvoiceGenerator(false);
             if (savedToSupabase) {
+              trackEvent("invoice_create", {
+                source: "authenticated",
+                totalRevenues: revenues.length,
+                invoiceCount: visibleInvoices.length + 1,
+              });
+              showSuccessToast(
+                "✅ Facture créée. Tu peux maintenant suivre les paiements.",
+                4000,
+              );
               refreshInvoices();
               setInvoiceNotice(message || "Facture enregistrée ✅");
             } else if (invoice) {
+              trackEvent("invoice_create", {
+                source: "guest",
+                totalRevenues: revenues.length,
+                invoiceCount: visibleInvoices.length + 1,
+              });
+              showSuccessToast(
+                "✅ Facture créée. Tu peux maintenant suivre les paiements.",
+                4000,
+              );
               setGuestInvoices((prev) => {
                 const next = [invoice, ...prev];
                 localStorage.setItem(GUEST_INVOICES_KEY, JSON.stringify(next));

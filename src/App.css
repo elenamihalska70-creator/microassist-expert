@@ -675,6 +675,97 @@ section[id] {
   justify-content: flex-start;
 }
 
+.fiscalCoachCard {
+  margin: 14px 0 18px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(15, 23, 42, 0.07);
+  background: #ffffff;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.035);
+}
+
+.fiscalCoachTitle {
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 6px;
+}
+
+.fiscalCoachText {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #475569;
+}
+
+.fiscalCoachActions {
+  margin-top: 12px;
+}
+
+.fiscalRecommendationCard {
+  margin: -4px 0 18px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: linear-gradient(180deg, #fbfcfd 0%, #f7f9fb 100%);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.025);
+}
+
+.fiscalRecommendationText {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #475569;
+}
+
+.fiscalScoreCard {
+  margin: 18px 0 16px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(15, 23, 42, 0.07);
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.035);
+}
+
+.fiscalScoreHeader h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #0f172a;
+}
+
+.fiscalScoreValue {
+  margin-top: 10px;
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1.05;
+  color: #0f172a;
+  letter-spacing: -0.03em;
+}
+
+.fiscalScoreValue span {
+  font-size: 17px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.fiscalScoreText {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #475569;
+}
+
+.fiscalScoreBar {
+  margin-top: 12px;
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #edf2f6 0%, #e7edf2 100%);
+  overflow: hidden;
+}
+
+.fiscalScoreBarFill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #8aa1b7 0%, #6d879f 100%);
+}
+
 .mainActionBox {
   border-radius: 14px;
   padding: 16px;
