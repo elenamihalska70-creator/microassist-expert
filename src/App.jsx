@@ -33,6 +33,8 @@ const DASHBOARD_REMINDERS_DISMISSED_KEY =
 const DASHBOARD_SECTIONS_KEY = "microassist_dashboard_sections";
 const DASHBOARD_TOP_NUDGE_DISMISSED_KEY =
   "microassist_dashboard_top_nudge_dismissed";
+const FIRST_REVENUE_ONBOARDING_SEEN_KEY =
+  "microassist_first_revenue_onboarding_seen";
 const BETA_SEEN_KEY = "beta_seen";
 const FOUNDER_OFFER_LIMIT = 100;
 const FREE_EXPORTS_PER_MONTH = 3;
@@ -118,6 +120,25 @@ function writeLocalPremiumStatus(isPremium) {
   }
 }
 
+function readFirstRevenueOnboardingSeen() {
+  try {
+    return localStorage.getItem(FIRST_REVENUE_ONBOARDING_SEEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeFirstRevenueOnboardingSeen(value) {
+  try {
+    localStorage.setItem(
+      FIRST_REVENUE_ONBOARDING_SEEN_KEY,
+      value ? "1" : "0",
+    );
+  } catch {
+    // Ignore localStorage write failures for onboarding redirect state.
+  }
+}
+
 function readMonthlyExportUsage() {
   try {
     const saved = localStorage.getItem(getCurrentMonthlyExportStorageKey());
@@ -171,6 +192,87 @@ function writeMonthlyExportUsage(rawValue) {
   } catch {
     return normalizeMonthlyExportUsage(rawValue);
   }
+}
+
+function computePremiumLifecycleState({
+  user,
+  persistedPlan,
+  profilePremiumStatus,
+  localPremiumStatus,
+  isLocalhostQa,
+  founderActivatedAt,
+  founderExpiresAt,
+}) {
+  const hasAuthenticatedUser = Boolean(user);
+  const isQaPremium = Boolean(isLocalhostQa && localPremiumStatus);
+  const isFounderPlan = persistedPlan === "beta_founder";
+  const hasFounderActivationDate = Boolean(founderActivatedAt);
+  const daysRemaining =
+    founderExpiresAt && !Number.isNaN(founderExpiresAt.getTime())
+      ? Math.max(
+          0,
+          Math.ceil(
+            (founderExpiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+          ),
+        )
+      : null;
+  const isFounderActive =
+    hasAuthenticatedUser &&
+    isFounderPlan &&
+    hasFounderActivationDate &&
+    daysRemaining !== null &&
+    daysRemaining > 0;
+  const isPaidPlan = Boolean(
+    persistedPlan && !["free", "beta_founder"].includes(persistedPlan),
+  );
+  const isPaidPremium =
+    hasAuthenticatedUser &&
+    !isQaPremium &&
+    (isPaidPlan || (profilePremiumStatus && !isFounderPlan));
+  const isGuestFree = !hasAuthenticatedUser && !isQaPremium;
+  const isRegisteredFounderEnding = isFounderActive && daysRemaining <= 7;
+  const isRegisteredFounderActive = isFounderActive && daysRemaining > 7;
+  const isRegisteredFreeAfterTrial =
+    hasAuthenticatedUser &&
+    !isQaPremium &&
+    !isPaidPremium &&
+    (!isFounderPlan ||
+      !hasFounderActivationDate ||
+      (daysRemaining !== null && daysRemaining <= 0));
+  const hasPremiumAccess = isQaPremium || isPaidPremium || isFounderActive;
+
+  let state = "guest_free";
+
+  if (isQaPremium) {
+    state = "premium_qa_override";
+  } else if (isPaidPremium) {
+    state = "premium_paid_active";
+  } else if (isRegisteredFounderEnding) {
+    state = "registered_founder_ending";
+  } else if (isRegisteredFounderActive) {
+    state = "registered_founder_active";
+  } else if (isRegisteredFreeAfterTrial) {
+    state = "registered_free_after_trial";
+  }
+
+  return {
+    state,
+    daysRemaining,
+    hasPremiumAccess,
+    isPremiumActive: hasPremiumAccess,
+    isQaPremium,
+    isPaidPremium,
+    isFounderActive,
+    isGuestFree,
+    isRegisteredFounderActive,
+    isRegisteredFounderEnding,
+    isRegisteredFreeAfterTrial,
+    isPremiumQaOverride: state === "premium_qa_override",
+    isPremiumPaidActive: state === "premium_paid_active",
+    shouldShowCountdown: isFounderActive,
+    shouldShowTrialEndingSoon: isRegisteredFounderEnding,
+    shouldShowReactivateCta: state === "registered_free_after_trial",
+  };
 }
 
 function normalizePremiumTrackingSource(source = "unknown") {
@@ -653,6 +755,8 @@ useEffect(() => {
   const [logoutPending, setLogoutPending] = useState(false);
   const [assistantFieldError, setAssistantFieldError] = useState("");
   const [assistantEditMode, setAssistantEditMode] = useState(false);
+  const [showFirstRevenueOnboarding, setShowFirstRevenueOnboarding] =
+    useState(false);
   const [profileEditMode, setProfileEditMode] = useState("idle");
   const [selectedProfileField, setSelectedProfileField] = useState(null);
   const [profileEditDraft, setProfileEditDraft] = useState({});
@@ -720,6 +824,9 @@ useEffect(() => {
     useState(false);
   const [premiumWaitlistJoined, setPremiumWaitlistJoined] = useState(false);
   const premiumCTAViewSourceRef = useRef(null);
+  const firstRevenueOnboardingSeenRef = useRef(
+    readFirstRevenueOnboardingSeen(),
+  );
   const [dashboardRemindersDismissed, setDashboardRemindersDismissed] =
     useState(() => {
       try {
@@ -903,43 +1010,54 @@ useEffect(() => {
   const persistedPlan = fiscalProfile?.plan || null;
   const profilePremiumStatus = Boolean(fiscalProfile?.is_premium);
 
-  // Trial is anchored to a real persisted creation date so it never restarts on login.
-  const trialEndsAt = useMemo(() => {
-    const anchorCandidates = [
+  const founderActivatedAt = useMemo(() => {
+    const activationCandidates = [
+      fiscalProfile?.trial_started_at,
       fiscalProfile?.created_at,
       user?.created_at,
-      fiscalProfile?.trial_started_at,
     ];
 
-    const anchor = anchorCandidates
-      .map((value) => (value ? new Date(value) : null))
-      .find((date) => date && !Number.isNaN(date.getTime()));
+    return (
+      activationCandidates
+        .map((value) => (value ? new Date(value) : null))
+        .find((date) => date && !Number.isNaN(date.getTime())) || null
+    );
+  }, [fiscalProfile?.created_at, fiscalProfile?.trial_started_at, user?.created_at]);
 
-    if (!anchor) {
+  const founderExpiresAt = useMemo(() => {
+    if (fiscalProfile?.trial_ends_at) {
+      const persistedExpiry = new Date(fiscalProfile.trial_ends_at);
+
+      if (!Number.isNaN(persistedExpiry.getTime())) {
+        return persistedExpiry;
+      }
+    }
+
+    if (!founderActivatedAt) {
       return null;
     }
 
-    const derivedEndsAt = new Date(anchor);
-    derivedEndsAt.setDate(derivedEndsAt.getDate() + 90);
-    return derivedEndsAt;
-  }, [fiscalProfile?.created_at, fiscalProfile?.trial_started_at, user?.created_at]);
+    const derivedExpiry = new Date(founderActivatedAt);
+    derivedExpiry.setDate(derivedExpiry.getDate() + 90);
+    return derivedExpiry;
+  }, [fiscalProfile?.trial_ends_at, founderActivatedAt]);
 
   const trialDaysLeft = useMemo(() => {
-    if (!trialEndsAt) return null;
+    if (!founderExpiresAt) return null;
 
     const now = new Date();
-    const diffMs = trialEndsAt.getTime() - now.getTime();
+    const diffMs = founderExpiresAt.getTime() - now.getTime();
     const remaining = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 
     return Math.max(0, remaining);
-  }, [trialEndsAt]);
+  }, [founderExpiresAt]);
 
   const isTrialActive = trialDaysLeft !== null && trialDaysLeft > 0;
   const isTrialExpired = trialDaysLeft !== null && trialDaysLeft <= 0;
   // Effective plan is the only plan used by UI limits and premium guards.
   const effectivePlan = useMemo(() => {
     if (!user) {
-      return defaultGuestPlan;
+      return "free";
     }
 
     if (!persistedPlan) {
@@ -958,22 +1076,85 @@ useEffect(() => {
     typeof window !== "undefined" &&
     import.meta.env.DEV &&
     ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
-  const restoredPremiumStatus = user
-    ? fiscalProfileLoaded
-      ? profilePremiumStatus
-      : localPremiumStatus
-    : localPremiumStatus;
-  const isPremium = isLocalhostQa
-    ? localPremiumStatus
-    : restoredPremiumStatus || effectivePlan !== "free";
+  const premiumLifecycle = useMemo(
+    () =>
+      computePremiumLifecycleState({
+        user,
+        persistedPlan,
+        profilePremiumStatus,
+        localPremiumStatus,
+        isLocalhostQa,
+        founderActivatedAt,
+        founderExpiresAt,
+      }),
+    [
+      founderActivatedAt,
+      founderExpiresAt,
+      isLocalhostQa,
+      localPremiumStatus,
+      persistedPlan,
+      profilePremiumStatus,
+      user,
+    ],
+  );
+  const {
+    state: premiumState,
+    daysRemaining: founderDaysRemaining,
+    hasPremiumAccess,
+    isQaPremium,
+    isPaidPremium,
+    isFounderActive,
+    isGuestFree,
+    isRegisteredFounderEnding,
+    isRegisteredFreeAfterTrial,
+  } = premiumLifecycle;
   const hasSmsPremiumAccess =
     effectivePlan !== "free" && effectivePlan !== "beta_founder";
   const usedExports = monthlyExportUsage.total;
   const remainingExports =
-    !isPremium
+    !hasPremiumAccess
       ? Math.max(0, FREE_EXPORTS_PER_MONTH - usedExports)
       : Infinity;
-  const isExportLimitReached = !isPremium && remainingExports <= 0;
+  const isExportLimitReached = !hasPremiumAccess && remainingExports <= 0;
+  const exportHelperText = useMemo(() => {
+    switch (premiumState) {
+      case "registered_founder_active":
+        return "PDF + CSV illimités • historique complet";
+      case "registered_founder_ending":
+        return "PDF + CSV illimités jusqu’à la fin de l’offre";
+      case "registered_free_after_trial":
+        return "Limite atteinte • Réactive Premium pour continuer";
+      case "premium_paid_active":
+        return "PDF + CSV illimités • historique complet";
+      case "premium_qa_override":
+        return "Mode Premium QA • exports illimités";
+      case "guest_free":
+      default:
+        if (remainingExports <= 0) {
+          return "Limite atteinte • Passe Premium pour continuer";
+        }
+
+        if (remainingExports === 1) {
+          return "Dernier export gratuit ce mois-ci";
+        }
+
+        return `Il te reste ${remainingExports} exports gratuits ce mois-ci`;
+    }
+  }, [premiumState, remainingExports]);
+  const premiumExportBadge = useMemo(() => {
+    switch (premiumState) {
+      case "registered_founder_active":
+        return "⭐ Offre fondateur active";
+      case "registered_founder_ending":
+        return "⏳ Offre fondateur active";
+      case "premium_paid_active":
+        return "⭐ Premium actif";
+      case "premium_qa_override":
+        return "🧪 Premium QA";
+      default:
+        return "";
+    }
+  }, [premiumState]);
 
   function toggleLocalPremiumQa() {
     const nextValue = !localPremiumStatus;
@@ -1629,6 +1810,23 @@ useEffect(() => {
   }));
 }, [fiscalProfile, hasSmsPremiumAccess]);
 
+useEffect(() => {
+  if (isLocalhostQa || !user || !fiscalProfileLoaded) return;
+  if (persistedPlan !== "beta_founder" || !profilePremiumStatus || !isTrialExpired) {
+    return;
+  }
+
+  persistPremiumStatus(false, { refresh: true });
+}, [
+  fiscalProfileLoaded,
+  isLocalhostQa,
+  isTrialExpired,
+  persistPremiumStatus,
+  persistedPlan,
+  profilePremiumStatus,
+  user,
+]);
+
   const steps = FISCAL_STEPS;
 
   const [messages, setMessages] = useState(() => buildInitialAssistantMessages());
@@ -2181,6 +2379,13 @@ useEffect(() => {
     Boolean(dashboardAnswers?.business_start_date) &&
     (!requiresAcreStartDate || Boolean(dashboardAnswers?.acre_start_date));
   const profileReady = isFiscalProfileComplete;
+
+  useEffect(() => {
+    if (isFiscalProfileComplete && showFirstRevenueOnboarding) {
+      setShowFirstRevenueOnboarding(false);
+    }
+  }, [isFiscalProfileComplete, showFirstRevenueOnboarding]);
+
   const shouldShowGuestLocalMessage = !user && (
     hasProfileCore ||
     revenues.length > 0 ||
@@ -2493,6 +2698,24 @@ useEffect(() => {
       monthlyAverage,
     };
   }, [revenues, monthlyHistory]);
+  const firstRevenueDate = useMemo(() => {
+    return revenues
+      .map((item) => parseIsoDate(item?.date))
+      .filter(Boolean)
+      .sort((a, b) => a.getTime() - b.getTime())[0] || null;
+  }, [revenues]);
+  const daysSinceFirstRevenue = useMemo(() => {
+    if (!firstRevenueDate) return 0;
+
+    return Math.max(
+      0,
+      Math.floor(
+        (Date.now() - firstRevenueDate.getTime()) / (1000 * 60 * 60 * 24),
+      ),
+    );
+  }, [firstRevenueDate]);
+  const shouldShowAnnualProjection =
+    revenues.length >= 5 && daysSinceFirstRevenue >= 7;
 
   const fiscalTimeline = useMemo(() => {
     return [
@@ -2967,49 +3190,56 @@ useEffect(() => {
     revenues.length,
     visibleInvoices.length,
   ]);
-  const premiumTopMessage = useMemo(() => {
-    if (!user) {
-      return "90 jours offerts après création du compte • Puis 5 €/mois";
-    }
-
-    if (isTrialActive && trialDaysLeft !== null) {
-      return `J-${trialDaysLeft} avant Premium • Puis 5 €/mois`;
-    }
-
-    return "Premium disponible • 5 €/mois";
-  }, [isTrialActive, trialDaysLeft, user]);
+  const guestFounderDays = founderDaysRemaining ?? 90;
   const premiumBannerContent = useMemo(() => {
-    if (isPremium) {
-      return {
-        line1: "⭐ Offre fondateur activée",
-        line2: "Premium offert pendant 3 mois",
-        line3:
-          "Tu bénéficies déjà des exports illimités et de l’historique complet.",
-      };
+    switch (premiumState) {
+      case "registered_founder_active":
+        return {
+          line1: "⭐ Offre fondateur activée",
+          line2: "Premium offert pendant 3 mois",
+          line3:
+            "Tu bénéficies déjà des exports illimités et de l’historique complet.",
+          cta: "Voir les avantages Premium",
+        };
+      case "registered_founder_ending":
+        return {
+          line1: `⏳ Fin de l’offre fondateur dans ${founderDaysRemaining} jours`,
+          line2: "Ton accès Premium reste actif jusqu’à la date de fin.",
+          line3: "Puis 5 €/mois pour conserver les avantages.",
+          cta: "Continuer en Premium",
+        };
+      case "registered_free_after_trial":
+        return {
+          line1: "🔓 Premium a expiré",
+          line2:
+            "Les exports illimités et l’historique complet ne sont plus inclus.",
+          line3: "Réactive Premium pour continuer sans limite.",
+          cta: "Réactiver Premium • 5 €/mois",
+        };
+      case "premium_paid_active":
+        return {
+          line1: "⭐ Premium actif",
+          line2: "Exports illimités, historique complet, alertes avancées.",
+          line3: "",
+          cta: "Voir les avantages Premium",
+        };
+      case "premium_qa_override":
+        return {
+          line1: "🧪 Premium QA actif",
+          line2: "Mode de test local activé.",
+          line3: "",
+          cta: "Voir les avantages Premium",
+        };
+      case "guest_free":
+      default:
+        return {
+          line1: `🎁 Offre fondateur : J-${guestFounderDays}`,
+          line2: `3 mois offerts pour les ${FOUNDER_OFFER_LIMIT} premiers utilisateurs`,
+          line3: "Puis 5 €/mois",
+          cta: "Voir les avantages Premium",
+        };
     }
-
-    if (trialDaysLeft !== null) {
-      return premiumWaitlistJoined
-        ? {
-            line1: `🎁 Offre active : J-${trialDaysLeft}`,
-            line2: "Ton accès Premium fondateur est déjà réservé",
-            line3: "Puis 5 €/mois",
-          }
-        : {
-            line1: `🎁 Offre fondateur : J-${trialDaysLeft}`,
-            line2: `3 mois offerts pour les ${FOUNDER_OFFER_LIMIT} premiers utilisateurs`,
-            line3: "Puis 5 €/mois",
-          };
-    }
-
-    return {
-      line1: premiumWaitlistJoined ? "🎁 Offre active" : premiumTopMessage,
-      line2: premiumWaitlistJoined
-        ? "Ton accès Premium fondateur est déjà réservé"
-        : `3 mois offerts pour les ${FOUNDER_OFFER_LIMIT} premiers utilisateurs`,
-      line3: "Puis 5 €/mois",
-    };
-  }, [isPremium, premiumTopMessage, premiumWaitlistJoined, trialDaysLeft]);
+  }, [founderDaysRemaining, guestFounderDays, premiumState]);
   const premiumModalContent = useMemo(() => {
     const normalizedSource = String(premiumModalSource || "unknown");
 
@@ -3151,6 +3381,7 @@ useEffect(() => {
   const premiumTrackingSource = normalizePremiumTrackingSource(
     premiumContextualCTA?.source || "default",
   );
+  const premiumBannerButtonLabel = premiumBannerContent.cta;
   const dashboardTopNudge = useMemo(() => {
     const latestRevenueDate = revenues
       .map((item) => parseIsoDate(item?.date))
@@ -3301,6 +3532,25 @@ const goToView = useCallback((nextView, options = {}) => {
   if (nextView === "assistant") setAssistantCollapsed(false);
 }, []);
 
+  const triggerFirstRevenueOnboarding = useCallback(() => {
+    if (firstRevenueOnboardingSeenRef.current) {
+      return;
+    }
+
+    firstRevenueOnboardingSeenRef.current = true;
+    writeFirstRevenueOnboardingSeen(true);
+    setShowFirstRevenueOnboarding(true);
+    goToView("assistant", { push: true, focus: true });
+    setAssistantCollapsed(true);
+
+    window.setTimeout(() => {
+      assistantRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 100);
+  }, [goToView]);
+
   const goToDashboard = useCallback((options = {}) => {
     const { scroll = true } = options;
     goToView("dashboard", { push: true, focus: true });
@@ -3314,6 +3564,24 @@ const goToView = useCallback((nextView, options = {}) => {
       });
     }, 100);
   }, [goToView]);
+
+  const handleStartFirstRevenueOnboarding = useCallback(() => {
+    setShowFirstRevenueOnboarding(false);
+    setAssistantCollapsed(false);
+
+    window.setTimeout(() => {
+      assistantRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+      inputRef.current?.focus();
+    }, 80);
+  }, []);
+
+  const handleDismissFirstRevenueOnboarding = useCallback(() => {
+    setShowFirstRevenueOnboarding(false);
+    goToDashboard({ scroll: false });
+  }, [goToDashboard]);
 
   useEffect(() => {
   const pendingAuthSuccess = localStorage.getItem(PENDING_AUTH_SUCCESS_KEY);
@@ -3866,6 +4134,9 @@ function openReminderManager(source = "default") {
   }
 
   async function saveRevenueEntry() {
+    const wasFirstRevenue = revenues.length === 0;
+    const shouldTriggerProfileOnboarding =
+      wasFirstRevenue && !isFiscalProfileComplete;
     const amount = Number(String(revenueForm.amount).replace(",", "."));
 
     if (!Number.isFinite(amount) || amount <= 0) {
@@ -3909,6 +4180,11 @@ function openReminderManager(source = "default") {
     setShowAddRevenue(false);
     resetRevenueForm();
 
+    if (shouldTriggerProfileOnboarding) {
+      triggerFirstRevenueOnboarding();
+      return;
+    }
+
     setTimeout(() => {
       fiscalRef.current?.scrollIntoView({
         behavior: "smooth",
@@ -3919,6 +4195,7 @@ function openReminderManager(source = "default") {
 
   async function handleSaveRevenue() {
     if (!user) {
+      const isFirstRevenue = revenues.length === 0;
       // Сохраняем в localStorage для неавторизованных
       const newRevenue = {
         id: Date.now(),
@@ -3947,6 +4224,10 @@ function openReminderManager(source = "default") {
         2500,
       );
 
+      if (isFirstRevenue && !isFiscalProfileComplete) {
+        triggerFirstRevenueOnboarding();
+      }
+
       return;
     }
 
@@ -3969,12 +4250,12 @@ function openReminderManager(source = "default") {
 
 function handleExportCSV() {
   const currentUsage = syncMonthlyExportUsage();
-  const currentRemainingExports = isPremium
+  const currentRemainingExports = hasPremiumAccess
     ? Infinity
     : Math.max(0, FREE_EXPORTS_PER_MONTH - currentUsage.total);
 
   if (filteredRevenues.length === 0 || isExportingCsv) return;
-  if (!isPremium && currentRemainingExports <= 0) {
+  if (!hasPremiumAccess && currentRemainingExports <= 0) {
     handleExportLimitHit(currentUsage);
     return;
   }
@@ -4369,14 +4650,14 @@ const handleExportPDF = useCallback(async () => {
 
 async function handleExportPDFWithLimit() {
   const currentUsage = syncMonthlyExportUsage();
-  const currentRemainingExports = isPremium
+  const currentRemainingExports = hasPremiumAccess
     ? Infinity
     : Math.max(0, FREE_EXPORTS_PER_MONTH - currentUsage.total);
 
   if (isExportingPdf) {
     return;
   }
-  if (!isPremium && currentRemainingExports <= 0) {
+  if (!hasPremiumAccess && currentRemainingExports <= 0) {
     handleExportLimitHit(currentUsage);
     return;
   }
@@ -5644,6 +5925,67 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 )}
               </div>
 
+              {showFirstRevenueOnboarding && isFiscalProfileCreateMode && (
+                <div
+                  style={{
+                    marginTop: 18,
+                    marginBottom: 8,
+                    padding: 18,
+                    borderRadius: 18,
+                    background:
+                      "linear-gradient(135deg, rgba(239, 246, 255, 0.95), rgba(250, 245, 255, 0.95))",
+                    border: "1px solid rgba(196, 181, 253, 0.4)",
+                    boxShadow: "0 14px 34px rgba(148, 163, 184, 0.12)",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 16,
+                      fontWeight: 800,
+                      color: "#312e81",
+                    }}
+                  >
+                    🎯 Super, ton premier revenu est enregistré.
+                  </div>
+                  <p
+                    className="assistantIntro"
+                    style={{
+                      marginTop: 10,
+                      marginBottom: 0,
+                      color: "#4338ca",
+                      maxWidth: 760,
+                    }}
+                  >
+                    Pour calculer correctement tes charges, tes alertes TVA et
+                    tes échéances, j’ai besoin de quelques informations sur ton
+                    activité.
+                  </p>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 12,
+                      flexWrap: "wrap",
+                      marginTop: 16,
+                    }}
+                  >
+                    <button
+                      className="btn btnPrimary"
+                      type="button"
+                      onClick={handleStartFirstRevenueOnboarding}
+                    >
+                      Commencer mon profil
+                    </button>
+                    <button
+                      className="btn btnGhost"
+                      type="button"
+                      onClick={handleDismissFirstRevenueOnboarding}
+                    >
+                      Plus tard
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {isFiscalProfileSummaryMode ? (
                 <>
                   <div className="assistantCompletionBanner">
@@ -6187,7 +6529,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                         )
                       }
                     >
-                      {premiumContextualCTA ? "Voir les avantages Premium" : "Voir les avantages"}
+                      {premiumBannerButtonLabel}
                     </button>
                   </div>
                 </div>
@@ -6939,7 +7281,25 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 <div className="financialAnalysis dashboardSectionZone dashboardSectionZoneMint">
                   <h3>📊 Analyse financière</h3>
                   <div className="fiscalDashboard" style={{ marginTop: 12 }}>
-                    {computed.annualRevenue !== undefined && (
+                    {!shouldShowAnnualProjection ? (
+                      <div className="fiscalCard">
+                        <div className="fiscalLabel">📊 Tendance en apprentissage</div>
+                        <div
+                          className="muted"
+                          style={{ fontSize: 14, marginTop: 10, lineHeight: 1.6 }}
+                        >
+                          Ajoute encore quelques revenus ou quelques jours
+                          d’activité pour obtenir une projection annuelle plus
+                          fiable.
+                        </div>
+                        <div
+                          className="muted"
+                          style={{ fontSize: 12, marginTop: 10 }}
+                        >
+                          Projection activée après 5 revenus ou 7 jours.
+                        </div>
+                      </div>
+                    ) : computed.annualRevenue !== undefined && (
                       <div className="fiscalCard">
                         <div className="fiscalLabel">Projection annuelle</div>
                         <div className="fiscalValue">
@@ -6950,6 +7310,12 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                           style={{ fontSize: 12, marginTop: 6 }}
                         >
                           Après charges et cotisations
+                        </div>
+                        <div
+                          className="muted"
+                          style={{ fontSize: 12, marginTop: 6 }}
+                        >
+                          Basé sur ta moyenne actuelle. Estimation évolutive.
                         </div>
                       </div>
                     )}
@@ -7293,7 +7659,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                     {isExportingPdf ? "Export PDF..." : "📄 Export PDF"}
                   </button>
 
-                  {isPremium && (
+                  {premiumExportBadge && (
                     <span
                       style={{
                         display: "inline-flex",
@@ -7309,7 +7675,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                         whiteSpace: "nowrap",
                       }}
                     >
-                      ⭐ Premium actif
+                      {premiumExportBadge}
                     </span>
                   )}
 
@@ -7331,13 +7697,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 className="muted"
                 style={{ marginTop: 8, fontSize: 12, color: "#64748b" }}
               >
-                {isPremium
-                  ? "PDF + CSV illimités • historique complet"
-                  : remainingExports <= 0
-                    ? "Limite atteinte • Passe Premium pour continuer"
-                    : remainingExports <= 1
-                    ? "Dernier export gratuit ce mois-ci"
-                    : `Il te reste ${remainingExports} exports gratuits ce mois-ci`}
+                {exportHelperText}
               </div>
 
               {filteredRevenues.length === 0 ? (
