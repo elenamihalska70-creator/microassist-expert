@@ -33,8 +33,11 @@ const DASHBOARD_REMINDERS_DISMISSED_KEY =
 const DASHBOARD_SECTIONS_KEY = "microassist_dashboard_sections";
 const DASHBOARD_TOP_NUDGE_DISMISSED_KEY =
   "microassist_dashboard_top_nudge_dismissed";
+const DASHBOARD_CHECKLIST_COLLAPSED_KEY =
+  "microassist_dashboard_checklist_collapsed";
 const FIRST_REVENUE_ONBOARDING_SEEN_KEY =
   "microassist_first_revenue_onboarding_seen";
+const BETA_MICRO_FEEDBACK_KEY = "microassist_beta_micro_feedback";
 const BETA_SEEN_KEY = "beta_seen";
 const FOUNDER_OFFER_LIMIT = 100;
 const FREE_EXPORTS_PER_MONTH = 3;
@@ -137,6 +140,57 @@ function writeFirstRevenueOnboardingSeen(value) {
   } catch {
     // Ignore localStorage write failures for onboarding redirect state.
   }
+}
+
+function readBetaMicroFeedbackState() {
+  try {
+    const raw = localStorage.getItem(BETA_MICRO_FEEDBACK_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+
+    if (!parsed || typeof parsed !== "object") {
+      return {
+        answers: {},
+        triggers: {},
+      };
+    }
+
+    return {
+      answers:
+        parsed.answers && typeof parsed.answers === "object"
+          ? parsed.answers
+          : {},
+      triggers:
+        parsed.triggers && typeof parsed.triggers === "object"
+          ? parsed.triggers
+          : {},
+    };
+  } catch {
+    return {
+      answers: {},
+      triggers: {},
+    };
+  }
+}
+
+function writeBetaMicroFeedbackState(nextState) {
+  const normalized = {
+    answers:
+      nextState?.answers && typeof nextState.answers === "object"
+        ? nextState.answers
+        : {},
+    triggers:
+      nextState?.triggers && typeof nextState.triggers === "object"
+        ? nextState.triggers
+        : {},
+  };
+
+  try {
+    localStorage.setItem(BETA_MICRO_FEEDBACK_KEY, JSON.stringify(normalized));
+  } catch {
+    // Ignore localStorage failures for beta feedback prompts.
+  }
+
+  return normalized;
 }
 
 function readMonthlyExportUsage() {
@@ -259,19 +313,12 @@ function computePremiumLifecycleState({
     state,
     daysRemaining,
     hasPremiumAccess,
-    isPremiumActive: hasPremiumAccess,
     isQaPremium,
     isPaidPremium,
     isFounderActive,
     isGuestFree,
-    isRegisteredFounderActive,
     isRegisteredFounderEnding,
     isRegisteredFreeAfterTrial,
-    isPremiumQaOverride: state === "premium_qa_override",
-    isPremiumPaidActive: state === "premium_paid_active",
-    shouldShowCountdown: isFounderActive,
-    shouldShowTrialEndingSoon: isRegisteredFounderEnding,
-    shouldShowReactivateCta: state === "registered_free_after_trial",
   };
 }
 
@@ -517,6 +564,19 @@ function buildSmartAlerts({
     ];
   }
 
+  if (revenues.length <= 2) {
+    return [
+      {
+        id: "early-tracking",
+        level: "success",
+        title: "Suivi en démarrage",
+        text: "Ton suivi commence bien. Continue à ajouter tes revenus pour fiabiliser les repères.",
+        cta: "Ajouter un revenu",
+        action: "add_revenue",
+      },
+    ];
+  }
+
   return [
     {
       id: "all-clear",
@@ -741,6 +801,9 @@ useEffect(() => {
     if (successToastTimeoutRef.current) {
       clearTimeout(successToastTimeoutRef.current);
     }
+    if (betaMicroFeedbackThanksTimeoutRef.current) {
+      clearTimeout(betaMicroFeedbackThanksTimeoutRef.current);
+    }
   };
 }, []);
   const [invoiceNotice, setInvoiceNotice] = useState(null);
@@ -845,11 +908,24 @@ useEffect(() => {
         return "";
       }
     });
+  const [dashboardChecklistCollapsed, setDashboardChecklistCollapsed] =
+    useState(() => {
+      try {
+        return localStorage.getItem(DASHBOARD_CHECKLIST_COLLAPSED_KEY) === "1";
+      } catch {
+        return false;
+      }
+    });
 // Modals pédagogiques
   const [showCashImpactModal, setShowCashImpactModal] = useState(false);
   const [showTVADiagnosticModal, setShowTVADiagnosticModal] = useState(false);
   const [showTVAModal, setShowTVAModal] = useState(false);
   const [showReminderModal, setShowReminderModal] = useState(false);
+  const [betaMicroFeedbackState, setBetaMicroFeedbackState] = useState(() =>
+    readBetaMicroFeedbackState(),
+  );
+  const [betaMicroFeedbackThanks, setBetaMicroFeedbackThanks] = useState(null);
+  const betaMicroFeedbackThanksTimeoutRef = useRef(null);
 
   const [reminderPrefs, setReminderPrefs] = useState(DEFAULT_REMINDER_PREFS);
 // Plan par défaut côté invité uniquement. Les droits reconnectés viennent du profil Supabase.
@@ -2196,6 +2272,17 @@ useEffect(() => {
   }
 }, []);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        DASHBOARD_CHECKLIST_COLLAPSED_KEY,
+        dashboardChecklistCollapsed ? "1" : "0",
+      );
+    } catch {
+      // Ignore localStorage failures for checklist UI state.
+    }
+  }, [dashboardChecklistCollapsed]);
+
   const sanitizedAnswers = useMemo(() => sanitizeFiscalAnswers(answers), [answers]);
   const fiscalDateErrors = useMemo(() => getFiscalDateErrors(answers), [answers]);
   const hasBlockingFiscalDateError =
@@ -2310,12 +2397,7 @@ useEffect(() => {
     return () => {
       window.removeEventListener("popstate", handlePopState);
     };
-  }, [
-    defaultGuestPlan,
-    fiscalProfile?.trial_ends_at,
-    fiscalProfile?.trial_started_at,
-    persistedPlan,
-  ]);
+  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -2347,7 +2429,6 @@ useEffect(() => {
         declaration_frequency: null,
         acre: null,
         business_start_date: sanitizedAnswers?.business_start_date || null,
-        _isComplete: false,
       };
     }
 
@@ -2366,7 +2447,6 @@ useEffect(() => {
         null,
       acre_start_date:
         sanitizedAnswers?.acre_start_date || fiscalProfile?.acre_start_date || null,
-      _isComplete: !!(hasActivity && hasFrequency),
     };
   }, [sanitizedAnswers, fiscalProfile]);
 
@@ -2378,7 +2458,6 @@ useEffect(() => {
     hasProfileCore &&
     Boolean(dashboardAnswers?.business_start_date) &&
     (!requiresAcreStartDate || Boolean(dashboardAnswers?.acre_start_date));
-  const profileReady = isFiscalProfileComplete;
 
   useEffect(() => {
     if (isFiscalProfileComplete && showFirstRevenueOnboarding) {
@@ -2526,11 +2605,13 @@ useEffect(() => {
     user && authGreetingName
       ? `Bonjour ${authGreetingName} 👋`
       : "Bonjour 👋";
+  const guestLocalOnlyHelper =
+    "Tes données restent bien sur cet appareil pour l’instant. Créer un compte permettra simplement de les retrouver plus tard.";
   const trustBadgeLabel = user
     ? "🔒 Profil, revenus et historique sécurisés dans ton espace"
-    : "🖥️ Données conservées localement jusqu’à la création du compte";
+    : "🖥️ Mode local actif : tes données restent sur cet appareil";
   const connectedAccountLabel = user?.email?.trim() || "";
-  const fiscalProfilePageMode = profileReady
+  const fiscalProfilePageMode = isFiscalProfileComplete
     ? assistantEditMode
       ? "edit"
       : "summary"
@@ -2716,6 +2797,227 @@ useEffect(() => {
   }, [firstRevenueDate]);
   const shouldShowAnnualProjection =
     revenues.length >= 5 && daysSinceFirstRevenue >= 7;
+  const hasEarlyRevenueData = revenues.length < 5;
+  const dashboardConfidence = useMemo(() => {
+    if (revenues.length <= 1) {
+      return {
+        tone: "warning",
+        label: "Repères en construction",
+      };
+    }
+
+    if (revenues.length < 3) {
+      return {
+        tone: "warning",
+        label: "Fiabilité en apprentissage",
+      };
+    }
+
+    if (revenues.length < 7 || !isFiscalProfileComplete) {
+      return {
+        tone: "neutral",
+        label: "Estimation de plus en plus fiable",
+      };
+    }
+
+    return {
+      tone: "success",
+      label: "Haute fiabilité selon ton activité",
+    };
+  }, [isFiscalProfileComplete, revenues.length]);
+  const chargesEstimateHelper = hasEarlyRevenueData
+    ? "Estimation provisoire basée sur ton activité et peu de données."
+    : "Estimation basée sur ton activité et tes revenus enregistrés.";
+  const availableEstimateHelper = hasEarlyRevenueData
+    ? "Montant provisoire après charges estimées sur peu de données."
+    : "Montant restant après charges estimées sur ton activité.";
+  const annualProjectionHelper =
+    "Basé sur ta moyenne actuelle. Estimation évolutive.";
+  const tvaStatusHelper =
+    computed?.tvaStatus === "exceeded"
+      ? "Action à préparer : la TVA doit maintenant entrer dans ton suivi."
+      : computed?.tvaStatus === "soon"
+        ? "Vigilance : ton rythme d’activité mérite une surveillance TVA rapprochée."
+        : hasEarlyRevenueData
+          ? "Le statut TVA se précise avec davantage d’activité enregistrée."
+          : computed?.tvaHint ||
+            "Statut estimé selon ton activité et ton chiffre d’affaires.";
+  const fiscalScoreHelper = hasEarlyRevenueData
+    ? revenues.length <= 1
+      ? "Basé sur ton profil et un premier niveau d’activité. Le score reste volontairement prudent."
+      : "Basé sur ton profil et peu de données. Il se stabilise avec le suivi."
+    : "Basé sur ton profil, ton suivi et tes repères fiscaux.";
+  const confidenceHelperText = dashboardConfidence.label;
+  const dashboardMilestone = useMemo(() => {
+    if (revenues.length >= 10) {
+      return "🏆 Dashboard haute fiabilité";
+    }
+
+    if (revenues.length >= 5) {
+      return "🧠 Projection annuelle activée";
+    }
+
+    if (revenues.length >= 3) {
+      return "📈 Estimation plus fiable";
+    }
+
+    if (revenues.length >= 1) {
+      return "🎉 Premier revenu enregistré";
+    }
+
+    return "";
+  }, [revenues.length]);
+  const hasConfiguredReminders = useMemo(() => {
+    const hasPersistedLocalPrefs = (() => {
+      try {
+        return Boolean(localStorage.getItem(REMINDER_PREFS_KEY));
+      } catch {
+        return false;
+      }
+    })();
+
+    const hasPersistedProfilePrefs = Boolean(
+      fiscalProfile &&
+        [
+          fiscalProfile.reminder_declaration,
+          fiscalProfile.reminder_tva,
+          fiscalProfile.reminder_cfe,
+          fiscalProfile.reminder_acre,
+          fiscalProfile.reminder_email,
+          fiscalProfile.reminder_sms,
+        ].some((value) => value === true),
+    );
+
+    return hasPersistedLocalPrefs || hasPersistedProfilePrefs;
+  }, [fiscalProfile]);
+  const visibleInvoices = user ? invoices : guestInvoices;
+  const dashboardChecklistItems = useMemo(
+    () => [
+      {
+        key: "first_revenue",
+        label: "Premier revenu ajouté",
+        completed: revenues.length > 0,
+      },
+      {
+        key: "fiscal_profile",
+        label: "Profil fiscal complété",
+        completed: isFiscalProfileComplete,
+      },
+      {
+        key: "first_invoice",
+        label: "Première facture créée",
+        completed: visibleInvoices.length > 0,
+      },
+      {
+        key: "free_account",
+        label: "Compte gratuit créé",
+        completed: Boolean(user),
+      },
+      {
+        key: "reminders",
+        label: "Rappels activés",
+        completed: hasConfiguredReminders,
+      },
+    ],
+    [
+      hasConfiguredReminders,
+      isFiscalProfileComplete,
+      revenues.length,
+      user,
+      visibleInvoices.length,
+    ],
+  );
+  const completedChecklistSteps = dashboardChecklistItems.filter(
+    (item) => item.completed,
+  ).length;
+  const shouldShowDashboardChecklist = completedChecklistSteps < 5;
+  const dashboardLearningProgress = useMemo(() => {
+    if (revenues.length === 0 || revenues.length >= 5) return null;
+
+    const current = Math.min(revenues.length, 5);
+    const percent = Math.round((current / 5) * 100);
+
+    return { current, percent };
+  }, [revenues.length]);
+  const dashboardMaturityLevel = useMemo(() => {
+    const hasTrackedExpenses = Number(computed?.monthlyExpenses || 0) > 0;
+    const hasInvoiceTracking = visibleInvoices.length > 0;
+    const hasEnoughReliableData = isFiscalProfileComplete && revenues.length >= 5;
+
+    if (
+      isFiscalProfileComplete &&
+      revenues.length >= 7 &&
+      (hasTrackedExpenses || hasInvoiceTracking) &&
+      hasConfiguredReminders
+    ) {
+      return {
+        level: "Suivi avancé",
+        tone: "success",
+        text: "Ton cockpit est bien alimenté et t’offre déjà un pilotage plus complet au quotidien.",
+      };
+    }
+
+    if (hasEnoughReliableData) {
+      return {
+        level: "Suivi fiable",
+        tone: "success",
+        text: "Tes estimations gagnent en stabilité et deviennent plus utiles pour anticiper.",
+      };
+    }
+
+    if (isFiscalProfileComplete && revenues.length >= 2) {
+      return {
+        level: "En progrès",
+        tone: "neutral",
+        text: "Le tableau de bord devient de plus en plus parlant à mesure que ton activité s’enrichit.",
+      };
+    }
+
+    return {
+      level: "Démarrage",
+      tone: "warning",
+      text: "Les premiers repères se mettent en place. Encore un peu de matière et le suivi gagnera vite en précision.",
+    };
+  }, [
+    computed?.monthlyExpenses,
+    hasConfiguredReminders,
+    isFiscalProfileComplete,
+    revenues.length,
+    visibleInvoices.length,
+  ]);
+  const dashboardTrustState = useMemo(() => {
+    if (!isFiscalProfileComplete && revenues.length > 0) {
+      return {
+        icon: "🛡️",
+        text:
+          "Tes revenus sont bien enregistrés. Les calculs liés au profil resteront volontairement partiels jusqu’à sa complétion.",
+      };
+    }
+
+    if (revenues.length < 5) {
+      return {
+        icon: "🛡️",
+        text:
+          "Le court terme est déjà fiable. Le long terme devient plus précis avec quelques revenus en plus.",
+      };
+    }
+
+    if (
+      dashboardMaturityLevel.level === "En progrès" ||
+      dashboardMaturityLevel.level === "Suivi fiable"
+    ) {
+      return {
+        icon: "🛡️",
+        text:
+          "Ton cockpit devient fiable pour piloter le mois et anticiper les seuils.",
+      };
+    }
+
+    return {
+      icon: "🛡️",
+      text: "Tes repères mensuels et annuels sont désormais solides.",
+    };
+  }, [dashboardMaturityLevel.level, isFiscalProfileComplete, revenues.length]);
 
   const fiscalTimeline = useMemo(() => {
     return [
@@ -2740,10 +3042,21 @@ useEffect(() => {
               : "Ajoute un revenu"
             : "Complète ton profil pour débloquer ce repère",
       },
+      {
+        key: "tva",
+        icon: "🧾",
+        label: "TVA",
+        value: computed?.tvaStatusLabel || "À confirmer",
+        hint: tvaStatusHelper,
+      },
     ];
-  }, [computed, revenues.length, estimatedCharges, isFiscalProfileComplete]);
-
-  const visibleInvoices = user ? invoices : guestInvoices;
+  }, [
+    computed,
+    estimatedCharges,
+    isFiscalProfileComplete,
+    revenues.length,
+    tvaStatusHelper,
+  ]);
   const smartAlerts = useMemo(
     () =>
       buildSmartAlerts({
@@ -2821,16 +3134,14 @@ useEffect(() => {
       revenues.length > 0 &&
       Number(computed?.monthlyExpenses || 0) === 0
     ) {
-      return {
-        text:
-          "Aucune dépense personnelle n’est renseignée. L’analyse de couverture reste donc partielle.",
-      };
-    }
+        return {
+          text:
+            "Aucune dépense n’est encore renseignée. La lecture de ta marge et de ta santé financière reste donc partielle.",
+          helperStyle: true,
+        };
+      }
 
-    if (
-      !smartAlertIds.has("declaration-deadline") &&
-      (computed?.urgency === "late" || computed?.urgency === "soon")
-    ) {
+    if (computed?.urgency === "late" || computed?.urgency === "soon") {
         return {
           text:
             "La prochaine déclaration URSSAF mérite d’être préparée maintenant. Prévois le montant à déclarer avant l’échéance.",
@@ -2886,7 +3197,7 @@ useEffect(() => {
     if (revenues.length > 0 && visibleInvoices.length === 0) {
       return {
         text:
-          "Tu as déjà de l’activité enregistrée. Formaliser une première facture aide à structurer le suivi client et encaissement.",
+          "Tu as déjà de l’activité enregistrée. Une première facture aide à cadrer le suivi client, les encaissements et la TVA collectée.",
         cta: "Créer une facture",
         onClick: handleOpenInvoiceGenerator,
       };
@@ -2907,14 +3218,194 @@ useEffect(() => {
     handleOpenInvoiceGenerator,
     openAuthModal,
   ]);
-  const guestConversionEligible =
-    !user &&
-    (profileReady ||
-      revenues.length > 0 ||
-      guestInvoices.length > 0 ||
-      (computed?.deadlineLabel &&
-        computed.deadlineLabel !== "—" &&
-        computed.deadlineLabel !== "Profil à compléter"));
+  const isHelperStyledCoachingCard = Boolean(fiscalCoachingCard?.helperStyle);
+  const dashboardNextStep = useMemo(() => {
+    if (revenues.length === 0) {
+      return {
+        title: "Action recommandée",
+        text: "Ajoute ton premier revenu pour débloquer un suivi fiscal concret et des repères plus utiles.",
+        cta: "Ajoute ton premier revenu",
+        onClick: handleOpenRevenuePopup,
+      };
+    }
+
+    if (revenues.length > 0 && !isFiscalProfileComplete) {
+      return {
+        title: "Profil encore partiel",
+        text: "Tes revenus sont bien pris en compte, mais les calculs liés au profil restent partiels tant que celui-ci n’est pas complété.",
+        cta: "Compléter mon profil fiscal",
+        onClick: handleEditProfile,
+      };
+    }
+
+    if (!user && (revenues.length > 0 || guestInvoices.length > 0)) {
+      return {
+        title: "Mode local actif",
+        text: "Ton suivi fonctionne déjà normalement ici. Un compte gratuit permet simplement de retrouver ces données plus tard.",
+        cta: "Créer mon compte gratuit",
+        onClick: () => openAuthModal("signup"),
+      };
+    }
+
+    if (user && isFounderActive) {
+      return {
+        title: "Essai Premium actif",
+        text: "Ton essai Premium est encore disponible. C’est un bon moment pour voir tranquillement ce qui t’aide vraiment au quotidien.",
+        cta: "Découvrir les avantages Premium",
+        onClick: () => openPremiumModal("dashboard_next_step_trial"),
+      };
+    }
+
+    return null;
+  }, [
+    guestInvoices.length,
+    handleEditProfile,
+    handleOpenRevenuePopup,
+    isFiscalProfileComplete,
+    isFounderActive,
+    openAuthModal,
+    revenues.length,
+    user,
+  ]);
+  const dashboardPrimaryAction = useMemo(() => {
+    if (dashboardNextStep) return dashboardNextStep;
+
+    if (isFiscalProfileComplete) {
+      return {
+        title: "Continuer le suivi",
+        text: "Le moyen le plus simple de garder ton cockpit utile est d’ajouter régulièrement un nouveau revenu.",
+        cta: "Ajouter un revenu",
+        onClick: handleOpenRevenuePopup,
+      };
+    }
+
+    return null;
+  }, [dashboardNextStep, handleOpenRevenuePopup, isFiscalProfileComplete]);
+  const dashboardRecommendation = useMemo(() => {
+    if (computed?.tvaStatus === "exceeded" || computed?.tvaStatus === "soon") {
+      return {
+        title:
+          computed?.tvaStatus === "exceeded"
+            ? "TVA active : prochaine étape"
+            : "TVA proche : rester vigilant",
+        text:
+          computed?.tvaStatus === "exceeded"
+            ? "Ton activité demande maintenant une action concrète pour préparer la facturation TVA et la suite déclarative."
+            : "Ton activité approche d’une zone où un simple contrôle TVA permet de rester serein.",
+        cta: "Voir le diagnostic",
+        onClick: () => setShowTVADiagnosticModal(true),
+      };
+    }
+
+    if (revenues.length > 0 && visibleInvoices.length === 0) {
+      return {
+        title: "Première facture à poser",
+        text: "Une facture rend le suivi plus clair pour tes clients, tes encaissements et la lecture TVA à venir.",
+        cta: "Créer une facture",
+        onClick: handleOpenInvoiceGenerator,
+      };
+    }
+
+    if (!user && (revenues.length > 0 || guestInvoices.length > 0)) {
+      return dashboardNextStep?.cta === "Créer mon compte gratuit"
+        ? null
+        : {
+            title: "Retrouver ce suivi plus tard",
+            text: "Ton espace est déjà utile en local. Un compte gratuit sert surtout à le récupérer facilement sur la durée.",
+            cta: "Créer mon compte",
+            onClick: () => openAuthModal("signup"),
+          };
+    }
+
+    if (revenues.length > 0 && revenues.length < 3) {
+      return {
+        title: "Fiabilise tes repères",
+        text: "Ajoute encore quelques revenus pour rendre les estimations plus stables et plus utiles.",
+        cta: "Ajouter un revenu",
+        onClick: handleOpenRevenuePopup,
+      };
+    }
+
+    if (user && isFounderActive) {
+      return dashboardNextStep?.cta === "Découvrir les avantages Premium"
+        ? null
+        : {
+            title: "Profiter calmement de l’essai",
+            text: "Ton essai actif te laisse encore du temps pour tester les rappels et voir ce qui t’aide vraiment.",
+            cta: "Voir les avantages Premium",
+            onClick: () => openPremiumModal("dashboard_recommendation_premium"),
+          };
+    }
+
+    return null;
+  }, [
+    computed?.tvaStatus,
+    dashboardNextStep?.cta,
+    guestInvoices.length,
+    handleOpenInvoiceGenerator,
+    handleOpenRevenuePopup,
+    isFounderActive,
+    openAuthModal,
+    revenues.length,
+    user,
+    visibleInvoices.length,
+  ]);
+  const dashboardLaunchAnchors = useMemo(() => {
+    const anchors = [];
+
+    if (!user && shouldShowGuestLocalMessage) {
+      anchors.push({
+        key: "local",
+        tone: "warm",
+        label: "Mode local",
+        text: "Données gardées sur cet appareil",
+      });
+    }
+
+    if (user) {
+      anchors.push({
+        key: "secure",
+        tone: "neutral",
+        label: "Espace sécurisé",
+        text: "Profil, revenus et historique protégés",
+      });
+    }
+
+    if (premiumState === "premium_qa_override") {
+      anchors.push({
+        key: "qa",
+        tone: "accent",
+        label: "Premium QA",
+        text: "Mode de test local activé",
+      });
+    }
+
+    if (saveNotice) {
+      anchors.push({
+        key: "saved",
+        tone: "success",
+        label: "Profil sauvé",
+        text:
+          typeof saveNotice === "string"
+            ? saveNotice
+            : saveNotice.title || "Modifications enregistrées",
+      });
+    }
+
+    return anchors;
+  }, [premiumState, saveNotice, shouldShowGuestLocalMessage, user]);
+  const dashboardFloatingAction = useMemo(() => {
+    if (dashboardPrimaryAction) return dashboardPrimaryAction;
+
+    if (isFiscalProfileComplete) {
+      return {
+        cta: "Ajouter un revenu",
+        onClick: handleOpenRevenuePopup,
+      };
+    }
+
+    return null;
+  }, [dashboardPrimaryAction, handleOpenRevenuePopup, isFiscalProfileComplete]);
   const activeReminderItems = useMemo(() => {
     const items = [];
     const reminderChannel =
@@ -3095,6 +3586,45 @@ useEffect(() => {
     openReminderManager,
     reminderPrefs,
   ]);
+  const dashboardPremiumMoment = useMemo(() => {
+    if (hasPremiumAccess) return null;
+
+    if (computed?.tvaStatus === "soon" || computed?.tvaStatus === "exceeded") {
+      return {
+        icon: "🧾",
+        text: "Passe au Premium pour recevoir une alerte TVA au bon moment.",
+      };
+    }
+
+    if (activeReminderItems.length > 3) {
+      return {
+        icon: "🔔",
+        text: "Centralise tes rappels URSSAF, TVA et CFE avec alertes intelligentes.",
+      };
+    }
+
+    if (visibleInvoices.length > 0) {
+      return {
+        icon: "🧾",
+        text: "Débloque l’historique illimité et les exports avancés.",
+      };
+    }
+
+    if (dashboardMaturityLevel.level === "En progrès") {
+      return {
+        icon: "⭐",
+        text: "Ton cockpit devient puissant. Premium t’aide à automatiser la suite.",
+      };
+    }
+
+    return null;
+  }, [
+    activeReminderItems.length,
+    computed?.tvaStatus,
+    dashboardMaturityLevel.level,
+    hasPremiumAccess,
+    visibleInvoices.length,
+  ]);
   const urgentReminderSignature = useMemo(
     () =>
       activeReminderItems
@@ -3103,6 +3633,360 @@ useEffect(() => {
         .join("|"),
     [activeReminderItems],
   );
+  const dashboardWeeklyRecap = useMemo(() => {
+    const today = parseIsoDate(getTodayIsoDate());
+
+    if (!today) return null;
+
+    const weekStart = new Date(today);
+    const dayOfWeek = weekStart.getDay();
+    const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    weekStart.setDate(weekStart.getDate() - daysFromMonday);
+    weekStart.setHours(0, 0, 0, 0);
+
+    const weeklyRevenueEntries = revenues.filter((revenue) => {
+      const revenueDate = parseIsoDate(revenue.date);
+      return revenueDate && revenueDate >= weekStart && revenueDate <= today;
+    });
+
+    const weeklyRevenueCount = weeklyRevenueEntries.length;
+    const weeklyRevenueTotal = weeklyRevenueEntries.reduce(
+      (sum, revenue) => sum + (Number(revenue.amount) || 0),
+      0,
+    );
+    const estimatedRate =
+      computed?.rate || getEstimatedRate(dashboardAnswers.activity_type);
+    const weeklyEstimatedCharges =
+      weeklyRevenueCount > 0 && Number.isFinite(estimatedRate)
+        ? Math.round(weeklyRevenueTotal * estimatedRate)
+        : null;
+    const weeklyInvoicesCreated = visibleInvoices.filter((invoice) => {
+      const invoiceDate = parseIsoDate(invoice.invoice_date);
+      return invoiceDate && invoiceDate >= weekStart && invoiceDate <= today;
+    }).length;
+    const reminderCount = activeReminderItems.length;
+    const nextActionLabel = dashboardRecommendation?.cta || dashboardNextStep?.cta;
+    const hasUsefulWeeklyData =
+      weeklyRevenueCount > 0 || weeklyInvoicesCreated > 0 || reminderCount > 0;
+
+    if (!hasUsefulWeeklyData) return null;
+
+    return {
+      subtitle:
+        revenues.length < 5
+          ? "Récap simple pour t’aider à prendre le rythme."
+          : "Vue rapide de ton activité récente.",
+      items: [
+        {
+          key: "revenues",
+          label: "Revenus ajoutés cette semaine",
+          value:
+            weeklyRevenueCount > 0
+              ? `${weeklyRevenueCount} revenu${weeklyRevenueCount > 1 ? "s" : ""}`
+              : "Pas encore de nouveau revenu",
+          helper:
+            weeklyRevenueCount > 0
+              ? `${weeklyRevenueTotal.toLocaleString("fr-FR")} € enregistrés`
+              : "Ajoute une nouvelle entrée pour nourrir le suivi.",
+        },
+        {
+          key: "charges",
+          label: "Charges estimées de la semaine",
+          value:
+            weeklyEstimatedCharges !== null
+              ? `${weeklyEstimatedCharges.toLocaleString("fr-FR")} €`
+              : "En attente d’activité",
+          helper:
+            weeklyEstimatedCharges !== null
+              ? "Estimation provisoire sur l’activité récente."
+              : "S’affichera dès qu’un revenu est ajouté cette semaine.",
+        },
+        {
+          key: "invoices",
+          label: "Factures créées",
+          value:
+            weeklyInvoicesCreated > 0
+              ? `${weeklyInvoicesCreated} facture${weeklyInvoicesCreated > 1 ? "s" : ""}`
+              : "Aucune nouvelle facture",
+          helper:
+            weeklyInvoicesCreated > 0
+              ? "Ton suivi client progresse aussi."
+              : "Tu peux en créer une dès que besoin.",
+        },
+        {
+          key: "reminders",
+          label: "Rappels à venir",
+          value:
+            reminderCount > 0
+              ? `${reminderCount} rappel${reminderCount > 1 ? "s" : ""}`
+              : "Aucun rappel prioritaire",
+          helper:
+            reminderCount > 0
+              ? activeReminderItems[0]?.title || "Un point mérite ton attention."
+              : "Rien d’urgent à surveiller pour le moment.",
+        },
+      ],
+      nextActionLabel,
+      helper:
+        revenues.length < 5
+          ? "Ton rythme se construit encore. Ce récap s’affinera avec quelques jours d’activité."
+          : null,
+    };
+  }, [
+    activeReminderItems,
+    computed?.rate,
+    dashboardAnswers.activity_type,
+    dashboardNextStep?.cta,
+    dashboardRecommendation?.cta,
+    revenues,
+    visibleInvoices,
+  ]);
+  const dashboardThisWeekInsight = useMemo(() => {
+    const hasDeclarationDeadline =
+      computed?.urgency === "soon" &&
+      computed?.deadlineLabel &&
+      computed.deadlineLabel !== "—" &&
+      computed.deadlineLabel !== "Profil à compléter" &&
+      computed.deadlineLabel !== "Complète ton profil fiscal";
+
+    if (hasDeclarationDeadline) {
+      return "Ton point principal est la déclaration à venir.";
+    }
+
+    if (computed?.tvaStatus === "soon" || computed?.tvaStatus === "exceeded") {
+      return "Vérifie ton seuil TVA avant les prochains revenus.";
+    }
+
+    if (!user && visibleInvoices.length > 0) {
+      return "Pense à sécuriser ton compte pour conserver les factures.";
+    }
+
+    if (revenues.length > 0 && revenues.length < 5) {
+      return "Continue encore quelques revenus pour fiabiliser les prévisions.";
+    }
+
+    if (!user && shouldShowGuestLocalMessage) {
+      return "Ton suivi tourne bien en local. Un compte gratuit te permettra juste de le retrouver plus tard.";
+    }
+
+    return "Cette semaine, ton cockpit reste bien maîtrisé.";
+  }, [
+    computed?.deadlineLabel,
+    computed?.tvaStatus,
+    computed?.urgency,
+    revenues.length,
+    shouldShowGuestLocalMessage,
+    user,
+    visibleInvoices.length,
+  ]);
+  const dashboardPositiveMomentum = useMemo(() => {
+    const today = parseIsoDate(getTodayIsoDate());
+
+    if (!today) return null;
+
+    const weekStart = new Date(today);
+    const dayOfWeek = weekStart.getDay();
+    const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    weekStart.setDate(weekStart.getDate() - daysFromMonday);
+    weekStart.setHours(0, 0, 0, 0);
+
+    const weeklyRevenueCount = revenues.filter((revenue) => {
+      const revenueDate = parseIsoDate(revenue.date);
+      return revenueDate && revenueDate >= weekStart && revenueDate <= today;
+    }).length;
+
+    if (revenues.length >= 2) {
+      return {
+        title: "Bravo, tu progresses",
+        text:
+          weeklyRevenueCount >= 2
+            ? `2 revenus enregistrés cette semaine.`
+            : "Ton suivi prend déjà une bonne cadence.",
+      };
+    }
+
+    if (visibleInvoices.length > 0) {
+      return {
+        title: "Première facture créée",
+        text: "Ton historique commence à prendre forme.",
+      };
+    }
+
+    if (isFiscalProfileComplete && hasConfiguredReminders) {
+      return {
+        title: "Très bon rythme",
+        text: "Ton cockpit devient vraiment solide.",
+      };
+    }
+
+    return null;
+  }, [
+    hasConfiguredReminders,
+    isFiscalProfileComplete,
+    revenues,
+    visibleInvoices.length,
+  ]);
+  const dashboardTrackingStreak = useMemo(() => {
+    const trackingDays = new Set();
+
+    revenues.forEach((revenue) => {
+      const revenueDate = normalizeDateValue(revenue?.date);
+      if (revenueDate) trackingDays.add(revenueDate);
+    });
+
+    visibleInvoices.forEach((invoice) => {
+      const invoiceDate = normalizeDateValue(invoice?.invoice_date);
+      if (invoiceDate) trackingDays.add(invoiceDate);
+    });
+
+    const uniqueDays = Array.from(trackingDays).sort();
+
+    if (uniqueDays.length < 2) return null;
+
+    const firstDay = parseIsoDate(uniqueDays[0]);
+    const lastDay = parseIsoDate(uniqueDays[uniqueDays.length - 1]);
+    const activeSpanDays =
+      firstDay && lastDay
+        ? Math.max(
+            1,
+            Math.round(
+              (lastDay.getTime() - firstDay.getTime()) /
+                (1000 * 60 * 60 * 24),
+            ) + 1,
+          )
+        : uniqueDays.length;
+
+    let text = `${uniqueDays.length} jours avec au moins une action sur ton cockpit`;
+
+    if (uniqueDays.length >= 14) {
+      text = `${Math.floor(uniqueDays.length / 7)} semaines avec un suivi régulier`;
+    } else if (activeSpanDays >= 7) {
+      text = `Ton suivi est actif depuis ${activeSpanDays} jours`;
+    }
+
+    return {
+      title: "Série de suivi",
+      text,
+      helper: "Continue pour rendre les prévisions encore plus fiables.",
+    };
+  }, [revenues, visibleInvoices]);
+  const dashboardNextMonthPrep = useMemo(() => {
+    if (computed?.tvaStatus === "soon" || computed?.tvaStatus === "exceeded") {
+      return "Prépare le suivi TVA du mois prochain.";
+    }
+
+    if (!user && shouldShowGuestLocalMessage) {
+      return "Si tu veux le retrouver plus tard, ce mois est un bon moment pour créer ton compte.";
+    }
+
+    if (revenues.length > 0 && revenues.length < 5) {
+      return "Continue encore quelques saisies pour fiabiliser les repères du mois suivant.";
+    }
+
+    if (!hasConfiguredReminders) {
+      return "Active tes rappels pour mieux anticiper le mois prochain.";
+    }
+
+    return "Ton cockpit est prêt pour le mois suivant.";
+  }, [
+    computed?.tvaStatus,
+    hasConfiguredReminders,
+    revenues.length,
+    shouldShowGuestLocalMessage,
+    user,
+  ]);
+  useEffect(() => {
+    if (!showTVADiagnosticModal) return;
+
+    setBetaMicroFeedbackState((prev) => {
+      if (prev.triggers?.tva) return prev;
+
+      const next = {
+        ...prev,
+        triggers: {
+          ...prev.triggers,
+          tva: {
+            seenAt: new Date().toISOString(),
+          },
+        },
+      };
+
+      return writeBetaMicroFeedbackState(next);
+    });
+  }, [showTVADiagnosticModal]);
+
+  useEffect(() => {
+    if (!dashboardNextMonthPrep) return;
+
+    setBetaMicroFeedbackState((prev) => {
+      if (prev.triggers?.planning) return prev;
+
+      const next = {
+        ...prev,
+        triggers: {
+          ...prev.triggers,
+          planning: {
+            seenAt: new Date().toISOString(),
+          },
+        },
+      };
+
+      return writeBetaMicroFeedbackState(next);
+    });
+  }, [dashboardNextMonthPrep]);
+  const dashboardDailyInsight = useMemo(() => {
+    if (computed?.tvaStatus === "exceeded" || computed?.tvaStatus === "soon") {
+      return {
+        icon: "🧾",
+        text:
+          computed?.tvaStatus === "exceeded"
+            ? "La TVA demande maintenant une préparation concrète."
+            : "La TVA mérite une vigilance renforcée pour les prochains revenus.",
+      };
+    }
+
+    if (revenues.length > 0 && !isFiscalProfileComplete) {
+      return {
+        icon: "📝",
+        text: "Ton profil reste à compléter pour fiabiliser les calculs.",
+      };
+    }
+
+    if (
+      isFiscalProfileComplete &&
+      revenues.length > 0 &&
+      Number(computed?.monthlyExpenses || 0) === 0
+    ) {
+      return {
+        icon: "💡",
+        text:
+          "Aucune dépense renseignée : la marge et la lecture de santé restent partielles.",
+      };
+    }
+
+    if (revenues.length > 0 && revenues.length < 5) {
+      return {
+        icon: "📈",
+        text: "Encore quelques revenus et les estimations deviendront plus fiables.",
+      };
+    }
+
+    if (!user && shouldShowGuestLocalMessage) {
+      return null;
+    }
+
+    return {
+      icon: "✨",
+      text: "Ton suivi avance bien. Continue comme ça.",
+    };
+  }, [
+    computed?.monthlyExpenses,
+    computed?.tvaStatus,
+    isFiscalProfileComplete,
+    revenues.length,
+    shouldShowGuestLocalMessage,
+    user,
+  ]);
   const primarySmartAlertId = smartAlerts[0]?.id || null;
   const invoiceSectionSummary = useMemo(() => {
     const unpaidCount = visibleInvoices.filter(
@@ -3203,10 +4087,10 @@ useEffect(() => {
         };
       case "registered_founder_ending":
         return {
-          line1: `⏳ Fin de l’offre fondateur dans ${founderDaysRemaining} jours`,
-          line2: "Ton accès Premium reste actif jusqu’à la date de fin.",
-          line3: "Puis 5 €/mois pour conserver les avantages.",
-          cta: "Continuer en Premium",
+          line1: `⏳ Offre fondateur encore active ${founderDaysRemaining} jour${founderDaysRemaining > 1 ? "s" : ""}`,
+          line2: "Ton accès Premium reste disponible jusqu’à la fin de l’essai.",
+          line3: "Tu pourras ensuite choisir sereinement si tu veux le prolonger à 5 €/mois.",
+          cta: "Voir les avantages Premium",
         };
       case "registered_free_after_trial":
         return {
@@ -3235,7 +4119,7 @@ useEffect(() => {
         return {
           line1: `🎁 Offre fondateur : J-${guestFounderDays}`,
           line2: `3 mois offerts pour les ${FOUNDER_OFFER_LIMIT} premiers utilisateurs`,
-          line3: "Puis 5 €/mois",
+          line3: "Ensuite, libre à toi de continuer ou non.",
           cta: "Voir les avantages Premium",
         };
     }
@@ -3411,11 +4295,7 @@ useEffect(() => {
       };
     }
 
-    if (
-      primarySmartAlertId !== "invoice_opportunity" &&
-      visibleInvoices.length === 0 &&
-      revenues.length >= 3
-    ) {
+    if (visibleInvoices.length === 0 && revenues.length >= 3) {
       return {
         type: "invoice_first",
         text: "🧾 Crée ta première facture pour suivre tes paiements.",
@@ -3503,8 +4383,192 @@ useEffect(() => {
     computed?.annualRevenue,
     computed?.tvaStatus,
   ]);
+  const betaMicroFeedbackPrompt = useMemo(() => {
+    const feedbackAnswers = betaMicroFeedbackState?.answers || {};
+    const feedbackTriggers = betaMicroFeedbackState?.triggers || {};
 
-  const invoicesThisMonth = useMemo(() => {
+    if (feedbackTriggers.tva && !feedbackAnswers.tva && !showTVADiagnosticModal) {
+      return {
+        context: "tva",
+        placement: "top",
+        title: "Retour rapide sur la TVA",
+        question: "Le diagnostic TVA t’aide-t-il à savoir quoi faire ensuite ?",
+      };
+    }
+
+    if (visibleInvoices.length >= 1 && !feedbackAnswers.invoices) {
+      return {
+        context: "invoices",
+        placement: "invoices",
+        title: "Retour rapide sur les factures",
+        question: "Le suivi des factures te semble-t-il clair pour démarrer ?",
+      };
+    }
+
+    if (feedbackTriggers.planning && !feedbackAnswers.planning) {
+      return {
+        context: "planning",
+        placement: "planning",
+        title: "Retour rapide sur la préparation",
+        question: "La préparation du mois suivant t’aide-t-elle à anticiper ?",
+      };
+    }
+
+    if (revenues.length >= 3 && !feedbackAnswers.revenues) {
+      return {
+        context: "revenues",
+        placement: "revenues",
+        title: "Retour rapide sur les revenus",
+        question: "Le suivi des revenus t’aide-t-il à y voir plus clair ?",
+      };
+    }
+
+    return null;
+  }, [
+    betaMicroFeedbackState,
+    revenues.length,
+    showTVADiagnosticModal,
+    visibleInvoices.length,
+  ]);
+  const handleBetaMicroFeedback = useCallback(
+    (context, sentiment, placement) => {
+      if (!context || !sentiment) return;
+
+      const choiceLabel =
+        sentiment === "yes"
+          ? "Oui"
+          : sentiment === "medium"
+            ? "Moyen"
+            : "Pas encore";
+
+      const nextState = writeBetaMicroFeedbackState({
+        answers: {
+          ...(betaMicroFeedbackState?.answers || {}),
+          [context]: {
+            sentiment,
+            submittedAt: new Date().toISOString(),
+          },
+        },
+        triggers: {
+          ...(betaMicroFeedbackState?.triggers || {}),
+        },
+      });
+
+      setBetaMicroFeedbackState(nextState);
+      trackEvent("beta_micro_feedback_submit", {
+        ...feedbackContextSnapshot,
+        feedbackContext: context,
+        feedbackSentiment: sentiment,
+      });
+
+      if (betaMicroFeedbackThanksTimeoutRef.current) {
+        clearTimeout(betaMicroFeedbackThanksTimeoutRef.current);
+      }
+
+      setBetaMicroFeedbackThanks({
+        context,
+        label: choiceLabel,
+        placement,
+      });
+
+      betaMicroFeedbackThanksTimeoutRef.current = window.setTimeout(() => {
+        setBetaMicroFeedbackThanks(null);
+        betaMicroFeedbackThanksTimeoutRef.current = null;
+      }, 3200);
+    },
+    [betaMicroFeedbackState, feedbackContextSnapshot],
+  );
+  const renderBetaMicroFeedbackCard = useCallback(
+    (placement) => {
+      const isPromptVisible =
+        betaMicroFeedbackPrompt && betaMicroFeedbackPrompt.placement === placement;
+      const isThankYouVisible =
+        betaMicroFeedbackThanks?.placement === placement &&
+        (!isPromptVisible ||
+          betaMicroFeedbackThanks?.context !== betaMicroFeedbackPrompt.context);
+
+      if (!isPromptVisible && !isThankYouVisible) {
+        return null;
+      }
+
+      if (isThankYouVisible) {
+        return (
+          <div className="dashboardBetaFeedbackCard">
+            <div className="dashboardBetaFeedbackTitle">Retour enregistré</div>
+            <div className="dashboardBetaFeedbackHelper">
+              Merci 🙏 ton retour améliore la bêta Microassist
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="dashboardBetaFeedbackCard">
+          <div className="dashboardBetaFeedbackTitle">
+            {betaMicroFeedbackPrompt.title}
+          </div>
+          <div className="dashboardBetaFeedbackQuestion">
+            {betaMicroFeedbackPrompt.question}
+          </div>
+          {isThankYouVisible ? (
+            <div className="dashboardBetaFeedbackHelper">
+              Merci 🙏 ton retour améliore la bêta Microassist
+            </div>
+          ) : (
+            <>
+              <div className="dashboardBetaFeedbackChoices">
+                <button
+                  className="btn btnActionSecondary btnSmall"
+                  type="button"
+                  onClick={() =>
+                    handleBetaMicroFeedback(
+                      betaMicroFeedbackPrompt.context,
+                      "yes",
+                      betaMicroFeedbackPrompt.placement,
+                    )
+                  }
+                >
+                  👍 Oui
+                </button>
+                <button
+                  className="btn btnActionSecondary btnSmall"
+                  type="button"
+                  onClick={() =>
+                    handleBetaMicroFeedback(
+                      betaMicroFeedbackPrompt.context,
+                      "medium",
+                      betaMicroFeedbackPrompt.placement,
+                    )
+                  }
+                >
+                  👌 Moyen
+                </button>
+                <button
+                  className="btn btnActionSecondary btnSmall"
+                  type="button"
+                  onClick={() =>
+                    handleBetaMicroFeedback(
+                      betaMicroFeedbackPrompt.context,
+                      "no",
+                      betaMicroFeedbackPrompt.placement,
+                    )
+                  }
+                >
+                  👎 Pas encore
+                </button>
+              </div>
+              <div className="dashboardBetaFeedbackHelper">
+                Merci 🙏 ton retour améliore la bêta Microassist
+              </div>
+            </>
+          )}
+        </div>
+      );
+    },
+    [betaMicroFeedbackPrompt, betaMicroFeedbackThanks, handleBetaMicroFeedback],
+  );
+
+const invoicesThisMonth = useMemo(() => {
   const now = new Date();
   const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
@@ -3515,6 +4579,32 @@ useEffect(() => {
     return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
   }).length;
 }, [visibleInvoices]);
+  const dashboardMonthlyReflection = useMemo(() => {
+    if (revenues.length === 0) return null;
+
+    const invoiceLabel = `${invoicesThisMonth} facture${invoicesThisMonth > 1 ? "s" : ""}`;
+    const reminderLabel = `${activeReminderItems.length} rappel${activeReminderItems.length > 1 ? "s" : ""} actif${activeReminderItems.length > 1 ? "s" : ""}`;
+    const tvaHelper =
+      computed?.tvaStatus === "soon" || computed?.tvaStatus === "exceeded"
+        ? `TVA : ${computed?.tvaStatusLabel || "à surveiller"}.`
+        : null;
+
+    return {
+      title: "📅 Bilan du mois",
+      text: `Tu as enregistré ${currentMonthTotal.toLocaleString("fr-FR")} € de revenus, prévu ${estimatedCharges.toLocaleString("fr-FR")} € de charges et créé ${invoiceLabel}.`,
+      helper: [reminderLabel, tvaHelper, "Ton cockpit devient plus précis de semaine en semaine."]
+        .filter(Boolean)
+        .join(" "),
+    };
+  }, [
+    activeReminderItems.length,
+    computed?.tvaStatus,
+    computed?.tvaStatusLabel,
+    currentMonthTotal,
+    estimatedCharges,
+    invoicesThisMonth,
+    revenues.length,
+  ]);
 
 useEffect(() => {
   if (appView !== "dashboard") return;
@@ -5287,7 +6377,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
               <button type="button" className="navLink" onClick={goToAssistant}>
                 Assistant
               </button>
-              {profileReady && (
+              {isFiscalProfileComplete && (
                 <button
                   type="button"
                   className="navLink"
@@ -5359,6 +6449,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
         <main className={`container ${focusMode ? "focusMode" : ""}`}>
         {saveNotice && (
   <div
+    className="floatingStatusNotice floatingStatusNoticePrimary"
     role="status"
     aria-live="polite"
     style={{
@@ -5385,7 +6476,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
         {saveNotice.cta === "auth" && (
           <div>
             <button
-              className="btn btnGhost btnSmall"
+              className="btn btnActionSecondary btnSmall"
               type="button"
               onClick={() => openAuthModal("signup")}
             >
@@ -5399,6 +6490,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
 )}
         {successToast && (
   <div
+    className="floatingStatusNotice floatingStatusNoticeSuccess"
     role="status"
     aria-live="polite"
     style={{
@@ -6521,7 +7613,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                       </div>
                     )}
                     <button
-                      className="btn btnGhost btnSmall"
+                      className="btn btnActionSecondary btnSmall"
                       type="button"
                       onClick={() =>
                         openPremiumModal(
@@ -6537,7 +7629,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 <div className="sectionHeadActions">
                   {!showChart && monthlyHistory.length > 0 && (
                     <button
-                      className="btn btnGhost btnSmall"
+                      className="btn btnActionUtility btnSmall"
                       type="button"
                       onClick={() => {
                         setShowChart(true);
@@ -6555,7 +7647,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                   )}
 
                   <button
-                    className="btn btnGhost btnSmall"
+                    className="btn btnActionUtility btnSmall"
                     type="button"
                     onClick={handleEditProfile}
                   >
@@ -6563,14 +7655,14 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                   </button>
 
                   <button
-                    className="btn btnPrimary btnSmall"
+                    className="btn btnActionPrimary btnSmall"
                     type="button"
                     onClick={handleOpenRevenuePopup}
                   >
                     + Ajouter revenu
                   </button>
                <button
-  className="btn btnGhost btnSmall"
+  className="btn btnActionSecondary btnSmall"
   type="button"
   onClick={handleOpenInvoiceGenerator}
 >
@@ -6578,148 +7670,327 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
 </button>
 
 <button
-  className="btn btnGhost btnSmall"
+  className="btn btnActionSecondary btnSmall"
   type="button"
   onClick={() => openReminderManager("dashboard_top")}
 >
   🔔 Gérer mes rappels
 </button>
 
-<span className="muted" style={{ fontSize: 12 }}>
+<span className="dashboardHelperText">
   {invoicesThisMonth}/{currentPlanLimits.invoicesPerMonth === Infinity ? "∞" : currentPlanLimits.invoicesPerMonth}
 </span>
 
                 </div>
               </div>
 
-              {!user && shouldShowGuestLocalMessage && (
-                <div
-                  style={{
-                    marginBottom: 16,
-                    padding: "12px 14px",
-                    borderRadius: 12,
-                    background: "#fff7ed",
-                    border: "1px solid #fdba74",
-                    color: "#9a3412",
-                    fontSize: 14,
-                  }}
-                >
-                  Tes données restent locales tant que tu n’as pas créé ton compte.
-                </div>
-              )}
-
-              {user && !isFiscalProfileComplete && (
-                <div
-                  style={{
-                    marginBottom: 16,
-                    padding: 16,
-                    borderRadius: 14,
-                    background: "#fffaf1",
-                    border: "1px solid #fcd34d",
-                  }}
-                >
-                  <div style={{ fontWeight: 800, color: "#92400e" }}>
-                    Profil à compléter
+              <div className="dashboardLaunchRail">
+                {dashboardLaunchAnchors.length > 0 && (
+                  <div className="dashboardLaunchAnchors">
+                    {dashboardLaunchAnchors.map((anchor) => (
+                      <div
+                        key={anchor.key}
+                        className={`dashboardTrustPill trust-${anchor.tone}`}
+                      >
+                        <span className="dashboardTrustPillLabel">{anchor.label}</span>
+                        <span className="dashboardTrustPillText">{anchor.text}</span>
+                      </div>
+                    ))}
                   </div>
-                  <p style={{ marginTop: 8, marginBottom: 12, color: "#92400e" }}>
-                    Complète ton profil fiscal pour obtenir des estimations fiables.
-                  </p>
-                  <button
-                    className="btn btnPrimary"
-                    type="button"
-                    onClick={handleEditProfile}
-                  >
-                    Créer mon profil fiscal
-                  </button>
-                </div>
-              )}
+                )}
 
-              {guestConversionEligible && (
-                <div
-                  style={{
-                    marginBottom: 18,
-                    padding: 18,
-                    borderRadius: 16,
-                    background: "linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%)",
-                    border: "1px solid #bfdbfe",
-                    boxShadow: "0 12px 30px rgba(59, 130, 246, 0.08)",
-                  }}
-                >
-                  <div style={{ fontSize: 18, fontWeight: 800, color: "#0f172a" }}>
-                    🔒 Sauvegarde ton espace fiscal
+                {dashboardPrimaryAction && (
+                  <div className="dashboardNextStepCard">
+                    <div className="dashboardNextStepTitle">
+                      {dashboardPrimaryAction.title}
+                    </div>
+                    <p className="dashboardNextStepText">
+                      {dashboardPrimaryAction.text}
+                    </p>
+                    {!user && shouldShowGuestLocalMessage && (
+                      <div className="dashboardHelperText">
+                        {guestLocalOnlyHelper}
+                      </div>
+                    )}
+                    <div className="dashboardNextStepActions">
+                      <button
+                        className="btn btnActionPrimary"
+                        type="button"
+                        onClick={dashboardPrimaryAction.onClick}
+                      >
+                        {dashboardPrimaryAction.cta}
+                      </button>
+                    </div>
                   </div>
-                  <p
-                    style={{
-                      marginTop: 8,
-                      marginBottom: 14,
-                      color: "#334155",
-                      lineHeight: 1.6,
-                    }}
-                  >
-                    Pour conserver ton profil, tes revenus et tes calculs.
-                  </p>
-                  <p
-                    style={{
-                      marginTop: -4,
-                      marginBottom: 14,
-                      color: "#475569",
-                      lineHeight: 1.5,
-                      fontSize: 14,
-                    }}
-                  >
-                    Tes données restent locales tant que tu n’as pas créé ton compte.
-                  </p>
+                )}
+              </div>
+
+              <div className="dashboardSignalStack">
+              {dashboardMilestone && (
+                <div className="dashboardMilestoneBanner">
                   <div
-                    style={{
-                      display: "flex",
-                      gap: 12,
-                      flexWrap: "wrap",
-                      alignItems: "center",
-                    }}
+                    className={`dashboardConfidenceBadge confidence-${dashboardConfidence.tone}`}
+                    style={{ marginBottom: 0 }}
                   >
-                    <button
-                      className="btn btnPrimary"
-                      type="button"
-                      onClick={() => openAuthModal("signup")}
-                    >
-                      Créer mon compte gratuitement
-                    </button>
+                    {dashboardMilestone}
+                  </div>
+                  <div className="dashboardHelperText" style={{ marginTop: 0 }}>
+                    {confidenceHelperText}
                   </div>
                 </div>
               )}
 
-              {revenues.length === 0 && (
-                <div
-                  style={{
-                    marginBottom: 18,
-                    padding: 18,
-                    borderRadius: 16,
-                    background: "#f8fafc",
-                    border: "1px solid #cbd5e1",
-                  }}
-                >
-                  <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a" }}>
-                    Action recommandée
+              {shouldShowDashboardChecklist && (
+                <div className="dashboardChecklistCard">
+                  <div className="dashboardSectionHeader" style={{ marginBottom: 10 }}>
+                    <div className="dashboardSectionHeaderMain">
+                      <h3 className="dashboardSectionTitle">Checklist de démarrage</h3>
+                      <div className="dashboardSectionSubtitle">
+                        {completedChecklistSteps} / 5 étapes complétées
+                      </div>
+                    </div>
+                    <div className="dashboardSectionActions">
+                      <button
+                        className="btn btnActionUtility btnSmall"
+                        type="button"
+                        onClick={() =>
+                          setDashboardChecklistCollapsed((value) => !value)
+                        }
+                      >
+                        {dashboardChecklistCollapsed ? "Afficher" : "Réduire"}
+                      </button>
+                    </div>
                   </div>
-                  <p
-                    style={{
-                      marginTop: 8,
-                      marginBottom: 14,
-                      color: "#475569",
-                      lineHeight: 1.6,
-                    }}
-                  >
-                    Ajoute ton premier revenu pour débloquer un suivi fiscal concret et des repères plus utiles.
-                  </p>
-                  <button
-                    className="btn btnPrimary"
-                    type="button"
-                    onClick={handleOpenRevenuePopup}
-                  >
-                    Ajouter mon premier revenu
-                  </button>
+
+                  {!dashboardChecklistCollapsed && (
+                    <div className="dashboardChecklistList">
+                      {dashboardChecklistItems.map((item) => (
+                        <div
+                          key={item.key}
+                          className={`dashboardChecklistItem ${
+                            item.completed ? "is-complete" : "is-pending"
+                          }`}
+                        >
+                          <span className="dashboardChecklistIcon" aria-hidden="true">
+                            {item.completed ? "✓" : "○"}
+                          </span>
+                          <span className="dashboardChecklistLabel">
+                            {item.label}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
+
+              {dashboardLearningProgress && (
+                <div className="dashboardLearningCard">
+                  <div className="dashboardSectionHeader" style={{ marginBottom: 10 }}>
+                    <div className="dashboardSectionHeaderMain">
+                      <h3 className="dashboardSectionTitle">
+                        📈 Fiabilité des estimations
+                      </h3>
+                    </div>
+                  </div>
+                  <div className="dashboardRecommendationText" style={{ marginTop: 0 }}>
+                    Tes prévisions deviennent plus précises à mesure que tu ajoutes
+                    des revenus.
+                  </div>
+                  <div className="progress dashboardLearningProgress">
+                    <div>{dashboardLearningProgress.current} / 5 revenus enregistrés</div>
+                    <div className="progressBar">
+                      <div
+                        className="progressFill"
+                        style={{ width: `${dashboardLearningProgress.percent}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="dashboardHelperText">
+                    À partir de 5 revenus ou 7 jours, les estimations annuelles
+                    deviennent nettement plus fiables.
+                  </div>
+                </div>
+              )}
+
+              {dashboardMaturityLevel && (
+                <div className="dashboardMaturityCard">
+                  <div className="dashboardMaturityHeader">
+                    <div className="dashboardMaturityTitle">
+                      Niveau de maturité du suivi
+                    </div>
+                    <div
+                      className={`dashboardConfidenceBadge confidence-${dashboardMaturityLevel.tone}`}
+                      style={{ marginBottom: 0 }}
+                    >
+                      {dashboardMaturityLevel.level}
+                    </div>
+                  </div>
+                  <div className="dashboardHelperText" style={{ marginTop: 8 }}>
+                    {dashboardMaturityLevel.text}
+                  </div>
+                </div>
+              )}
+
+              {dashboardTrustState && (
+                <div className="dashboardTrustCard">
+                  <div className="dashboardDailyInsightText">
+                    <span className="dashboardDailyInsightIcon" aria-hidden="true">
+                      {dashboardTrustState.icon}
+                    </span>
+                    <span>{dashboardTrustState.text}</span>
+                  </div>
+                </div>
+              )}
+
+              {dashboardPremiumMoment && (
+                <div className="dashboardPremiumMomentCard">
+                  <div className="dashboardPremiumMomentText">
+                    <span className="dashboardDailyInsightIcon" aria-hidden="true">
+                      {dashboardPremiumMoment.icon}
+                    </span>
+                    <span>{dashboardPremiumMoment.text}</span>
+                  </div>
+                  {!dashboardPrimaryAction && (
+                    <div className="dashboardPremiumMomentActions">
+                      <button
+                        className="btn btnActionSecondary btnSmall"
+                        type="button"
+                        onClick={() => openPremiumModal("dashboard_premium_moment")}
+                      >
+                        Voir Premium
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {dashboardRecommendation && (
+                <div className="dashboardRecommendationCard">
+                  <div className="dashboardRecommendationTitle">
+                    {dashboardRecommendation.title}
+                  </div>
+                  <div className="dashboardRecommendationText">
+                    {dashboardRecommendation.text}
+                  </div>
+                  {!dashboardPrimaryAction && (
+                    <div className="dashboardRecommendationActions">
+                      <button
+                        className="btn btnActionSecondary btnSmall"
+                        type="button"
+                        onClick={dashboardRecommendation.onClick}
+                      >
+                        {dashboardRecommendation.cta}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {dashboardWeeklyRecap && (
+                <div className="dashboardWeeklyRecapCard">
+                  <div className="dashboardSectionHeader" style={{ marginBottom: 10 }}>
+                    <div className="dashboardSectionHeaderMain">
+                      <h3 className="dashboardSectionTitle">Récap de la semaine</h3>
+                      <div className="dashboardSectionSubtitle">
+                        {dashboardWeeklyRecap.subtitle}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="dashboardWeeklyRecapGrid">
+                    {dashboardWeeklyRecap.items.map((item) => (
+                      <div key={item.key} className="dashboardWeeklyRecapItem">
+                        <div className="dashboardWeeklyRecapLabel">{item.label}</div>
+                        <div className="dashboardWeeklyRecapValue">{item.value}</div>
+                        <div className="dashboardHelperText">{item.helper}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {dashboardWeeklyRecap.nextActionLabel && (
+                    <div className="dashboardHelperText" style={{ marginTop: 12 }}>
+                      Prochaine meilleure action : {dashboardWeeklyRecap.nextActionLabel}.
+                    </div>
+                  )}
+                  {dashboardWeeklyRecap.helper && (
+                    <div className="dashboardHelperText">
+                      {dashboardWeeklyRecap.helper}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {dashboardThisWeekInsight && (
+                <div className="dashboardThisWeekCard">
+                  <div className="dashboardThisWeekTitle">⏳ Cette semaine</div>
+                  <div className="dashboardDailyInsightText">
+                    <span>{dashboardThisWeekInsight}</span>
+                  </div>
+                </div>
+              )}
+
+              {dashboardPositiveMomentum && (
+                <div className="dashboardPositiveMomentumCard">
+                  <div className="dashboardPositiveMomentumTitle">
+                    {dashboardPositiveMomentum.title}
+                  </div>
+                  <div className="dashboardDailyInsightText">
+                    <span>{dashboardPositiveMomentum.text}</span>
+                  </div>
+                </div>
+              )}
+
+              {dashboardTrackingStreak && (
+                <div className="dashboardTrackingStreakCard">
+                  <div className="dashboardTrackingStreakTitle">
+                    {dashboardTrackingStreak.title}
+                  </div>
+                  <div className="dashboardDailyInsightText">
+                    <span>{dashboardTrackingStreak.text}</span>
+                  </div>
+                  <div className="dashboardHelperText">
+                    {dashboardTrackingStreak.helper}
+                  </div>
+                </div>
+              )}
+
+              {dashboardMonthlyReflection && (
+                <div className="dashboardMonthlyReflectionCard">
+                  <div className="dashboardMonthlyReflectionTitle">
+                    {dashboardMonthlyReflection.title}
+                  </div>
+                  <div className="dashboardDailyInsightText">
+                    <span>{dashboardMonthlyReflection.text}</span>
+                  </div>
+                  <div className="dashboardHelperText">
+                    {dashboardMonthlyReflection.helper}
+                  </div>
+                </div>
+              )}
+
+              {dashboardNextMonthPrep && (
+                <div className="dashboardNextMonthCard">
+                  <div className="dashboardNextMonthTitle">
+                    Préparer le mois suivant
+                  </div>
+                  <div className="dashboardDailyInsightText">
+                    <span>{dashboardNextMonthPrep}</span>
+                  </div>
+                </div>
+              )}
+              {renderBetaMicroFeedbackCard("planning")}
+
+              {dashboardDailyInsight && (
+                <div className="dashboardDailyInsightCard">
+                  <div className="dashboardDailyInsightText">
+                    <span className="dashboardDailyInsightIcon" aria-hidden="true">
+                      {dashboardDailyInsight.icon}
+                    </span>
+                    <span>{dashboardDailyInsight.text}</span>
+                  </div>
+                </div>
+              )}
+              {renderBetaMicroFeedbackCard("top")}
+              </div>
 
               {!dashboardRemindersDismissed && activeReminderItems.length > 0 && (
                 <div
@@ -6728,38 +7999,19 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                     marginBottom: 18,
                   }}
                   >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: 12,
-                    }}
-                    >
-                      <div>
-                        <div style={{ fontWeight: 800, color: "#0f172a" }}>
+                    <div className="dashboardSectionHeader">
+                      <div className="dashboardSectionHeaderMain">
+                        <h3 className="dashboardSectionTitle">
                           Mes rappels actifs
-                        </div>
-                        <div
-                          style={{
-                            marginTop: 4,
-                            color: "#64748b",
-                            fontSize: 13,
-                          }}
-                        >
+                        </h3>
+                        <div className="dashboardSectionSubtitle">
                           {activeReminderItems.length} rappel
                           {activeReminderItems.length > 1 ? "s" : ""}
                         </div>
                       </div>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                        }}
-                      >
+                      <div className="dashboardSectionActions">
                         <button
-                          className="btn btnGhost btnSmall"
+                          className="btn btnActionUtility btnSmall"
                           type="button"
                           onClick={() => toggleDashboardSection("reminders")}
                         >
@@ -6837,14 +8089,14 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                                       href={action.href}
                                       target="_blank"
                                       rel="noopener noreferrer"
-                                      className="btn btnGhost btnSmall"
+                                      className={`btn ${action.label === "Déclarer" ? "btnActionSecondary" : "btnActionUtility"} btnSmall`}
                                     >
                                       {action.label}
                                     </a>
                                   ) : (
                                     <button
                                       key={action.label}
-                                      className="btn btnGhost btnSmall"
+                                      className={`btn ${action.label === "Voir le diagnostic" || action.label === "Comprendre" ? "btnActionSecondary" : "btnActionUtility"} btnSmall`}
                                       type="button"
                                       onClick={action.onClick}
                                     >
@@ -6864,18 +8116,14 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
 
               {/* 👇 NOUVELLE PODKAZKA - AJOUTER ICI */}
               {!isFiscalProfileComplete && (
-                <div
-                  style={{
-                    marginBottom: 18,
-                    padding: 16,
-                    borderRadius: 14,
-                    background: "#f8fafc",
-                    border: "1px solid #cbd5e1",
-                    color: "#334155",
-                  }}
-                >
-                  Les revenus et l’historique restent visibles, mais les conclusions fiscales
-                  finales restent limitées tant que le profil n’est pas complété.
+                <div className="dashboardTrustCard" style={{ marginBottom: 18 }}>
+                  <div className="dashboardRecommendationTitle">
+                    Profil fiscal partiel
+                  </div>
+                  <div className="dashboardRecommendationText">
+                    Tes revenus et ton historique restent visibles, mais les calculs qui dépendent
+                    de ton profil restent marqués comme partiels tant qu’il n’est pas complété.
+                  </div>
                 </div>
               )}
 
@@ -6893,6 +8141,13 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
 
                 <div className="fiscalCard">
                   <div className="fiscalLabel">Charges</div>
+                  {isFiscalProfileComplete && (
+                    <div
+                      className={`dashboardConfidenceBadge confidence-${dashboardConfidence.tone}`}
+                    >
+                      {dashboardConfidence.label}
+                    </div>
+                  )}
                   <div className="fiscalValue">
                     {isFiscalProfileComplete
                       ? `${estimatedCharges.toLocaleString("fr-FR")} €`
@@ -6903,10 +8158,22 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                       ? "Estimation selon ton activité"
                       : "Complète le profil pour afficher une estimation fiable"}
                   </div>
+                  {isFiscalProfileComplete && (
+                    <div className="dashboardHelperText">
+                      {chargesEstimateHelper}
+                    </div>
+                  )}
                 </div>
 
                 <div className="fiscalCard">
                   <div className="fiscalLabel">Disponible</div>
+                  {isFiscalProfileComplete && (
+                    <div
+                      className={`dashboardConfidenceBadge confidence-${dashboardConfidence.tone}`}
+                    >
+                      {dashboardConfidence.label}
+                    </div>
+                  )}
                   <div className="fiscalValue">
                     {isFiscalProfileComplete
                       ? `${availableAmount.toLocaleString("fr-FR")} €`
@@ -6917,6 +8184,11 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                       ? "Après estimation des charges"
                       : "Le disponible fiable apparaîtra après complétion du profil"}
                   </div>
+                  {isFiscalProfileComplete && (
+                    <div className="dashboardHelperText">
+                      {availableEstimateHelper}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -6942,7 +8214,11 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
 
               <div className={smartTipsZoneClass}>
               <div className="smartTips" style={{ marginTop: 0 }}>
-                <h3>Smart Priorités</h3>
+                <div className="dashboardSectionHeader">
+                  <div className="dashboardSectionHeaderMain">
+                    <h3 className="dashboardSectionTitle">Smart Priorités</h3>
+                  </div>
+                </div>
                 <div className="smartTipsList">
                   {smartAlerts.map((alert) => (
                     <div
@@ -6961,7 +8237,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                       {alert.cta && (
                         <div className="smartTipActions">
                           <button
-                            className="btn btnGhost btnSmall"
+                            className="btn btnActionSecondary btnSmall"
                             type="button"
                             onClick={() => {
                               trackEvent("priority_cta_click", {
@@ -6986,7 +8262,15 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
               {fiscalCoachingCard && (
                 <div className="fiscalCoachCard">
                   <div className="fiscalCoachTitle">💡 Conseil fiscal du moment</div>
-                  <div className="fiscalCoachText">{fiscalCoachingCard.text}</div>
+                  <div
+                    className={
+                      isHelperStyledCoachingCard
+                        ? "fiscalCoachText dashboardHelperText"
+                        : "fiscalCoachText"
+                    }
+                  >
+                    {fiscalCoachingCard.text}
+                  </div>
                   {fiscalCoachingCard.cta && fiscalCoachingCard.onClick && (
                     <div className="fiscalCoachActions">
                       <button
@@ -7122,7 +8406,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                         }}
                       >
                         <button
-                          className="btn btnGhost"
+                          className="btn btnActionSecondary"
                           type="button"
                           onClick={() => {
                             setShowCashImpactModal(false);
@@ -7217,13 +8501,17 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                         }}
                       >
                         <div style={{ fontWeight: 700, color: "#0f172a" }}>
-                          Action immédiate
+                          {computed?.tvaStatus === "exceeded"
+                            ? "Action à lancer"
+                            : computed?.tvaStatus === "soon"
+                              ? "Point de vigilance"
+                              : "Rythme actuel"}
                         </div>
                         <p style={{ marginTop: 8, fontSize: 14, color: "#334155" }}>
                           {computed?.tvaStatus === "exceeded"
-                            ? "Prépare l’activation de la TVA, la facturation adaptée et la déclaration."
+                            ? "Prépare maintenant l’activation de la TVA, la facturation adaptée et l’organisation déclarative."
                             : computed?.tvaStatus === "soon"
-                              ? "Surveille ton seuil et anticipe le passage à la TVA si ton activité continue d’accélérer."
+                              ? "Surveille ton seuil de près et garde ta facturation prête si l’activité continue d’accélérer."
                               : "Aucune action immédiate, garde simplement un œil sur ton chiffre d’affaires cumulé."}
                         </p>
                       </div>
@@ -7237,7 +8525,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                         }}
                       >
                         <button
-                          className="btn btnGhost"
+                          className="btn btnActionSecondary"
                           type="button"
                           onClick={() => {
                             setShowTVADiagnosticModal(false);
@@ -7261,7 +8549,11 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
 
               {/* Repères fiscaux */}
               <div className="fiscalTimeline">
-                <h3>Repères fiscaux</h3>
+                <div className="dashboardSectionHeader">
+                  <div className="dashboardSectionHeaderMain">
+                    <h3 className="dashboardSectionTitle">Repères fiscaux</h3>
+                  </div>
+                </div>
                 <div className="timelineList">
                   {fiscalTimeline.map((item) => (
                     <div key={item.key} className="timelineItem">
@@ -7269,6 +8561,13 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                         <span className="timelineIcon">{item.icon}</span>
                         <span className="timelineLabel">{item.label}</span>
                       </div>
+                      {item.key === "tva" && (
+                        <div
+                          className={`dashboardConfidenceBadge confidence-${dashboardConfidence.tone}`}
+                        >
+                          {dashboardConfidence.label}
+                        </div>
+                      )}
                       <div className="timelineValue">{item.value}</div>
                       <div className="timelineHint">{item.hint}</div>
                     </div>
@@ -7279,24 +8578,47 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
               {/* Analyse financière */}
               {isFiscalProfileComplete && computed.monthlyExpenses !== undefined && (
                 <div className="financialAnalysis dashboardSectionZone dashboardSectionZoneMint">
-                  <h3>📊 Analyse financière</h3>
+                  <div className="dashboardSectionHeader">
+                    <div className="dashboardSectionHeaderMain">
+                      <h3 className="dashboardSectionTitle">📊 Analyse financière</h3>
+                    </div>
+                    <div className="dashboardSectionActions">
+                      <div
+                        className={`dashboardConfidenceBadge confidence-${dashboardConfidence.tone}`}
+                      >
+                        {dashboardConfidence.label}
+                      </div>
+                    </div>
+                  </div>
+                  {computed.monthlyExpenses === 0 && revenues.length > 0 && (
+                    <div className="dashboardTrustCard" style={{ marginBottom: 16 }}>
+                      <div className="dashboardRecommendationTitle">
+                        Analyse encore partielle
+                      </div>
+                      <div className="dashboardRecommendationText">
+                        Sans dépense renseignée, la marge réelle et la santé financière restent
+                        des repères incomplets. Le suivi revenus fonctionne, mais cette lecture
+                        reste volontairement prudente.
+                      </div>
+                    </div>
+                  )}
                   <div className="fiscalDashboard" style={{ marginTop: 12 }}>
                     {!shouldShowAnnualProjection ? (
                       <div className="fiscalCard">
                         <div className="fiscalLabel">📊 Tendance en apprentissage</div>
                         <div
-                          className="muted"
-                          style={{ fontSize: 14, marginTop: 10, lineHeight: 1.6 }}
+                          className="dashboardHelperText"
+                          style={{ fontSize: 11 }}
                         >
                           Ajoute encore quelques revenus ou quelques jours
                           d’activité pour obtenir une projection annuelle plus
                           fiable.
                         </div>
-                        <div
-                          className="muted"
-                          style={{ fontSize: 12, marginTop: 10 }}
-                        >
+                        <div className="dashboardHelperText">
                           Projection activée après 5 revenus ou 7 jours.
+                        </div>
+                        <div className="dashboardHelperText">
+                          Les premières estimations deviennent plus fiables après quelques jours ou plusieurs revenus.
                         </div>
                       </div>
                     ) : computed.annualRevenue !== undefined && (
@@ -7305,17 +8627,11 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                         <div className="fiscalValue">
                           {computed.annualNet?.toLocaleString("fr-FR") || "—"} €
                         </div>
-                        <div
-                          className="muted"
-                          style={{ fontSize: 12, marginTop: 6 }}
-                        >
+                        <div className="dashboardHelperText">
                           Après charges et cotisations
                         </div>
-                        <div
-                          className="muted"
-                          style={{ fontSize: 12, marginTop: 6 }}
-                        >
-                          Basé sur ta moyenne actuelle. Estimation évolutive.
+                        <div className="dashboardHelperText">
+                          {annualProjectionHelper}
                         </div>
                       </div>
                     )}
@@ -7358,6 +8674,11 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
               <div className="fiscalScoreCard">
                 <div className="fiscalScoreHeader">
                   <h3>🎯 Score fiscal</h3>
+                  <div
+                    className={`dashboardConfidenceBadge confidence-${dashboardConfidence.tone}`}
+                  >
+                    {dashboardConfidence.label}
+                  </div>
                 </div>
                 <div className="fiscalScoreValue">
                   {fiscalScore.value} <span>/ 100</span>
@@ -7370,6 +8691,9 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                     className="fiscalScoreBarFill"
                     style={{ width: `${fiscalScore.value}%` }}
                   />
+                </div>
+                <div className="dashboardHelperText">
+                  {fiscalScoreHelper} {confidenceHelperText}.
                 </div>
               </div>
 
@@ -7589,23 +8913,25 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
               )}
               <div className="dashboardSectionZone dashboardSectionZoneCoolNeutral">
               {/* Journal des revenus */}
-              <div className="journalHeader">
-                <div>
-                  <h3>Mes revenus ({filteredRevenues.length})</h3>
-                  <p className="muted" style={{ marginTop: 4 }}>
+              <div className="journalHeader dashboardSectionHeader">
+                <div className="dashboardSectionHeaderMain">
+                  <h3 className="dashboardSectionTitle">
+                    Mes revenus ({filteredRevenues.length})
+                  </h3>
+                  <p className="dashboardSectionSubtitle">
                     Total : {revenueSectionTotal.toLocaleString("fr-FR")} €
                   </p>
                 </div>
-                <div className="journalFilters">
+                <div className="journalFilters dashboardSectionActions">
                   <button
-                    className="btn btnGhost btnSmall"
+                    className="btn btnActionUtility btnSmall"
                     type="button"
                     onClick={() => toggleDashboardSection("revenues")}
                   >
                     {dashboardSections.revenues ? "Voir tout" : "Réduire"}
                   </button>
                   <button
-                    className="btn btnGhost btnSmall"
+                    className="btn btnActionSecondary btnSmall"
                     type="button"
                     onClick={handleExportCSV}
                     disabled={
@@ -7633,7 +8959,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                   </button>
 
                   <button
-                    className="btn btnGhost btnSmall"
+                    className="btn btnActionSecondary btnSmall"
                     type="button"
                     onClick={handleExportPDFWithLimit}
                     disabled={
@@ -7694,11 +9020,11 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 </div>
               </div>
               <div
-                className="muted"
-                style={{ marginTop: 8, fontSize: 12, color: "#64748b" }}
+                className="dashboardHelperText"
               >
                 {exportHelperText}
               </div>
+              {renderBetaMicroFeedbackCard("revenues")}
 
               {filteredRevenues.length === 0 ? (
                 <div className="emptyRevenueState">
@@ -7710,7 +9036,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                       : "Aucun revenu pour ce mois."}
                   </p>
                   <button
-                    className="btn btnPrimary btnSmall"
+                    className="btn btnActionPrimary btnSmall"
                     type="button"
                     onClick={handleOpenRevenuePopup}
                   >
@@ -7777,16 +9103,16 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
               {/* Historique mensuel */}
               {monthlyHistory.length > 0 && (
                 <div className="monthlyHistory">
-                  <div className="journalHeader">
-                    <div>
-                      <h3>Historique mensuel</h3>
-                      <p className="muted" style={{ marginTop: 4 }}>
+                  <div className="journalHeader dashboardSectionHeader">
+                    <div className="dashboardSectionHeaderMain">
+                      <h3 className="dashboardSectionTitle">Historique mensuel</h3>
+                      <p className="dashboardSectionSubtitle">
                         {monthlyHistory.length} mois suivis
                       </p>
                     </div>
-                    <div className="journalFilters">
+                    <div className="journalFilters dashboardSectionActions">
                       <button
-                        className="btn btnGhost btnSmall"
+                        className="btn btnActionUtility btnSmall"
                         type="button"
                         onClick={() => toggleDashboardSection("chart")}
                       >
@@ -7890,25 +9216,27 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 className="dashboardSectionZone dashboardSectionZoneSoftNeutral"
                 style={{ marginTop: 24 }}
               >
-                <div className="journalHeader">
-                  <div>
-                    <h3>Mes factures ({invoiceSectionSummary.count})</h3>
-                    <p className="muted" style={{ marginTop: 4 }}>
+                <div className="journalHeader dashboardSectionHeader">
+                  <div className="dashboardSectionHeaderMain">
+                    <h3 className="dashboardSectionTitle">
+                      Mes factures ({invoiceSectionSummary.count})
+                    </h3>
+                    <p className="dashboardSectionSubtitle">
                       {invoiceSectionSummary.unpaidCount > 0
                         ? `${invoiceSectionSummary.unpaidCount} impayée${invoiceSectionSummary.unpaidCount > 1 ? "s" : ""}`
                         : "Aucun impayé"}
                     </p>
                   </div>
-                  <div className="journalFilters">
+                  <div className="journalFilters dashboardSectionActions">
                     <button
-                      className="btn btnGhost btnSmall"
+                      className="btn btnActionUtility btnSmall"
                       type="button"
                       onClick={() => toggleDashboardSection("invoices")}
                     >
                       {dashboardSections.invoices ? "Voir tout" : "Réduire"}
                     </button>
                     <button
-                      className="btn btnPrimary btnSmall"
+                      className="btn btnActionPrimary btnSmall"
                       type="button"
                       onClick={handleOpenInvoiceGenerator}
                     >
@@ -7928,7 +9256,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                         {invoiceNotice.cta === "auth" && (
                           <div>
                             <button
-                              className="btn btnGhost btnSmall"
+                              className="btn btnActionSecondary btnSmall"
                               type="button"
                               onClick={() => openAuthModal("signup")}
                             >
@@ -7940,16 +9268,19 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                     )}
                   </div>
                 )}
+                {renderBetaMicroFeedbackCard("invoices")}
 
                 {visibleInvoices.length === 0 ? (
                   <div className="emptyRevenueState emptyRevenueStateCompact">
                     <div className="emptyRevenueIcon">🧾</div>
-                    <div className="emptyRevenueTitle">Aucune facture</div>
+                    <div className="emptyRevenueStatus">Suivi factures à démarrer</div>
+                    <div className="emptyRevenueTitle">Aucune facture enregistrée</div>
                     <p className="muted">
-                      Crée ta première facture pour commencer le suivi.
+                      Une facture rend le suivi plus clair pour tes clients, tes encaissements
+                      et la TVA collectée quand elle s’active.
                     </p>
                     <button
-                      className="btn btnPrimary btnSmall"
+                      className="btn btnActionPrimary btnSmall"
                       type="button"
                       onClick={handleOpenInvoiceGenerator}
                     >
@@ -8032,9 +9363,20 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 )}
               </div>
 
-              <div className="dataTrustLine">
-                {trustBadgeLabel}
-              </div>
+              {dashboardFloatingAction && (
+                <>
+                  <div className="dashboardMobileActionSpacer" aria-hidden="true" />
+                  <div className="dashboardMobileActionBar">
+                    <button
+                      className="btn btnActionPrimary"
+                      type="button"
+                      onClick={dashboardFloatingAction.onClick}
+                    >
+                      {dashboardFloatingAction.cta}
+                    </button>
+                  </div>
+                </>
+              )}
             </section>
           )}
 

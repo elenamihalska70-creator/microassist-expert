@@ -173,6 +173,40 @@ section[id] {
   border-radius: 10px;
 }
 
+.btnActionPrimary {
+  background: #111;
+  color: #fff;
+  border: 1px solid #111;
+  font-weight: 700;
+}
+
+.btnActionSecondary {
+  background: #fff;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+}
+
+.btnActionSecondary:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.btnActionUtility {
+  background: transparent;
+  color: #475569;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  font-weight: 500;
+  box-shadow: none;
+}
+
+.btnActionUtility:hover {
+  background: rgba(148, 163, 184, 0.08);
+  border-color: rgba(100, 116, 139, 0.45);
+  box-shadow: none;
+}
+
 .btnChoice {
   border: 1px solid rgba(0, 0, 0, 0.08);
   background: #111;
@@ -569,16 +603,11 @@ section[id] {
 .fiscalTimeline {
   margin-top: 18px;
 }
-.fiscalTimeline h3 {
-  margin: 0 0 12px;
-  font-size: 18px;
-}
 
 .timelineList {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
-  margin-top: 10px;
 }
 
 .timelineItem {
@@ -643,9 +672,6 @@ section[id] {
 /* ===== SMART TIPS & MAIN ACTION ===== */
 .smartTips {
   margin: 0;
-}
-.smartTips h3 {
-  margin: 0 0 12px;
 }
 .smartTipsList {
   display: grid;
@@ -715,6 +741,482 @@ section[id] {
   color: #475569;
 }
 
+.dashboardNextStepCard {
+  margin-bottom: 18px;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid #dbe4ee;
+  background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.05);
+}
+
+.dashboardNextStepTitle {
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.dashboardNextStepText {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #334155;
+}
+
+.dashboardNextStepActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.dashboardLaunchRail {
+  display: grid;
+  gap: 14px;
+  margin: 18px 0 16px;
+}
+
+.dashboardLaunchAnchors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.dashboardTrustPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(255, 255, 255, 0.88);
+  color: #334155;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+}
+
+.dashboardTrustPillLabel {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #0f172a;
+}
+
+.dashboardTrustPillText {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #475569;
+}
+
+.dashboardTrustPill.trust-success {
+  background: rgba(240, 253, 244, 0.92);
+  border-color: rgba(34, 197, 94, 0.18);
+}
+
+.dashboardTrustPill.trust-warm {
+  background: rgba(255, 247, 237, 0.96);
+  border-color: rgba(251, 146, 60, 0.22);
+}
+
+.dashboardTrustPill.trust-accent {
+  background: rgba(255, 251, 235, 0.96);
+  border-color: rgba(245, 158, 11, 0.24);
+}
+
+.dashboardSignalStack {
+  display: grid;
+  gap: 14px;
+  margin: 0 0 18px;
+}
+
+.dashboardSignalStack > * {
+  margin: 0 !important;
+}
+
+.dashboardMilestoneBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: -2px 0 16px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.dashboardChecklistCard {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.03);
+}
+
+.dashboardChecklistList {
+  display: grid;
+  gap: 8px;
+}
+
+.dashboardChecklistItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.dashboardChecklistItem.is-pending {
+  color: #64748b;
+}
+
+.dashboardChecklistItem.is-complete {
+  color: #166534;
+}
+
+.dashboardChecklistIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(255, 255, 255, 0.9);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.dashboardChecklistItem.is-complete .dashboardChecklistIcon {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.22);
+}
+
+.dashboardChecklistLabel {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.dashboardRecommendationCard {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.03);
+}
+
+.dashboardLearningCard {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.03);
+}
+
+.dashboardLearningProgress {
+  margin-top: 12px;
+  color: #475569;
+}
+
+.dashboardLearningProgress .progressBar {
+  margin-top: 8px;
+  background: rgba(226, 232, 240, 0.9);
+}
+
+.dashboardLearningProgress .progressFill {
+  background: linear-gradient(90deg, #86efac, #34d399);
+}
+
+.dashboardMaturityCard {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.78);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.025);
+}
+
+.dashboardMaturityHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.dashboardMaturityTitle {
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.dashboardRecommendationTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.dashboardRecommendationText {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #475569;
+}
+
+.dashboardRecommendationActions {
+  margin-top: 12px;
+}
+
+.dashboardBetaFeedbackCard {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.025);
+}
+
+.dashboardBetaFeedbackTitle {
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.dashboardBetaFeedbackQuestion {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #475569;
+}
+
+.dashboardBetaFeedbackChoices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.dashboardBetaFeedbackHelper {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #64748b;
+}
+
+.dashboardWeeklyRecapCard {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.03);
+}
+
+.dashboardWeeklyRecapGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.dashboardWeeklyRecapItem {
+  min-width: 0;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.dashboardWeeklyRecapLabel {
+  font-size: 12px;
+  line-height: 1.45;
+  color: #64748b;
+}
+
+.dashboardWeeklyRecapValue {
+  margin-top: 6px;
+  font-size: 16px;
+  line-height: 1.3;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.dashboardThisWeekCard {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 250, 245, 0.82);
+  border: 1px solid rgba(251, 191, 36, 0.18);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.025);
+}
+
+.dashboardThisWeekTitle {
+  margin-bottom: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 700;
+  color: #92400e;
+}
+
+.dashboardPositiveMomentumCard {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(240, 253, 244, 0.82);
+  border: 1px solid rgba(34, 197, 94, 0.18);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.025);
+}
+
+.dashboardPositiveMomentumTitle {
+  margin-bottom: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 700;
+  color: #166534;
+}
+
+.dashboardTrackingStreakCard {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(239, 246, 255, 0.82);
+  border: 1px solid rgba(96, 165, 250, 0.18);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.025);
+}
+
+.dashboardTrackingStreakTitle {
+  margin-bottom: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 700;
+  color: #1d4ed8;
+}
+
+.dashboardMonthlyReflectionCard {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(250, 245, 255, 0.82);
+  border: 1px solid rgba(167, 139, 250, 0.18);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.025);
+}
+
+.dashboardMonthlyReflectionTitle {
+  margin-bottom: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 700;
+  color: #6b21a8;
+}
+
+.dashboardNextMonthCard {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.82);
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.025);
+}
+
+.dashboardNextMonthTitle {
+  margin-bottom: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 700;
+  color: #0f766e;
+}
+
+.dashboardDailyInsightCard {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.78);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.025);
+}
+
+.dashboardTrustCard {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.78);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.025);
+}
+
+.dashboardPremiumMomentCard {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(248, 250, 252, 0.88) 100%);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.03);
+}
+
+.dashboardPremiumMomentText {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #475569;
+}
+
+.dashboardPremiumMomentActions {
+  margin-top: 12px;
+}
+
+.dashboardDailyInsightText {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #475569;
+}
+
+.dashboardDailyInsightIcon {
+  flex: 0 0 auto;
+  line-height: 1.2;
+}
+
+.dashboardConfidenceBadge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin: 0 0 10px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.dashboardConfidenceBadge.confidence-warning {
+  background: rgba(245, 158, 11, 0.12);
+  color: #92400e;
+  border-color: rgba(245, 158, 11, 0.18);
+}
+
+.dashboardConfidenceBadge.confidence-neutral {
+  background: rgba(148, 163, 184, 0.12);
+  color: #475569;
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+.dashboardConfidenceBadge.confidence-success {
+  background: rgba(34, 197, 94, 0.12);
+  color: #166534;
+  border-color: rgba(34, 197, 94, 0.18);
+}
+
 .fiscalScoreCard {
   margin: 18px 0 16px;
   padding: 16px 18px;
@@ -728,6 +1230,14 @@ section[id] {
   margin: 0;
   font-size: 18px;
   color: #0f172a;
+}
+
+.fiscalScoreHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .fiscalScoreValue {
@@ -843,9 +1353,73 @@ section[id] {
   padding-top: 20px;
 }
 
+.dashboardSectionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0 0 14px;
+}
+
+.dashboardSectionHeaderMain {
+  min-width: 0;
+}
+
+.dashboardSectionTitle {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.2;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.dashboardSectionSubtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #64748b;
+}
+
+.dashboardSectionActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .dashboardSectionZone .saveNotice {
   background: #ffffff;
   border-color: #d7dfd8;
+}
+
+.floatingStatusNotice {
+  backdrop-filter: blur(10px);
+}
+
+.dashboardMobileActionSpacer,
+.dashboardMobileActionBar {
+  display: none;
+}
+
+.dashboardMobileActionBar {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 1200;
+  padding: 10px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.14);
+  backdrop-filter: blur(14px);
+}
+
+.dashboardMobileActionBar .btn {
+  width: 100%;
+  min-height: 48px;
+  font-weight: 700;
 }
 
 /* Status colors */
@@ -863,7 +1437,7 @@ section[id] {
   gap: 12px;
   margin-top: 18px;
 }
-.journalHeader h3 { margin: 0; font-size: 22px; }
+.journalHeader h3 { margin: 0; font-size: 20px; }
 
 .journalFilters {
   display: flex;
@@ -947,6 +1521,20 @@ section[id] {
   padding: 16px 18px;
 }
 .emptyRevenueIcon { font-size: 28px; margin-bottom: 10px; }
+.emptyRevenueStatus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.12);
+  color: #475569;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
 .emptyRevenueTitle { font-weight: 700; margin-bottom: 8px; }
 
 /* ===== CHARTS ===== */
@@ -1260,6 +1848,13 @@ section[id] {
   opacity: 0.75;
   margin-top: 8px;
 }
+.dashboardHelperText {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  font-weight: 400;
+  color: var(--dashboard-helper-color, #64748b);
+}
 .disclaimer {
   margin-top: 12px;
   font-size: 0.9rem;
@@ -1433,6 +2028,38 @@ section[id] {
     flex-direction: column;
     align-items: flex-start;
   }
+  .dashboardSectionHeader,
+  .journalHeader {
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .dashboardSectionTitle {
+    font-size: 18px;
+  }
+  .dashboardSectionSubtitle {
+    font-size: 12px;
+  }
+  .dashboardSectionActions,
+  .journalFilters {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  .dashboardSectionActions > .btnActionPrimary:first-child:last-child,
+  .journalFilters > .btnActionPrimary:first-child:last-child {
+    width: 100%;
+  }
+  .dashboardSectionActions > .btnActionSecondary,
+  .dashboardSectionActions > .btnActionUtility,
+  .journalFilters > .btnActionSecondary,
+  .journalFilters > .btnActionUtility {
+    flex: 0 1 auto;
+  }
+  .dashboardSectionActions > .monthFilter,
+  .journalFilters > .monthFilter {
+    flex: 1 1 220px;
+    min-width: 180px;
+  }
   .monthFilter {
     width: 100%;
   }
@@ -1450,6 +2077,148 @@ section[id] {
     padding: 14px;
     border-radius: 18px;
   }
+  .fiscalDashboard {
+    gap: 12px;
+    margin-top: 14px;
+  }
+  .fiscalCard {
+    padding: 18px;
+    border-radius: 18px;
+  }
+  .fiscalValue {
+    font-size: 28px;
+  }
+  .fiscalScoreCard {
+    padding: 14px 16px;
+    border-radius: 16px;
+  }
+  .dashboardNextStepCard {
+    padding: 16px;
+    border-radius: 16px;
+  }
+  .dashboardNextStepTitle {
+    font-size: 17px;
+  }
+  .dashboardNextStepActions {
+    margin-top: 12px;
+  }
+  .dashboardLaunchRail {
+    gap: 12px;
+    margin: 16px 0 14px;
+  }
+  .dashboardLaunchAnchors {
+    gap: 8px;
+  }
+  .dashboardTrustPill {
+    min-height: 36px;
+    padding: 8px 11px;
+  }
+  .dashboardSignalStack {
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .dashboardMilestoneBanner {
+    padding: 10px;
+    border-radius: 12px;
+  }
+  .dashboardChecklistCard {
+    padding: 12px 14px;
+    border-radius: 14px;
+  }
+  .dashboardRecommendationCard {
+    padding: 12px 14px;
+    border-radius: 14px;
+  }
+  .dashboardBetaFeedbackCard {
+    padding: 12px 14px;
+    border-radius: 14px;
+  }
+  .dashboardLearningCard {
+    padding: 12px 14px;
+    border-radius: 14px;
+  }
+  .dashboardMaturityCard {
+    padding: 12px 14px;
+    border-radius: 14px;
+  }
+  .dashboardWeeklyRecapCard {
+    padding: 12px 14px;
+    border-radius: 14px;
+  }
+  .dashboardThisWeekCard {
+    padding: 11px 13px;
+    border-radius: 13px;
+  }
+  .dashboardPositiveMomentumCard {
+    padding: 11px 13px;
+    border-radius: 13px;
+  }
+  .dashboardTrackingStreakCard {
+    padding: 11px 13px;
+    border-radius: 13px;
+  }
+  .dashboardMonthlyReflectionCard {
+    padding: 11px 13px;
+    border-radius: 13px;
+  }
+  .dashboardNextMonthCard {
+    padding: 11px 13px;
+    border-radius: 13px;
+  }
+  .dashboardDailyInsightCard {
+    padding: 11px 13px;
+    border-radius: 13px;
+  }
+  .dashboardTrustCard {
+    padding: 11px 13px;
+    border-radius: 13px;
+  }
+  .dashboardPremiumMomentCard {
+    padding: 11px 13px;
+    border-radius: 13px;
+  }
+  .dashboardWeeklyRecapGrid {
+    gap: 8px;
+  }
+  .dashboardWeeklyRecapItem {
+    padding: 10px 11px;
+  }
+  .dashboardConfidenceBadge {
+    margin-bottom: 8px;
+  }
+  .fiscalScoreValue {
+    font-size: 30px;
+  }
+  .revenueItem {
+    padding: 14px;
+    border-radius: 16px;
+  }
+  .revenueMain {
+    gap: 12px;
+  }
+  .revenueChartCard {
+    padding: 16px;
+    border-radius: 18px;
+  }
+  .chartHeader {
+    margin-bottom: 16px;
+  }
+  .revenueChart {
+    gap: 10px;
+    min-height: 160px;
+  }
+  .historyList {
+    gap: 10px;
+  }
+  .historyItem {
+    padding: 11px 12px;
+  }
+  .dashboardHelperText {
+    margin-top: 5px;
+  }
+  .floatingStatusNotice {
+    top: 96px !important;
+  }
   .formGrid {
     grid-template-columns: 1fr;
   }
@@ -1461,6 +2230,304 @@ section[id] {
   }
   .brand {
     font-size: 15px;
+  }
+  .container {
+    padding: 14px 10px;
+    gap: 10px;
+  }
+  .card {
+    padding: 12px;
+  }
+  .dashboardSectionZone {
+    padding: 12px;
+    border-radius: 16px;
+    margin-top: 18px;
+  }
+  .dashboardSectionHeader,
+  .journalHeader {
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .dashboardSectionTitle {
+    font-size: 17px;
+  }
+  .dashboardSectionActions,
+  .journalFilters {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+  .dashboardSectionActions .btn,
+  .journalFilters .btn,
+  .journalFilters .monthFilter {
+    width: 100%;
+  }
+  .dashboardSectionActions > .btnActionUtility,
+  .journalFilters > .btnActionUtility {
+    order: 3;
+  }
+  .fiscalDashboard,
+  .timelineList,
+  .miniStatsGrid {
+    gap: 10px;
+  }
+  .fiscalCard {
+    padding: 16px;
+    border-radius: 16px;
+  }
+  .fiscalLabel,
+  .miniStatLabel {
+    margin-bottom: 8px;
+  }
+  .fiscalValue {
+    font-size: 24px;
+  }
+  .miniStatCard {
+    padding: 10px 12px;
+  }
+  .miniStatValue {
+    font-size: 16px;
+  }
+  .fiscalScoreCard {
+    margin: 16px 0 14px;
+    padding: 14px;
+  }
+  .dashboardNextStepCard {
+    padding: 14px;
+    border-radius: 14px;
+    margin-bottom: 16px;
+  }
+  .dashboardLaunchRail {
+    gap: 10px;
+    margin: 14px 0 12px;
+  }
+  .dashboardLaunchAnchors {
+    display: grid;
+    gap: 8px;
+  }
+  .dashboardTrustPill {
+    justify-content: flex-start;
+    width: 100%;
+    border-radius: 14px;
+  }
+  .dashboardNextStepTitle {
+    font-size: 16px;
+  }
+  .dashboardNextStepText {
+    font-size: 13px;
+  }
+  .dashboardNextStepActions {
+    margin-top: 14px;
+  }
+  .dashboardSignalStack {
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .dashboardMilestoneBanner {
+    align-items: flex-start;
+    margin-bottom: 14px;
+  }
+  .dashboardChecklistCard {
+    padding: 12px;
+    margin-bottom: 14px;
+  }
+  .dashboardRecommendationCard {
+    padding: 12px;
+    margin-bottom: 14px;
+  }
+  .dashboardBetaFeedbackCard {
+    padding: 12px;
+    margin-bottom: 14px;
+  }
+  .dashboardLearningCard {
+    padding: 12px;
+    margin-bottom: 14px;
+  }
+  .dashboardMaturityCard {
+    padding: 12px;
+    margin-bottom: 14px;
+  }
+  .dashboardWeeklyRecapCard {
+    padding: 12px;
+    margin-bottom: 14px;
+  }
+  .dashboardThisWeekCard {
+    padding: 11px 12px;
+    margin-bottom: 14px;
+  }
+  .dashboardPositiveMomentumCard {
+    padding: 11px 12px;
+    margin-bottom: 14px;
+  }
+  .dashboardTrackingStreakCard {
+    padding: 11px 12px;
+    margin-bottom: 14px;
+  }
+  .dashboardMonthlyReflectionCard {
+    padding: 11px 12px;
+    margin-bottom: 14px;
+  }
+  .dashboardNextMonthCard {
+    padding: 11px 12px;
+    margin-bottom: 14px;
+  }
+  .dashboardDailyInsightCard {
+    padding: 11px 12px;
+    margin-bottom: 14px;
+  }
+  .dashboardTrustCard {
+    padding: 11px 12px;
+    margin-bottom: 14px;
+  }
+  .dashboardPremiumMomentCard {
+    padding: 11px 12px;
+    margin-bottom: 14px;
+  }
+  .dashboardMaturityTitle {
+    font-size: 12px;
+  }
+  .dashboardRecommendationTitle {
+    font-size: 14px;
+  }
+  .dashboardRecommendationText {
+    font-size: 12px;
+  }
+  .dashboardBetaFeedbackQuestion,
+  .dashboardBetaFeedbackHelper {
+    font-size: 12px;
+  }
+  .dashboardDailyInsightText {
+    font-size: 12px;
+  }
+  .dashboardThisWeekTitle {
+    font-size: 12px;
+  }
+  .dashboardPositiveMomentumTitle {
+    font-size: 12px;
+  }
+  .dashboardTrackingStreakTitle {
+    font-size: 12px;
+  }
+  .dashboardMonthlyReflectionTitle {
+    font-size: 12px;
+  }
+  .dashboardNextMonthTitle {
+    font-size: 12px;
+  }
+  .dashboardPremiumMomentText {
+    font-size: 12px;
+  }
+  .dashboardWeeklyRecapGrid {
+    grid-template-columns: 1fr;
+  }
+  .dashboardWeeklyRecapLabel {
+    font-size: 11.5px;
+  }
+  .dashboardWeeklyRecapValue {
+    font-size: 15px;
+  }
+  .dashboardRecommendationActions .btn {
+    width: 100%;
+  }
+  .dashboardBetaFeedbackChoices {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+  .dashboardBetaFeedbackChoices .btn {
+    width: 100%;
+  }
+  .dashboardPremiumMomentActions .btn {
+    width: 100%;
+  }
+  .dashboardChecklistLabel {
+    font-size: 12px;
+  }
+  .dashboardConfidenceBadge {
+    font-size: 10px;
+    padding: 4px 8px;
+  }
+  .dashboardNextStepActions .btn {
+    width: 100%;
+    min-height: 48px;
+  }
+  .sectionHeadActions {
+    width: 100%;
+    gap: 10px;
+  }
+  .sectionHeadActions .btn {
+    min-height: 46px;
+  }
+  .floatingStatusNotice {
+    top: 100px !important;
+    left: 12px !important;
+    right: 12px !important;
+    width: auto !important;
+    transform: none !important;
+  }
+  .dashboardMobileActionSpacer {
+    display: block;
+    height: 82px;
+  }
+  .dashboardMobileActionBar {
+    display: block;
+  }
+  .fiscalScoreValue {
+    font-size: 28px;
+  }
+  .fiscalScoreValue span {
+    font-size: 15px;
+  }
+  .smartTipCard,
+  .timelineItem,
+  .progressItem,
+  .historyItem,
+  .emptyRevenueState {
+    border-radius: 14px;
+  }
+  .revenueItem {
+    padding: 13px;
+  }
+  .revenueMain {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  .revenueDate {
+    white-space: normal;
+  }
+  .revenueActions {
+    justify-content: flex-start;
+  }
+  .revenueActions .btn {
+    width: 100%;
+  }
+  .revenueChartCard {
+    padding: 14px;
+  }
+  .revenueChart {
+    gap: 8px;
+    min-height: 140px;
+    align-items: flex-end;
+  }
+  .chartCol {
+    gap: 8px;
+  }
+  .chartBar {
+    max-width: 28px;
+  }
+  .chartValue {
+    font-size: 11px;
+  }
+  .chartLabel {
+    font-size: 10px;
+  }
+  .historyItem {
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .dashboardHelperText {
+    font-size: 10.5px;
+    line-height: 1.4;
   }
 }
 .navLink {
