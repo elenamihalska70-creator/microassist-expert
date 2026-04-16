@@ -39,6 +39,8 @@ const FIRST_REVENUE_ONBOARDING_SEEN_KEY =
   "microassist_first_revenue_onboarding_seen";
 const BETA_MICRO_FEEDBACK_KEY = "microassist_beta_micro_feedback";
 const BETA_SEEN_KEY = "beta_seen";
+const FEEDBACK_FORM_URL =
+  "https://docs.google.com/forms/d/e/1FAIpQLSfFLqWZajP6Dy0Zm5-bS9cnE5-joWecfCgfyIhzGRMbsk-jqA/viewform";
 const FOUNDER_OFFER_LIMIT = 100;
 const FREE_EXPORTS_PER_MONTH = 3;
 const EMPTY_EXPORT_USAGE = {
@@ -76,6 +78,380 @@ const DEFAULT_DASHBOARD_SECTIONS = {
   revenues: false,
   invoices: false,
   chart: false,
+  learning: false,
+  weekly: false,
+  analysis: false,
+};
+const ANALYSIS_COPY = {
+  title: "📊 Analyse financière",
+  missingExpensesTitle: "Dépenses non renseignées",
+  missingExpensesText: "Ajoute tes dépenses pour afficher une marge plus juste.",
+  projectionLabel: "Projection annuelle",
+  projectionPendingText:
+    "Ajoute encore quelques revenus pour fiabiliser la projection annuelle.",
+  projectionValueHelper: "Après charges et cotisations",
+  projectionTrendHelper: "Projection basée sur ton rythme actuel.",
+  expensesLabel: "Dépenses mensuelles",
+  expensesHelper: "Tes charges personnelles",
+  coverageLabel: "Couverture des dépenses",
+  coverageHelper: "Revenus / Dépenses",
+  collapsedWithExpenses: (amount) =>
+    `${amount.toLocaleString("fr-FR")} € de dépenses mensuelles suivies.`,
+  collapsedEmpty: "Analyse disponible dès que les données de suivi sont suffisantes.",
+};
+const DAILY_FISCAL_TIP_COPY = {
+  title: "💡 Conseil fiscal du moment",
+  irregularRevenue:
+    "Tes encaissements sont irréguliers. Un suivi plus régulier rend tes repères fiscaux plus fiables.",
+  irregularRevenueCta: "Ajouter un revenu",
+  tvaWatch:
+    "Le passage à la TVA approche. Vérifie dès maintenant le paramétrage de ta facturation.",
+  tvaWatchCta: "Comprendre la TVA",
+  missingExpenses: "Ajoute tes dépenses pour compléter la lecture de ta marge.",
+  deadline:
+    "La prochaine déclaration URSSAF mérite d’être préparée maintenant. Prévois le montant à déclarer avant l’échéance.",
+  deadlineCta: "Gérer mes rappels",
+  lowReserve:
+    "Ta réserve reste courte au regard de l’objectif calculé. Sécurise une part des prochains encaissements.",
+  acreEnding:
+    "La fin de l’ACRE approche. Anticipe l’évolution de tes cotisations sur les prochains mois.",
+  guestHistory:
+    "Ton historique devient utile pour le suivi fiscal. Créer ton compte permet de le conserver dans la durée.",
+  guestHistoryCta: "Créer mon compte",
+  firstInvoice:
+    "Tu as déjà de l’activité enregistrée. Une première facture aide à cadrer le suivi client, les encaissements et la TVA collectée.",
+  firstInvoiceCta: "Créer une facture",
+};
+const FISCAL_MARKERS_COPY = {
+  title: "Repères fiscaux",
+  declaration: {
+    label: "Échéance",
+    fallbackValue: "À définir",
+    fallbackHint: "Choisis ta périodicité.",
+  },
+  charges: {
+    label: "À prévoir",
+    profileIncompleteValue: "Profil à compléter",
+    withRevenueHint: "Montant à mettre de côté",
+    withoutRevenueHint: "Ajoute un revenu",
+    incompleteHint: "Complète ton profil pour débloquer ce repère",
+  },
+  tva: {
+    label: "TVA",
+    fallbackValue: "À confirmer",
+    getHint: ({ status, hasEarlyRevenueData, fallbackHint }) => {
+      if (status === "exceeded") {
+        return "La TVA doit maintenant entrer dans ton suivi.";
+      }
+
+      if (status === "soon") {
+        return "Ton rythme d’activité demande une vigilance TVA.";
+      }
+
+      if (hasEarlyRevenueData) {
+        return "Le statut TVA se précise avec davantage d’activité.";
+      }
+
+      return fallbackHint || "Statut estimé selon ton activité.";
+    },
+  },
+};
+const SCORE_COPY = {
+  title: "🎯 Score fiscal",
+  getHelper: ({ hasEarlyRevenueData, revenueCount }) => {
+    if (hasEarlyRevenueData) {
+      return revenueCount <= 1
+        ? "Basé sur ton profil et un premier niveau d’activité."
+        : "Basé sur ton profil et encore peu de données.";
+    }
+
+    return "Basé sur ton profil et ton suivi.";
+  },
+  getInterpretation: (score) => {
+    if (score >= 80) return "Ton espace est très bien piloté.";
+    if (score >= 60) return "Ton suivi est bon, encore quelques optimisations.";
+    return "Ton espace a besoin de plus de suivi.";
+  },
+};
+const MATURITY_COPY = {
+  title: "📈 Niveau de maturité du suivi",
+  badge: "En progression",
+  getHelper: (revenuesLeft) =>
+    revenuesLeft > 0
+      ? `Ajoute encore ${revenuesLeft} revenu${revenuesLeft > 1 ? "s" : ""} pour fiabiliser les projections annuelles.`
+      : "Ton cockpit fiscal dispose maintenant d’une base fiable pour les projections.",
+};
+const ROLE_BASED_TIPS = {
+  default: {
+    dailyFiscalTip: {
+      irregularRevenue:
+        "Tes encaissements sont irréguliers. Un suivi plus régulier rend tes repères fiscaux plus fiables.",
+      tvaWatch:
+        "Le passage à la TVA approche. Vérifie dès maintenant le paramétrage de ta facturation.",
+      missingExpenses: "Ajoute tes dépenses pour compléter la lecture de ta marge.",
+      deadline:
+        "La prochaine déclaration URSSAF mérite d’être préparée maintenant. Prévois le montant à déclarer avant l’échéance.",
+      lowReserve:
+        "Ta réserve reste courte au regard de l’objectif calculé. Sécurise une part des prochains encaissements.",
+      acreEnding:
+        "La fin de l’ACRE approche. Anticipe l’évolution de tes cotisations sur les prochains mois.",
+      guestHistory:
+        "Ton historique devient utile pour le suivi fiscal. Créer ton compte permet de le conserver dans la durée.",
+      firstInvoice:
+        "Tu as déjà de l’activité enregistrée. Une première facture aide à cadrer le suivi client, les encaissements et la TVA collectée.",
+    },
+  },
+  service: {
+    dailyFiscalTip: {
+      irregularRevenue:
+        "Tes encaissements varient encore. Un suivi plus régulier rendra tes repères de prestations plus fiables.",
+      tvaWatch:
+        "Le passage à la TVA approche. Vérifie dès maintenant le paramétrage de tes devis et factures.",
+      missingExpenses:
+        "Ajoute tes frais de fonctionnement pour mieux lire ta marge de service.",
+      deadline:
+        "La prochaine déclaration URSSAF mérite d’être préparée maintenant. Prévois le montant à déclarer avant l’échéance.",
+      lowReserve:
+        "Ta réserve reste courte pour sécuriser les prochaines prestations encaissées.",
+      acreEnding:
+        "La fin de l’ACRE approche. Anticipe l’évolution de tes cotisations sur tes prochaines prestations.",
+      guestHistory:
+        "Ton historique de prestations devient utile. Créer ton compte permet de le conserver dans la durée.",
+      firstInvoice:
+        "Tu as déjà de l’activité enregistrée. Une première facture aide à cadrer le suivi client et les encaissements.",
+    },
+  },
+  vente: {
+    dailyFiscalTip: {
+      irregularRevenue:
+        "Tes encaissements varient encore. Un suivi plus régulier rendra tes repères de vente plus fiables.",
+      tvaWatch:
+        "Le passage à la TVA approche. Vérifie dès maintenant le paramétrage de ta facturation et de tes ventes.",
+      missingExpenses:
+        "Ajoute tes achats et frais pour mieux lire ta marge sur les ventes.",
+      deadline:
+        "La prochaine déclaration URSSAF mérite d’être préparée maintenant. Prévois le montant à déclarer avant l’échéance.",
+      lowReserve:
+        "Ta réserve reste courte pour absorber les prochains besoins liés à tes ventes.",
+      acreEnding:
+        "La fin de l’ACRE approche. Anticipe l’évolution de tes cotisations sur ton activité de vente.",
+      guestHistory:
+        "Ton historique de ventes devient utile. Créer ton compte permet de le conserver dans la durée.",
+      firstInvoice:
+        "Tu as déjà de l’activité enregistrée. Une première facture aide à cadrer le suivi client, les encaissements et la TVA collectée.",
+    },
+  },
+  mixte: {
+    dailyFiscalTip: {
+      irregularRevenue:
+        "Tes encaissements varient encore. Un suivi plus régulier rendra tes repères d’activité plus fiables.",
+      tvaWatch:
+        "Le passage à la TVA approche. Vérifie dès maintenant le paramétrage de ta facturation sur l’ensemble de ton activité.",
+      missingExpenses:
+        "Ajoute tes frais pour mieux lire la marge globale de ton activité mixte.",
+      deadline:
+        "La prochaine déclaration URSSAF mérite d’être préparée maintenant. Prévois le montant à déclarer avant l’échéance.",
+      lowReserve:
+        "Ta réserve reste courte pour sécuriser les prochains encaissements de ton activité mixte.",
+      acreEnding:
+        "La fin de l’ACRE approche. Anticipe l’évolution de tes cotisations sur l’ensemble de ton activité.",
+      guestHistory:
+        "Ton historique devient utile pour suivre ton activité mixte. Créer ton compte permet de le conserver dans la durée.",
+      firstInvoice:
+        "Tu as déjà de l’activité enregistrée. Une première facture aide à cadrer le suivi client, les encaissements et la TVA collectée.",
+    },
+  },
+};
+const ROLE_BASED_POINT_DU_JOUR = {
+  default: {
+    tvaExceeded: "La TVA demande maintenant une préparation concrète.",
+    tvaSoon: "La TVA mérite une vigilance renforcée pour les prochains revenus.",
+    missingExpenses:
+      "Aucune dépense renseignée : la marge et la lecture de santé restent partielles.",
+    starter: "Encore quelques revenus et les estimations deviendront plus fiables.",
+    default: "Ton suivi avance bien. Continue comme ça.",
+  },
+  service: {
+    tvaExceeded: "La TVA demande maintenant une préparation concrète sur tes prestations.",
+    tvaSoon: "La TVA mérite une vigilance renforcée sur tes prochains encaissements.",
+    missingExpenses: "Aucun frais renseigné : la marge de tes prestations reste partielle.",
+    starter: "Encore quelques prestations enregistrées et les estimations seront plus fiables.",
+    default: "Ton suivi de prestations avance bien. Continue comme ça.",
+  },
+  vente: {
+    tvaExceeded: "La TVA demande maintenant une préparation concrète sur tes ventes.",
+    tvaSoon: "La TVA mérite une vigilance renforcée sur tes prochaines ventes.",
+    missingExpenses: "Aucun achat ni frais renseigné : la marge de tes ventes reste partielle.",
+    starter: "Encore quelques ventes enregistrées et les estimations seront plus fiables.",
+    default: "Ton suivi de ventes avance bien. Continue comme ça.",
+  },
+  mixte: {
+    tvaExceeded: "La TVA demande maintenant une préparation concrète sur l’ensemble de ton activité.",
+    tvaSoon: "La TVA mérite une vigilance renforcée sur tes prochains encaissements.",
+    missingExpenses: "Aucun frais renseigné : la marge de ton activité mixte reste partielle.",
+    starter: "Encore quelques revenus enregistrés et les estimations seront plus fiables.",
+    default: "Ton suivi d’activité avance bien. Continue comme ça.",
+  },
+};
+const ROLE_BASED_NEXT_MONTH = {
+  default: {
+    tva: "Prépare le suivi TVA du mois prochain.",
+    guest: "Crée ton compte pour retrouver ce suivi le mois prochain.",
+    starter: "Ajoute encore quelques saisies pour mieux préparer le mois prochain.",
+    reminders: "Active tes rappels pour mieux anticiper le mois prochain.",
+    ready: "Ton suivi est prêt pour le mois prochain.",
+  },
+  service: {
+    tva: "Prépare le suivi TVA du mois prochain sur tes prestations.",
+    guest: "Crée ton compte pour retrouver ton suivi de prestations le mois prochain.",
+    starter: "Ajoute encore quelques prestations pour mieux préparer le mois prochain.",
+    reminders: "Active tes rappels pour anticiper sereinement le mois prochain.",
+    ready: "Ton suivi est prêt pour le mois prochain.",
+  },
+  vente: {
+    tva: "Prépare le suivi TVA du mois prochain sur tes ventes.",
+    guest: "Crée ton compte pour retrouver ton suivi de ventes le mois prochain.",
+    starter: "Ajoute encore quelques ventes pour mieux préparer le mois prochain.",
+    reminders: "Active tes rappels pour anticiper sereinement le mois prochain.",
+    ready: "Ton suivi est prêt pour le mois prochain.",
+  },
+  mixte: {
+    tva: "Prépare le suivi TVA du mois prochain sur l’ensemble de ton activité.",
+    guest: "Crée ton compte pour retrouver ce suivi le mois prochain.",
+    starter: "Ajoute encore quelques revenus pour mieux préparer le mois prochain.",
+    reminders: "Active tes rappels pour anticiper sereinement le mois prochain.",
+    ready: "Ton suivi est prêt pour le mois prochain.",
+  },
+};
+const ROLE_BASED_PREMIUM_CTA = {
+  default: {
+    guest_free: {
+      title: "🎁 Offre fondateur",
+      benefit: "Exports illimités, historique complet et alertes avancées pour mieux piloter ton activité.",
+      cta: "Découvrir Premium",
+    },
+    registered_founder_active: {
+      title: "⭐ Essai Premium actif",
+      benefit: "Exports illimités, historique complet et alertes avancées déjà activés dans ton espace.",
+      cta: "Voir mes avantages Premium",
+    },
+    registered_founder_ending: {
+      title: "⏳ Essai Premium bientôt terminé",
+      benefit: "Garde les exports illimités, l’historique complet et les alertes avancées après l’essai.",
+      cta: "Voir Premium après l’essai",
+    },
+    registered_free_after_trial: {
+      title: "🔓 Réactiver Premium",
+      benefit: "Retrouve les exports illimités, l’historique complet et les alertes avancées.",
+      cta: "Réactiver Premium",
+    },
+    premium_paid_active: {
+      title: "⭐ Premium actif",
+      benefit: "Ton espace inclut déjà les exports illimités, l’historique complet et les alertes avancées.",
+      cta: "Voir mes avantages Premium",
+    },
+    premium_qa_override: {
+      title: "🧪 Premium QA actif",
+      benefit: "Mode de test local activé avec les avantages Premium visibles dans le dashboard.",
+      cta: "Voir les avantages Premium",
+    },
+  },
+  service: {
+    guest_free: {
+      title: "🎁 Offre fondateur pour tes prestations",
+      benefit: "Historique complet, exports illimités et alertes utiles pour piloter tes prestations.",
+      cta: "Voir Premium pour mes prestations",
+    },
+    registered_founder_active: {
+      title: "⭐ Essai Premium actif pour tes prestations",
+      benefit: "Tu suis déjà mieux tes prestations avec l’historique complet, les exports illimités et les alertes avancées.",
+      cta: "Voir Premium pour mes prestations",
+    },
+    registered_founder_ending: {
+      title: "⏳ Essai Premium bientôt terminé",
+      benefit: "Continue à piloter tes prestations avec l’historique complet, les exports illimités et les alertes avancées.",
+      cta: "Continuer Premium pour mes prestations",
+    },
+    registered_free_after_trial: {
+      title: "🔓 Réactiver Premium pour tes prestations",
+      benefit: "Retrouve les exports illimités, l’historique complet et les alertes utiles à ton activité de service.",
+      cta: "Réactiver Premium pour mes prestations",
+    },
+    premium_paid_active: {
+      title: "⭐ Premium actif pour tes prestations",
+      benefit: "Ton espace Premium t’aide déjà à suivre tes prestations avec plus de continuité.",
+      cta: "Voir Premium pour mes prestations",
+    },
+    premium_qa_override: {
+      title: "🧪 Premium QA actif",
+      benefit: "Mode de test local activé pour les avantages Premium liés à tes prestations.",
+      cta: "Voir les avantages Premium",
+    },
+  },
+  vente: {
+    guest_free: {
+      title: "🎁 Offre fondateur pour tes ventes",
+      benefit: "Historique complet, exports illimités et alertes utiles pour piloter tes ventes.",
+      cta: "Voir Premium pour mes ventes",
+    },
+    registered_founder_active: {
+      title: "⭐ Essai Premium actif pour tes ventes",
+      benefit: "Tu pilotes déjà mieux tes ventes avec l’historique complet, les exports illimités et les alertes avancées.",
+      cta: "Voir Premium pour mes ventes",
+    },
+    registered_founder_ending: {
+      title: "⏳ Essai Premium bientôt terminé",
+      benefit: "Continue à suivre tes ventes avec l’historique complet, les exports illimités et les alertes avancées.",
+      cta: "Continuer Premium pour mes ventes",
+    },
+    registered_free_after_trial: {
+      title: "🔓 Réactiver Premium pour tes ventes",
+      benefit: "Retrouve les exports illimités, l’historique complet et les alertes utiles à ton activité de vente.",
+      cta: "Réactiver Premium pour mes ventes",
+    },
+    premium_paid_active: {
+      title: "⭐ Premium actif pour tes ventes",
+      benefit: "Ton espace Premium t’aide déjà à suivre tes ventes avec plus de continuité.",
+      cta: "Voir Premium pour mes ventes",
+    },
+    premium_qa_override: {
+      title: "🧪 Premium QA actif",
+      benefit: "Mode de test local activé pour les avantages Premium liés à tes ventes.",
+      cta: "Voir les avantages Premium",
+    },
+  },
+  mixte: {
+    guest_free: {
+      title: "🎁 Offre fondateur pour ton activité",
+      benefit: "Historique complet, exports illimités et alertes utiles pour piloter ton activité mixte.",
+      cta: "Voir Premium pour mon activité",
+    },
+    registered_founder_active: {
+      title: "⭐ Essai Premium actif pour ton activité",
+      benefit: "Tu pilotes déjà mieux ton activité mixte avec l’historique complet, les exports illimités et les alertes avancées.",
+      cta: "Voir Premium pour mon activité",
+    },
+    registered_founder_ending: {
+      title: "⏳ Essai Premium bientôt terminé",
+      benefit: "Continue à suivre ton activité mixte avec l’historique complet, les exports illimités et les alertes avancées.",
+      cta: "Continuer Premium pour mon activité",
+    },
+    registered_free_after_trial: {
+      title: "🔓 Réactiver Premium pour ton activité",
+      benefit: "Retrouve les exports illimités, l’historique complet et les alertes utiles à ton activité mixte.",
+      cta: "Réactiver Premium pour mon activité",
+    },
+    premium_paid_active: {
+      title: "⭐ Premium actif pour ton activité",
+      benefit: "Ton espace Premium t’aide déjà à piloter ton activité mixte avec plus de continuité.",
+      cta: "Voir Premium pour mon activité",
+    },
+    premium_qa_override: {
+      title: "🧪 Premium QA actif",
+      benefit: "Mode de test local activé pour les avantages Premium liés à ton activité mixte.",
+      cta: "Voir les avantages Premium",
+    },
+  },
 };
 const FULL_RESET_LOCAL_STORAGE_KEYS = [
   LS_KEY,
@@ -693,7 +1069,7 @@ function buildFiscalChecklist(computed = {}) {
   } else if (computed?.tvaStatus === "soon") {
     items.push("• Surveiller le seuil TVA.");
   } else {
-    items.push("• TVA : franchise en base a priori OK.");
+    items.push("• TVA : Franchise TVA OK.");
   }
 
   if (computed?.recommendations?.length) {
@@ -738,6 +1114,20 @@ function getAssistantAnswersFromProfile(profile) {
     acre_start_date: profile.acre_start_date || null,
     business_start_date: profile.business_start_date || null,
   });
+}
+
+function getActivityRole(activityType) {
+  switch (activityType) {
+    case "services":
+    case "service":
+      return "service";
+    case "vente":
+      return "vente";
+    case "mixte":
+      return "mixte";
+    default:
+      return "default";
+  }
 }
 
 function isStepAvailable(stepConfig, sourceAnswers) {
@@ -1916,7 +2306,6 @@ useEffect(() => {
   const heroRef = useRef(null);
   const servicesRef = useRef(null);
   const howItWorksRef = useRef(null);
-  const feedbackRef = useRef(null);
   const fiscalRef = useRef(null);
   const chartRef = useRef(null);
 
@@ -2076,7 +2465,6 @@ useEffect(() => {
       hero: heroRef,
       assistant: assistantRef,
       security: securityRef,
-      feedback: feedbackRef,
     };
 
     const ref = refMap[target];
@@ -2593,6 +2981,26 @@ useEffect(() => {
     activityLabel,
     freqLabel,
   ]);
+  const activityRole = useMemo(
+    () => getActivityRole(dashboardAnswers.activity_type),
+    [dashboardAnswers.activity_type],
+  );
+  const roleBasedTips = useMemo(
+    () => ROLE_BASED_TIPS[activityRole] || ROLE_BASED_TIPS.default,
+    [activityRole],
+  );
+  const roleBasedPointDuJour = useMemo(
+    () => ROLE_BASED_POINT_DU_JOUR[activityRole] || ROLE_BASED_POINT_DU_JOUR.default,
+    [activityRole],
+  );
+  const roleBasedNextMonth = useMemo(
+    () => ROLE_BASED_NEXT_MONTH[activityRole] || ROLE_BASED_NEXT_MONTH.default,
+    [activityRole],
+  );
+  const roleBasedPremiumCta = useMemo(
+    () => ROLE_BASED_PREMIUM_CTA[activityRole] || ROLE_BASED_PREMIUM_CTA.default,
+    [activityRole],
+  );
   const authGreetingName = useMemo(() => {
     const metadataFirstName =
       user?.user_metadata?.first_name?.trim() ||
@@ -2605,8 +3013,6 @@ useEffect(() => {
     user && authGreetingName
       ? `Bonjour ${authGreetingName} 👋`
       : "Bonjour 👋";
-  const guestLocalOnlyHelper =
-    "Tes données restent bien sur cet appareil pour l’instant. Créer un compte permettra simplement de les retrouver plus tard.";
   const trustBadgeLabel = user
     ? "🔒 Profil, revenus et historique sécurisés dans ton espace"
     : "🖥️ Mode local actif : tes données restent sur cet appareil";
@@ -2802,7 +3208,7 @@ useEffect(() => {
     if (revenues.length <= 1) {
       return {
         tone: "warning",
-        label: "Repères en construction",
+        label: "Estimation selon ton activité",
       };
     }
 
@@ -2826,27 +3232,35 @@ useEffect(() => {
     };
   }, [isFiscalProfileComplete, revenues.length]);
   const chargesEstimateHelper = hasEarlyRevenueData
-    ? "Estimation provisoire basée sur ton activité et peu de données."
-    : "Estimation basée sur ton activité et tes revenus enregistrés.";
+    ? "Estimation provisoire sur peu de données."
+    : "Estimation basée sur ton activité.";
   const availableEstimateHelper = hasEarlyRevenueData
-    ? "Montant provisoire après charges estimées sur peu de données."
-    : "Montant restant après charges estimées sur ton activité.";
-  const annualProjectionHelper =
-    "Basé sur ta moyenne actuelle. Estimation évolutive.";
-  const tvaStatusHelper =
-    computed?.tvaStatus === "exceeded"
-      ? "Action à préparer : la TVA doit maintenant entrer dans ton suivi."
-      : computed?.tvaStatus === "soon"
-        ? "Vigilance : ton rythme d’activité mérite une surveillance TVA rapprochée."
-        : hasEarlyRevenueData
-          ? "Le statut TVA se précise avec davantage d’activité enregistrée."
-          : computed?.tvaHint ||
-            "Statut estimé selon ton activité et ton chiffre d’affaires.";
-  const fiscalScoreHelper = hasEarlyRevenueData
-    ? revenues.length <= 1
-      ? "Basé sur ton profil et un premier niveau d’activité. Le score reste volontairement prudent."
-      : "Basé sur ton profil et peu de données. Il se stabilise avec le suivi."
-    : "Basé sur ton profil, ton suivi et tes repères fiscaux.";
+    ? "Disponible provisoire après estimation des charges."
+    : "Disponible après charges estimées.";
+  const annualProjectionHelper = ANALYSIS_COPY.projectionTrendHelper;
+  const tvaStatusHelper = FISCAL_MARKERS_COPY.tva.getHint({
+    status: computed?.tvaStatus,
+    hasEarlyRevenueData,
+    fallbackHint: computed?.tvaHint,
+  });
+  const fiscalScoreHelper = SCORE_COPY.getHelper({
+    hasEarlyRevenueData,
+    revenueCount: revenues.length,
+  });
+  const normalizedTvaStatusLabel = useMemo(() => {
+    if (!computed?.tvaStatusLabel) return "—";
+    if (!isFiscalProfileComplete) return computed.tvaStatusLabel;
+    if (computed?.tvaStatus === "exceeded" || computed?.tvaStatus === "soon") {
+      return computed.tvaStatusLabel;
+    }
+
+    return revenues.length < 5 ? "TVA sous seuil" : "Franchise TVA OK";
+  }, [
+    computed?.tvaStatus,
+    computed?.tvaStatusLabel,
+    isFiscalProfileComplete,
+    revenues.length,
+  ]);
   const confidenceHelperText = dashboardConfidence.label;
   const dashboardMilestone = useMemo(() => {
     if (revenues.length >= 10) {
@@ -2939,6 +3353,11 @@ useEffect(() => {
 
     return { current, percent };
   }, [revenues.length]);
+  const trackingMaturityPercent = Math.min((revenues.length / 5) * 100, 100);
+  const trackingMaturityRevenuesLeft = Math.max(5 - revenues.length, 0);
+  const trackingMaturityHelperText = MATURITY_COPY.getHelper(
+    trackingMaturityRevenuesLeft,
+  );
   const dashboardMaturityLevel = useMemo(() => {
     const hasTrackedExpenses = Number(computed?.monthlyExpenses || 0) > 0;
     const hasInvoiceTracking = visibleInvoices.length > 0;
@@ -2953,7 +3372,7 @@ useEffect(() => {
       return {
         level: "Suivi avancé",
         tone: "success",
-        text: "Ton cockpit est bien alimenté et t’offre déjà un pilotage plus complet au quotidien.",
+        text: "Ton suivi est déjà complet et utile au quotidien.",
       };
     }
 
@@ -2961,7 +3380,7 @@ useEffect(() => {
       return {
         level: "Suivi fiable",
         tone: "success",
-        text: "Tes estimations gagnent en stabilité et deviennent plus utiles pour anticiper.",
+        text: "Tes estimations deviennent stables et plus utiles.",
       };
     }
 
@@ -2969,14 +3388,14 @@ useEffect(() => {
       return {
         level: "En progrès",
         tone: "neutral",
-        text: "Le tableau de bord devient de plus en plus parlant à mesure que ton activité s’enrichit.",
+        text: "Le tableau de bord devient plus parlant à mesure que tu l’alimentes.",
       };
     }
 
     return {
       level: "Démarrage",
       tone: "warning",
-      text: "Les premiers repères se mettent en place. Encore un peu de matière et le suivi gagnera vite en précision.",
+      text: "Les premiers repères sont en place. Encore un peu d’activité et le suivi gagnera vite en précision.",
     };
   }, [
     computed?.monthlyExpenses,
@@ -2990,7 +3409,7 @@ useEffect(() => {
       return {
         icon: "🛡️",
         text:
-          "Tes revenus sont bien enregistrés. Les calculs liés au profil resteront volontairement partiels jusqu’à sa complétion.",
+          "Tes revenus sont bien enregistrés. Les calculs liés au profil resteront partiels tant qu’il n’est pas complété.",
       };
     }
 
@@ -2998,7 +3417,7 @@ useEffect(() => {
       return {
         icon: "🛡️",
         text:
-          "Le court terme est déjà fiable. Le long terme devient plus précis avec quelques revenus en plus.",
+          "Le mois en cours devient lisible. Les repères longs se précisent avec plus d’activité.",
       };
     }
 
@@ -3009,13 +3428,13 @@ useEffect(() => {
       return {
         icon: "🛡️",
         text:
-          "Ton cockpit devient fiable pour piloter le mois et anticiper les seuils.",
+          "Ton suivi devient fiable pour piloter le mois.",
       };
     }
 
     return {
       icon: "🛡️",
-      text: "Tes repères mensuels et annuels sont désormais solides.",
+      text: "Tes repères mensuels sont bien installés.",
     };
   }, [dashboardMaturityLevel.level, isFiscalProfileComplete, revenues.length]);
 
@@ -3024,29 +3443,32 @@ useEffect(() => {
       {
         key: "declaration",
         icon: "📅",
-        label: "Échéance",
-        value: computed?.nextDeclarationLabel || "À définir",
-        hint: computed?.deadlineLabel || "Choisis ta périodicité.",
+        label: FISCAL_MARKERS_COPY.declaration.label,
+        value:
+          computed?.nextDeclarationLabel ||
+          FISCAL_MARKERS_COPY.declaration.fallbackValue,
+        hint:
+          computed?.deadlineLabel || FISCAL_MARKERS_COPY.declaration.fallbackHint,
       },
       {
         key: "charges",
         icon: "💰",
-        label: "À prévoir",
+        label: FISCAL_MARKERS_COPY.charges.label,
         value: isFiscalProfileComplete
           ? `${estimatedCharges.toLocaleString("fr-FR")} €`
-          : "Profil à compléter",
+          : FISCAL_MARKERS_COPY.charges.profileIncompleteValue,
         hint:
           isFiscalProfileComplete
             ? revenues.length > 0
-              ? "Montant à mettre de côté"
-              : "Ajoute un revenu"
-            : "Complète ton profil pour débloquer ce repère",
+              ? FISCAL_MARKERS_COPY.charges.withRevenueHint
+              : FISCAL_MARKERS_COPY.charges.withoutRevenueHint
+            : FISCAL_MARKERS_COPY.charges.incompleteHint,
       },
       {
         key: "tva",
         icon: "🧾",
-        label: "TVA",
-        value: computed?.tvaStatusLabel || "À confirmer",
+        label: FISCAL_MARKERS_COPY.tva.label,
+        value: normalizedTvaStatusLabel || FISCAL_MARKERS_COPY.tva.fallbackValue,
         hint: tvaStatusHelper,
       },
     ];
@@ -3109,9 +3531,8 @@ useEffect(() => {
 
       if (revenues.length >= 2 && gapDays >= 45) {
         return {
-          text:
-            "Tes encaissements sont irréguliers. Un suivi plus régulier rend tes repères fiscaux plus fiables.",
-          cta: "Ajouter un revenu",
+          text: roleBasedTips.dailyFiscalTip.irregularRevenue,
+          cta: DAILY_FISCAL_TIP_COPY.irregularRevenueCta,
           onClick: handleOpenRevenuePopup,
         };
       }
@@ -3122,9 +3543,8 @@ useEffect(() => {
       (computed?.tvaStatus === "soon" || computed?.tvaStatus === "exceeded")
     ) {
       return {
-        text:
-          "Le passage à la TVA approche. Vérifie dès maintenant le paramétrage de ta facturation.",
-        cta: "Comprendre la TVA",
+        text: roleBasedTips.dailyFiscalTip.tvaWatch,
+        cta: DAILY_FISCAL_TIP_COPY.tvaWatchCta,
         onClick: () => setShowTVAModal(true),
       };
     }
@@ -3135,17 +3555,15 @@ useEffect(() => {
       Number(computed?.monthlyExpenses || 0) === 0
     ) {
         return {
-          text:
-            "Aucune dépense n’est encore renseignée. La lecture de ta marge et de ta santé financière reste donc partielle.",
+          text: roleBasedTips.dailyFiscalTip.missingExpenses,
           helperStyle: true,
         };
       }
 
     if (computed?.urgency === "late" || computed?.urgency === "soon") {
         return {
-          text:
-            "La prochaine déclaration URSSAF mérite d’être préparée maintenant. Prévois le montant à déclarer avant l’échéance.",
-          cta: "Gérer mes rappels",
+          text: roleBasedTips.dailyFiscalTip.deadline,
+          cta: DAILY_FISCAL_TIP_COPY.deadlineCta,
           onClick: () => openReminderManager("coaching_deadline"),
         };
       }
@@ -3156,8 +3574,7 @@ useEffect(() => {
       savingsProgress < savingsGoal * 0.35
     ) {
       return {
-        text:
-          "Ta réserve reste courte au regard de l’objectif calculé. Sécurise une part des prochains encaissements.",
+        text: roleBasedTips.dailyFiscalTip.lowReserve,
       };
     }
 
@@ -3178,8 +3595,7 @@ useEffect(() => {
 
         if (daysLeft > 0 && daysLeft <= 90) {
           return {
-            text:
-              "La fin de l’ACRE approche. Anticipe l’évolution de tes cotisations sur les prochains mois.",
+            text: roleBasedTips.dailyFiscalTip.acreEnding,
           };
         }
       }
@@ -3187,18 +3603,16 @@ useEffect(() => {
 
     if (!user && revenues.length >= 3) {
       return {
-        text:
-          "Ton historique devient utile pour le suivi fiscal. Créer ton compte permet de le conserver dans la durée.",
-        cta: "Créer mon compte",
+        text: roleBasedTips.dailyFiscalTip.guestHistory,
+        cta: DAILY_FISCAL_TIP_COPY.guestHistoryCta,
         onClick: () => openAuthModal("signup"),
       };
     }
 
     if (revenues.length > 0 && visibleInvoices.length === 0) {
       return {
-        text:
-          "Tu as déjà de l’activité enregistrée. Une première facture aide à cadrer le suivi client, les encaissements et la TVA collectée.",
-        cta: "Créer une facture",
+        text: roleBasedTips.dailyFiscalTip.firstInvoice,
+        cta: DAILY_FISCAL_TIP_COPY.firstInvoiceCta,
         onClick: handleOpenInvoiceGenerator,
       };
     }
@@ -3214,6 +3628,7 @@ useEffect(() => {
     dashboardAnswers,
     user,
     visibleInvoices.length,
+    roleBasedTips,
     handleOpenRevenuePopup,
     handleOpenInvoiceGenerator,
     openAuthModal,
@@ -3353,24 +3768,6 @@ useEffect(() => {
   const dashboardLaunchAnchors = useMemo(() => {
     const anchors = [];
 
-    if (!user && shouldShowGuestLocalMessage) {
-      anchors.push({
-        key: "local",
-        tone: "warm",
-        label: "Mode local",
-        text: "Données gardées sur cet appareil",
-      });
-    }
-
-    if (user) {
-      anchors.push({
-        key: "secure",
-        tone: "neutral",
-        label: "Espace sécurisé",
-        text: "Profil, revenus et historique protégés",
-      });
-    }
-
     if (premiumState === "premium_qa_override") {
       anchors.push({
         key: "qa",
@@ -3393,7 +3790,7 @@ useEffect(() => {
     }
 
     return anchors;
-  }, [premiumState, saveNotice, shouldShowGuestLocalMessage, user]);
+  }, [premiumState, saveNotice]);
   const dashboardFloatingAction = useMemo(() => {
     if (dashboardPrimaryAction) return dashboardPrimaryAction;
 
@@ -3435,7 +3832,7 @@ useEffect(() => {
             href: "https://autoentrepreneur.urssaf.fr",
           },
           {
-            label: "Gérer",
+            label: "Configurer",
             kind: "button",
             onClick: () => openReminderManager("reminder_declaration"),
           },
@@ -3480,7 +3877,7 @@ useEffect(() => {
             onClick: () => setShowCFEModal(true),
           },
           {
-            label: "Gérer",
+            label: "Configurer",
             kind: "button",
             onClick: () => openReminderManager("reminder_cfe"),
           },
@@ -3502,7 +3899,7 @@ useEffect(() => {
             onClick: () => setShowCFEModal(true),
           },
           {
-            label: "Gérer",
+            label: "Configurer",
             kind: "button",
             onClick: () => openReminderManager("reminder_cfe"),
           },
@@ -3534,7 +3931,7 @@ useEffect(() => {
                 onClick: () => handleEditProfile(),
               },
               {
-                label: "Gérer",
+                label: "Configurer",
                 kind: "button",
                 onClick: () => openReminderManager("reminder_acre"),
               },
@@ -3569,7 +3966,7 @@ useEffect(() => {
         channel: reminderChannel,
         actions: [
           {
-            label: "Gérer",
+            label: "Configurer",
             kind: "button",
             onClick: () => openReminderManager("reminder_channel"),
           },
@@ -3674,8 +4071,8 @@ useEffect(() => {
     return {
       subtitle:
         revenues.length < 5
-          ? "Récap simple pour t’aider à prendre le rythme."
-          : "Vue rapide de ton activité récente.",
+          ? "L’essentiel de la semaine."
+          : "Vue rapide de la semaine.",
       items: [
         {
           key: "revenues",
@@ -3687,7 +4084,7 @@ useEffect(() => {
           helper:
             weeklyRevenueCount > 0
               ? `${weeklyRevenueTotal.toLocaleString("fr-FR")} € enregistrés`
-              : "Ajoute une nouvelle entrée pour nourrir le suivi.",
+              : "Ajoute une entrée pour garder le rythme.",
         },
         {
           key: "charges",
@@ -3698,8 +4095,8 @@ useEffect(() => {
               : "En attente d’activité",
           helper:
             weeklyEstimatedCharges !== null
-              ? "Estimation provisoire sur l’activité récente."
-              : "S’affichera dès qu’un revenu est ajouté cette semaine.",
+              ? "Repère basé sur cette semaine."
+              : "S’affiche dès qu’un revenu est saisi.",
         },
         {
           key: "invoices",
@@ -3710,8 +4107,8 @@ useEffect(() => {
               : "Aucune nouvelle facture",
           helper:
             weeklyInvoicesCreated > 0
-              ? "Ton suivi client progresse aussi."
-              : "Tu peux en créer une dès que besoin.",
+              ? "Le suivi client avance aussi."
+              : "Tu peux en créer une quand tu veux.",
         },
         {
           key: "reminders",
@@ -3723,13 +4120,13 @@ useEffect(() => {
           helper:
             reminderCount > 0
               ? activeReminderItems[0]?.title || "Un point mérite ton attention."
-              : "Rien d’urgent à surveiller pour le moment.",
+              : "Rien d’urgent pour l’instant.",
         },
       ],
       nextActionLabel,
       helper:
         revenues.length < 5
-          ? "Ton rythme se construit encore. Ce récap s’affinera avec quelques jours d’activité."
+          ? "Quelques saisies en plus rendront ce récap plus utile."
           : null,
     };
   }, [
@@ -3750,11 +4147,11 @@ useEffect(() => {
       computed.deadlineLabel !== "Complète ton profil fiscal";
 
     if (hasDeclarationDeadline) {
-      return "Ton point principal est la déclaration à venir.";
+      return "Le point principal reste la déclaration à venir.";
     }
 
     if (computed?.tvaStatus === "soon" || computed?.tvaStatus === "exceeded") {
-      return "Vérifie ton seuil TVA avant les prochains revenus.";
+      return "Vérifie la TVA avant les prochains revenus.";
     }
 
     if (!user && visibleInvoices.length > 0) {
@@ -3762,14 +4159,14 @@ useEffect(() => {
     }
 
     if (revenues.length > 0 && revenues.length < 5) {
-      return "Continue encore quelques revenus pour fiabiliser les prévisions.";
+      return "Encore quelques revenus et tes repères seront plus stables.";
     }
 
     if (!user && shouldShowGuestLocalMessage) {
       return "Ton suivi tourne bien en local. Un compte gratuit te permettra juste de le retrouver plus tard.";
     }
 
-    return "Cette semaine, ton cockpit reste bien maîtrisé.";
+    return "La semaine est sous contrôle.";
   }, [
     computed?.deadlineLabel,
     computed?.tvaStatus,
@@ -3800,22 +4197,22 @@ useEffect(() => {
         title: "Bravo, tu progresses",
         text:
           weeklyRevenueCount >= 2
-            ? `2 revenus enregistrés cette semaine.`
-            : "Ton suivi prend déjà une bonne cadence.",
+            ? `2 revenus saisis cette semaine.`
+            : "Ton suivi prend un bon rythme.",
       };
     }
 
     if (visibleInvoices.length > 0) {
       return {
         title: "Première facture créée",
-        text: "Ton historique commence à prendre forme.",
+        text: "Ton suivi client commence à se structurer.",
       };
     }
 
     if (isFiscalProfileComplete && hasConfiguredReminders) {
       return {
         title: "Très bon rythme",
-        text: "Ton cockpit devient vraiment solide.",
+        text: "Ton suivi devient vraiment solide.",
       };
     }
 
@@ -3826,6 +4223,10 @@ useEffect(() => {
     revenues,
     visibleInvoices.length,
   ]);
+  const dashboardWeeklyRhythmText =
+    revenues.length >= 2
+      ? "Tu avances à un bon rythme. Continue ainsi pour fiabiliser tes repères fiscaux."
+      : "Le rythme se met en place. Quelques revenus supplémentaires rendront les repères plus précis.";
   const dashboardTrackingStreak = useMemo(() => {
     const trackingDays = new Set();
 
@@ -3867,31 +4268,32 @@ useEffect(() => {
     return {
       title: "Série de suivi",
       text,
-      helper: "Continue pour rendre les prévisions encore plus fiables.",
+      helper: "Continue pour consolider tes repères.",
     };
   }, [revenues, visibleInvoices]);
   const dashboardNextMonthPrep = useMemo(() => {
     if (computed?.tvaStatus === "soon" || computed?.tvaStatus === "exceeded") {
-      return "Prépare le suivi TVA du mois prochain.";
+      return roleBasedNextMonth.tva;
     }
 
     if (!user && shouldShowGuestLocalMessage) {
-      return "Si tu veux le retrouver plus tard, ce mois est un bon moment pour créer ton compte.";
+      return roleBasedNextMonth.guest;
     }
 
     if (revenues.length > 0 && revenues.length < 5) {
-      return "Continue encore quelques saisies pour fiabiliser les repères du mois suivant.";
+      return roleBasedNextMonth.starter;
     }
 
     if (!hasConfiguredReminders) {
-      return "Active tes rappels pour mieux anticiper le mois prochain.";
+      return roleBasedNextMonth.reminders;
     }
 
-    return "Ton cockpit est prêt pour le mois suivant.";
+    return roleBasedNextMonth.ready;
   }, [
     computed?.tvaStatus,
     hasConfiguredReminders,
     revenues.length,
+    roleBasedNextMonth,
     shouldShowGuestLocalMessage,
     user,
   ]);
@@ -3940,8 +4342,8 @@ useEffect(() => {
         icon: "🧾",
         text:
           computed?.tvaStatus === "exceeded"
-            ? "La TVA demande maintenant une préparation concrète."
-            : "La TVA mérite une vigilance renforcée pour les prochains revenus.",
+            ? roleBasedPointDuJour.tvaExceeded
+            : roleBasedPointDuJour.tvaSoon,
       };
     }
 
@@ -3959,15 +4361,14 @@ useEffect(() => {
     ) {
       return {
         icon: "💡",
-        text:
-          "Aucune dépense renseignée : la marge et la lecture de santé restent partielles.",
+        text: roleBasedPointDuJour.missingExpenses,
       };
     }
 
     if (revenues.length > 0 && revenues.length < 5) {
       return {
         icon: "📈",
-        text: "Encore quelques revenus et les estimations deviendront plus fiables.",
+        text: roleBasedPointDuJour.starter,
       };
     }
 
@@ -3977,13 +4378,14 @@ useEffect(() => {
 
     return {
       icon: "✨",
-      text: "Ton suivi avance bien. Continue comme ça.",
+      text: roleBasedPointDuJour.default,
     };
   }, [
     computed?.monthlyExpenses,
     computed?.tvaStatus,
     isFiscalProfileComplete,
     revenues.length,
+    roleBasedPointDuJour,
     shouldShowGuestLocalMessage,
     user,
   ]);
@@ -4059,12 +4461,7 @@ useEffect(() => {
     if (computed?.tvaStatus !== "exceeded") score += 20;
     if (activeReminderItems.length >= 3) score += 20;
 
-    const interpretation =
-      score >= 80
-        ? "Ton espace est très bien piloté."
-        : score >= 60
-          ? "Ton suivi est bon, encore quelques optimisations."
-          : "Ton espace a besoin de plus de suivi.";
+    const interpretation = SCORE_COPY.getInterpretation(score);
 
     return { value: score, interpretation };
   }, [
@@ -4076,54 +4473,61 @@ useEffect(() => {
   ]);
   const guestFounderDays = founderDaysRemaining ?? 90;
   const premiumBannerContent = useMemo(() => {
+    const premiumCopy =
+      roleBasedPremiumCta[premiumState] || roleBasedPremiumCta.guest_free;
+
     switch (premiumState) {
       case "registered_founder_active":
         return {
-          line1: "⭐ Offre fondateur activée",
+          line1: premiumCopy.title,
           line2: "Premium offert pendant 3 mois",
-          line3:
-            "Tu bénéficies déjà des exports illimités et de l’historique complet.",
-          cta: "Voir les avantages Premium",
+          line3: premiumCopy.benefit,
+          cta: premiumCopy.cta,
         };
       case "registered_founder_ending":
         return {
-          line1: `⏳ Offre fondateur encore active ${founderDaysRemaining} jour${founderDaysRemaining > 1 ? "s" : ""}`,
+          line1: `${premiumCopy.title} ${founderDaysRemaining} jour${founderDaysRemaining > 1 ? "s" : ""}`,
           line2: "Ton accès Premium reste disponible jusqu’à la fin de l’essai.",
-          line3: "Tu pourras ensuite choisir sereinement si tu veux le prolonger à 5 €/mois.",
-          cta: "Voir les avantages Premium",
+          line3: premiumCopy.benefit,
+          cta: premiumCopy.cta,
         };
       case "registered_free_after_trial":
         return {
-          line1: "🔓 Premium a expiré",
+          line1: premiumCopy.title,
           line2:
             "Les exports illimités et l’historique complet ne sont plus inclus.",
-          line3: "Réactive Premium pour continuer sans limite.",
-          cta: "Réactiver Premium • 5 €/mois",
+          line3: premiumCopy.benefit,
+          cta: premiumCopy.cta,
         };
       case "premium_paid_active":
         return {
-          line1: "⭐ Premium actif",
-          line2: "Exports illimités, historique complet, alertes avancées.",
+          line1: premiumCopy.title,
+          line2: premiumCopy.benefit,
           line3: "",
-          cta: "Voir les avantages Premium",
+          cta: premiumCopy.cta,
         };
       case "premium_qa_override":
         return {
-          line1: "🧪 Premium QA actif",
-          line2: "Mode de test local activé.",
+          line1: premiumCopy.title,
+          line2: premiumCopy.benefit,
           line3: "",
-          cta: "Voir les avantages Premium",
+          cta: premiumCopy.cta,
         };
       case "guest_free":
       default:
         return {
-          line1: `🎁 Offre fondateur : J-${guestFounderDays}`,
+          line1: `${premiumCopy.title} : J-${guestFounderDays}`,
           line2: `3 mois offerts pour les ${FOUNDER_OFFER_LIMIT} premiers utilisateurs`,
-          line3: "Ensuite, libre à toi de continuer ou non.",
-          cta: "Voir les avantages Premium",
+          line3: premiumCopy.benefit,
+          cta: premiumCopy.cta,
         };
     }
-  }, [founderDaysRemaining, guestFounderDays, premiumState]);
+  }, [
+    founderDaysRemaining,
+    guestFounderDays,
+    premiumState,
+    roleBasedPremiumCta,
+  ]);
   const premiumModalContent = useMemo(() => {
     const normalizedSource = String(premiumModalSource || "unknown");
 
@@ -4409,8 +4813,8 @@ useEffect(() => {
       return {
         context: "planning",
         placement: "planning",
-        title: "Retour rapide sur la préparation",
-        question: "La préparation du mois suivant t’aide-t-elle à anticiper ?",
+        title: "Retour rapide sur le mois prochain",
+        question: "Le bloc “Le mois prochain” t’aide-t-il à anticiper ?",
       };
     }
 
@@ -4586,23 +4990,23 @@ const invoicesThisMonth = useMemo(() => {
     const reminderLabel = `${activeReminderItems.length} rappel${activeReminderItems.length > 1 ? "s" : ""} actif${activeReminderItems.length > 1 ? "s" : ""}`;
     const tvaHelper =
       computed?.tvaStatus === "soon" || computed?.tvaStatus === "exceeded"
-        ? `TVA : ${computed?.tvaStatusLabel || "à surveiller"}.`
+        ? `TVA : ${normalizedTvaStatusLabel || "à surveiller"}.`
         : null;
 
     return {
       title: "📅 Bilan du mois",
       text: `Tu as enregistré ${currentMonthTotal.toLocaleString("fr-FR")} € de revenus, prévu ${estimatedCharges.toLocaleString("fr-FR")} € de charges et créé ${invoiceLabel}.`,
-      helper: [reminderLabel, tvaHelper, "Ton cockpit devient plus précis de semaine en semaine."]
+      helper: [reminderLabel, tvaHelper, "Tu vois plus clairement ton mois en cours."]
         .filter(Boolean)
         .join(" "),
     };
   }, [
     activeReminderItems.length,
     computed?.tvaStatus,
-    computed?.tvaStatusLabel,
     currentMonthTotal,
     estimatedCharges,
     invoicesThisMonth,
+    normalizedTvaStatusLabel,
     revenues.length,
   ]);
 
@@ -5566,7 +5970,7 @@ const handleExportPDF = useCallback(async () => {
   drawTitle("2. Resume du mois");
 
   const tvaLine = cleanPdfText(
-    computed?.tvaStatusLabel || computed?.tvaHint || "Non renseigne"
+    normalizedTvaStatusLabel || computed?.tvaHint || "Non renseigne"
   );
 
   const cfeLine = computed?.cfeAlert?.show
@@ -5884,11 +6288,16 @@ async function handleExportPDFWithLimit() {
   }
 
   const goToLandingSection = useCallback((section) => {
+    if (section === "contact") {
+      trackEvent("feedback_open", { feedbackMoment: "landing_contact" });
+      window.open(FEEDBACK_FORM_URL, "_blank", "noopener,noreferrer");
+      return;
+    }
+
     const sectionKeyMap = {
       home: null,
       howItWorks: "howItWorks",
       services: "services",
-      contact: "feedback",
     };
 
     const visibleKey = sectionKeyMap[section];
@@ -5908,7 +6317,6 @@ async function handleExportPDFWithLimit() {
         home: heroRef,
         howItWorks: howItWorksRef,
         services: servicesRef,
-        contact: feedbackRef,
       };
 
       refs[section]?.current?.scrollIntoView({
@@ -6746,17 +7154,13 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
               </div>
 
               <p>
-                Microassist aide les micro-entrepreneurs débutants à comprendre
-                plus simplement leurs charges, leurs échéances et leurs repères
-                fiscaux.
+                Microassist t’aide à comprendre tes charges, tes échéances et ta TVA
+                sans passer par un outil comptable lourd.
               </p>
 
               <p>
-                L’objectif est simple : savoir quoi faire, quand le faire, et
-                éviter les oublis.
+                Le but : savoir quoi vérifier maintenant et quoi préparer ensuite.
               </p>
-
-              <p>Conçu par une entrepreneuse, pour les entrepreneurs.</p>
             </section>
           )}
 
@@ -6775,11 +7179,10 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
               </div>
 
               <ul className="roadmaplist">
-                <li>💰 Savoir combien mettre de côté chaque mois</li>
-                <li>📅 Ne plus rater une échéance URSSAF</li>
-                <li>👀 Comprendre ta situation fiscale en un coup d’œil</li>
-                <li>⚠️ Anticiper la TVA sans surprise</li>
-                <li>🧭 Savoir quoi faire à chaque étape</li>
+                <li>💰 Estimer ce que tu dois mettre de côté</li>
+                <li>📅 Voir la prochaine échéance utile</li>
+                <li>🧾 Suivre ta TVA sans jargon</li>
+                <li>📈 Enregistrer revenus et factures au même endroit</li>
               </ul>
             </section>
           )}
@@ -6802,20 +7205,19 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 <div className="step">
                   <strong>1. Tu réponds à quelques questions</strong>
                   <p>
-                    Ton activité et ton rythme de déclaration sont pris en
-                    compte.
+                    Ton activité et ton rythme de déclaration sont pris en compte.
                   </p>
                 </div>
 
                 <div className="step">
-                  <strong>2. Tu obtiens ton repère fiscal</strong>
-                  <p>Charges, TVA et échéances — tout devient plus clair.</p>
+                  <strong>2. Tu obtiens des repères clairs</strong>
+                  <p>Charges, TVA et échéances apparaissent simplement.</p>
                 </div>
 
                 <div className="step">
                   <strong>3. Tu suis ton activité simplement</strong>
                   <p>
-                    Ajoute tes revenus et garde une vue claire mois après mois.
+                    Ajoute tes revenus et garde le cap mois après mois.
                   </p>
                 </div>
               </div>
@@ -6825,7 +7227,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
           {!focusMode && visibleSections.roadmap && (
             <section id="prochainement" className="card">
               <div className="sectionHead">
-                <h2>Pour qui & Prochainement</h2>
+                <h2>Pour qui & bientôt</h2>
                 <button
                   className="iconBtn"
                   type="button"
@@ -6836,28 +7238,18 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 </button>
               </div>
 
-              <p className="muted">
-                Microassist est un MVP en cours d’évolution, pensé pour aider
-                les micro-entrepreneurs à garder un repère fiscal simple, clair
-                et rassurant.
-              </p>
-
               <h3 style={{ marginTop: 12 }}>✅ Pour qui ?</h3>
               <ul className="targetList">
-                <li>- Tu viens de créer ta micro-entreprise</li>
-                <li>- Tu ne sais pas toujours combien mettre de côté</li>
-                <li>- Tu as déjà raté (ou failli rater) une déclaration</li>
-                <li>
-                  - Tu veux un outil simple, pas un logiciel comptable complet
-                </li>
+                <li>Tu lances ta micro-entreprise.</li>
+                <li>Tu veux savoir quoi mettre de côté et quand déclarer.</li>
+                <li>Tu cherches un outil simple, pas un logiciel comptable complet.</li>
               </ul>
 
-              <h3 style={{ marginTop: 12 }}>🚧 Prochainement</h3>
+              <h3 style={{ marginTop: 12 }}>🚧 Bientôt</h3>
               <ul className="roadmaplist">
-                <li>📅 Rappels automatiques avant chaque échéance</li>
-                <li>📄 Rapports plus complets (PDF, CSV)</li>
-                <li>📊 Historique enrichi et alertes plus intelligentes</li>
-                <li>🧠 Conseils plus personnalisés selon ton profil</li>
+                <li>📅 Rappels plus utiles avant chaque échéance</li>
+                <li>📄 Exports et rapports plus complets</li>
+                <li>🧠 Conseils plus précis selon ton activité</li>
               </ul>
             </section>
           )}
@@ -6878,7 +7270,10 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
 
                 <button
                   className="btn btnGhost btnSmall"
-                  onClick={() => scrollToRef(feedbackRef)}
+                  onClick={() => {
+                    trackEvent("feedback_open", feedbackContextSnapshot);
+                    window.open(FEEDBACK_FORM_URL, "_blank", "noopener,noreferrer");
+                  }}
                 >
                   ⭐ Avis
                 </button>
@@ -7160,7 +7555,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                               ? "seuil dépassé"
                               : computed?.tvaStatus === "soon"
                                 ? "vigilance"
-                                : "aucun risque immédiat"}
+                                : normalizedTvaStatusLabel}
                         </li>
                         <li>
                           <strong>🧾 ACRE :</strong>{" "}
@@ -7173,6 +7568,34 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                                 : "non renseignée"}
                         </li>
                       </ul>
+                    </div>
+
+                    <div className="dashboardBetaFeedbackCard">
+                      <div className="dashboardBetaFeedbackTitle">
+                        Retour rapide sur ton profil
+                      </div>
+                      <div className="dashboardBetaFeedbackQuestion">
+                        Ton profil fiscal final te paraît-il clair et rassurant pour démarrer ?
+                      </div>
+                      <div className="dashboardBetaFeedbackActions">
+                        <a
+                          className="btn btnActionSecondary btnSmall"
+                          href={FEEDBACK_FORM_URL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() =>
+                            trackEvent("feedback_open", {
+                              ...feedbackContextSnapshot,
+                              feedbackMoment: "profile_completion",
+                            })
+                          }
+                        >
+                          Partager mon avis
+                        </a>
+                      </div>
+                      <div className="dashboardBetaFeedbackHelper">
+                        Merci 🙏 ton retour améliore la bêta Microassist
+                      </div>
                     </div>
                   </div>
                 </>
@@ -7524,7 +7947,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                       <div className="autoSaveHint" aria-live="polite">
                         {user
                           ? "✅ Ton espace est lié à ton compte."
-                          : "💾 Tes données restent locales tant que tu n’as pas créé ton compte."}
+                          : "💾 Progression enregistrée dans ce navigateur."}
                       </div>
                     </>
                   )}
@@ -7579,8 +8002,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 <div>
                   <h2>Mon espace fiscal</h2>
                   <p className="muted" style={{ marginTop: 6 }}>
-                    Garde une vue claire sur tes revenus, tes charges et tes
-                    échéances.
+                    Revenus, charges et échéances au même endroit.
                   </p>
                   <div
                     style={{
@@ -7627,6 +8049,28 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 </div>
 
                 <div className="sectionHeadActions">
+                  <div
+                    className={`dashboardPremiumMiniBadge ${
+                      hasPremiumAccess ? "is-active" : "is-inactive"
+                    }`}
+                  >
+                    <span className="dashboardPremiumMiniIcon" aria-hidden="true">
+                      {hasPremiumAccess ? "👑" : "⭐"}
+                    </span>
+                    <span className="dashboardPremiumMiniText">
+                      {hasPremiumAccess ? "Premium actif" : "Premium 5 €/mois"}
+                    </span>
+                    {!hasPremiumAccess && (
+                      <button
+                        className="btn btnActionUtility btnSmall dashboardPremiumMiniButton"
+                        type="button"
+                        onClick={() => openPremiumModal("dashboard_mini_badge")}
+                      >
+                        En savoir plus
+                      </button>
+                    )}
+                  </div>
+
                   {!showChart && monthlyHistory.length > 0 && (
                     <button
                       className="btn btnActionUtility btnSmall"
@@ -7684,6 +8128,23 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 </div>
               </div>
 
+<div className="dashboardPremiumBadge">
+  {user && !hasPremiumAccess && (
+    <>
+      <span className="dashboardPremiumBadgeIcon">⭐</span>
+      <span className="dashboardPremiumBadgeText">Premium 5 €/mois</span>
+      <button
+        type="button"
+        className="btnActionUtility"
+        onClick={openPremiumModal}
+      >
+        En savoir plus
+      </button>
+    </>
+  )}
+
+</div>
+
               <div className="dashboardLaunchRail">
                 {dashboardLaunchAnchors.length > 0 && (
                   <div className="dashboardLaunchAnchors">
@@ -7707,11 +8168,6 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                     <p className="dashboardNextStepText">
                       {dashboardPrimaryAction.text}
                     </p>
-                    {!user && shouldShowGuestLocalMessage && (
-                      <div className="dashboardHelperText">
-                        {guestLocalOnlyHelper}
-                      </div>
-                    )}
                     <div className="dashboardNextStepActions">
                       <button
                         className="btn btnActionPrimary"
@@ -7792,45 +8248,76 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                         📈 Fiabilité des estimations
                       </h3>
                     </div>
-                  </div>
-                  <div className="dashboardRecommendationText" style={{ marginTop: 0 }}>
-                    Tes prévisions deviennent plus précises à mesure que tu ajoutes
-                    des revenus.
-                  </div>
-                  <div className="progress dashboardLearningProgress">
-                    <div>{dashboardLearningProgress.current} / 5 revenus enregistrés</div>
-                    <div className="progressBar">
-                      <div
-                        className="progressFill"
-                        style={{ width: `${dashboardLearningProgress.percent}%` }}
-                      />
+                    <div className="dashboardSectionActions">
+                      <button
+                        className="btn btnActionUtility btnSmall"
+                        type="button"
+                        onClick={() => toggleDashboardSection("learning")}
+                      >
+                        {dashboardSections.learning ? "Voir" : "Réduire"}
+                      </button>
                     </div>
                   </div>
-                  <div className="dashboardHelperText">
-                    À partir de 5 revenus ou 7 jours, les estimations annuelles
-                    deviennent nettement plus fiables.
-                  </div>
+                  {!dashboardSections.learning ? (
+                    <>
+                      <div className="dashboardRecommendationText" style={{ marginTop: 0 }}>
+                        Chaque revenu ajouté rend les estimations plus utiles.
+                      </div>
+                      <div className="progress dashboardLearningProgress">
+                        <div>{dashboardLearningProgress.current} / 5 revenus enregistrés</div>
+                        <div className="progressBar">
+                          <div
+                            className="progressFill"
+                            style={{ width: `${dashboardLearningProgress.percent}%` }}
+                          />
+                        </div>
+                      </div>
+                      <div className="dashboardHelperText">
+                        À partir de 5 revenus ou 7 jours, la projection gagne en fiabilité.
+                      </div>
+                    </>
+                  ) : (
+                    <div className="dashboardHelperText" style={{ marginTop: 0 }}>
+                      {dashboardLearningProgress.current} / 5 revenus enregistrés.
+                    </div>
+                  )}
                 </div>
               )}
 
-              {dashboardMaturityLevel && (
-                <div className="dashboardMaturityCard">
-                  <div className="dashboardMaturityHeader">
-                    <div className="dashboardMaturityTitle">
-                      Niveau de maturité du suivi
-                    </div>
-                    <div
-                      className={`dashboardConfidenceBadge confidence-${dashboardMaturityLevel.tone}`}
-                      style={{ marginBottom: 0 }}
-                    >
-                      {dashboardMaturityLevel.level}
-                    </div>
+              <div className="dashboardMaturityCard">
+                <div className="dashboardMaturityHeader">
+                  <div className="dashboardMaturityTitle">
+                    {MATURITY_COPY.title}
                   </div>
-                  <div className="dashboardHelperText" style={{ marginTop: 8 }}>
-                    {dashboardMaturityLevel.text}
+                  <div
+                    className="dashboardConfidenceBadge confidence-neutral"
+                    style={{ marginBottom: 0 }}
+                  >
+                    {MATURITY_COPY.badge}
                   </div>
                 </div>
-              )}
+                <div className="progress dashboardLearningProgress">
+                  <div>
+                    {Math.min(revenues.length, 5)} / 5 revenus enregistrés
+                  </div>
+                  <div className="progressBar">
+                    <div
+                      className="progressFill"
+                      style={{ width: `${trackingMaturityPercent}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="dashboardHelperText">
+                  {trackingMaturityHelperText}
+                </div>
+              </div>
+
+              <div className="dashboardThisWeekCard">
+                <div className="dashboardThisWeekTitle">📈 Ton rythme cette semaine</div>
+                <div className="dashboardDailyInsightText">
+                  <span>{dashboardWeeklyRhythmText}</span>
+                </div>
+              </div>
 
               {dashboardTrustState && (
                 <div className="dashboardTrustCard">
@@ -7896,46 +8383,43 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                         {dashboardWeeklyRecap.subtitle}
                       </div>
                     </div>
+                    <div className="dashboardSectionActions">
+                      <button
+                        className="btn btnActionUtility btnSmall"
+                        type="button"
+                        onClick={() => toggleDashboardSection("weekly")}
+                      >
+                        {dashboardSections.weekly ? "Voir" : "Réduire"}
+                      </button>
+                    </div>
                   </div>
-                  <div className="dashboardWeeklyRecapGrid">
-                    {dashboardWeeklyRecap.items.map((item) => (
-                      <div key={item.key} className="dashboardWeeklyRecapItem">
-                        <div className="dashboardWeeklyRecapLabel">{item.label}</div>
-                        <div className="dashboardWeeklyRecapValue">{item.value}</div>
-                        <div className="dashboardHelperText">{item.helper}</div>
+                  {!dashboardSections.weekly ? (
+                    <>
+                      <div className="dashboardWeeklyRecapGrid">
+                        {dashboardWeeklyRecap.items.map((item) => (
+                          <div key={item.key} className="dashboardWeeklyRecapItem">
+                            <div className="dashboardWeeklyRecapLabel">{item.label}</div>
+                            <div className="dashboardWeeklyRecapValue">{item.value}</div>
+                            <div className="dashboardHelperText">{item.helper}</div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                  {dashboardWeeklyRecap.nextActionLabel && (
-                    <div className="dashboardHelperText" style={{ marginTop: 12 }}>
-                      Prochaine meilleure action : {dashboardWeeklyRecap.nextActionLabel}.
+                      {dashboardWeeklyRecap.nextActionLabel && (
+                        <div className="dashboardHelperText" style={{ marginTop: 12 }}>
+                          Prochaine action : {dashboardWeeklyRecap.nextActionLabel}.
+                        </div>
+                      )}
+                      {dashboardWeeklyRecap.helper && (
+                        <div className="dashboardHelperText">
+                          {dashboardWeeklyRecap.helper}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="dashboardHelperText" style={{ marginTop: 0 }}>
+                      {dashboardWeeklyRecap.items[0]?.value || "Semaine en cours suivie."}
                     </div>
                   )}
-                  {dashboardWeeklyRecap.helper && (
-                    <div className="dashboardHelperText">
-                      {dashboardWeeklyRecap.helper}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {dashboardThisWeekInsight && (
-                <div className="dashboardThisWeekCard">
-                  <div className="dashboardThisWeekTitle">⏳ Cette semaine</div>
-                  <div className="dashboardDailyInsightText">
-                    <span>{dashboardThisWeekInsight}</span>
-                  </div>
-                </div>
-              )}
-
-              {dashboardPositiveMomentum && (
-                <div className="dashboardPositiveMomentumCard">
-                  <div className="dashboardPositiveMomentumTitle">
-                    {dashboardPositiveMomentum.title}
-                  </div>
-                  <div className="dashboardDailyInsightText">
-                    <span>{dashboardPositiveMomentum.text}</span>
-                  </div>
                 </div>
               )}
 
@@ -7953,24 +8437,10 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 </div>
               )}
 
-              {dashboardMonthlyReflection && (
-                <div className="dashboardMonthlyReflectionCard">
-                  <div className="dashboardMonthlyReflectionTitle">
-                    {dashboardMonthlyReflection.title}
-                  </div>
-                  <div className="dashboardDailyInsightText">
-                    <span>{dashboardMonthlyReflection.text}</span>
-                  </div>
-                  <div className="dashboardHelperText">
-                    {dashboardMonthlyReflection.helper}
-                  </div>
-                </div>
-              )}
-
               {dashboardNextMonthPrep && (
                 <div className="dashboardNextMonthCard">
                   <div className="dashboardNextMonthTitle">
-                    Préparer le mois suivant
+                    Le mois prochain
                   </div>
                   <div className="dashboardDailyInsightText">
                     <span>{dashboardNextMonthPrep}</span>
@@ -8155,7 +8625,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                   </div>
                   <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
                     {isFiscalProfileComplete
-                      ? "Estimation selon ton activité"
+                      ? "Charges estimées"
                       : "Complète le profil pour afficher une estimation fiable"}
                   </div>
                   {isFiscalProfileComplete && (
@@ -8261,7 +8731,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
 
               {fiscalCoachingCard && (
                 <div className="fiscalCoachCard">
-                  <div className="fiscalCoachTitle">💡 Conseil fiscal du moment</div>
+                  <div className="fiscalCoachTitle">{DAILY_FISCAL_TIP_COPY.title}</div>
                   <div
                     className={
                       isHelperStyledCoachingCard
@@ -8343,7 +8813,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                           Risque TVA
                         </div>
                         <p style={{ marginTop: 8, fontSize: 14, color: "#334155" }}>
-                          {computed?.tvaStatusLabel || "TVA à confirmer"}
+                          {normalizedTvaStatusLabel || "TVA à confirmer"}
                         </p>
                         <p style={{ marginTop: 6, fontSize: 13, color: "#475569" }}>
                           {computed?.tvaHint ||
@@ -8460,7 +8930,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                           Situation actuelle
                         </div>
                         <p style={{ marginTop: 8, fontSize: 14, color: "#334155" }}>
-                          {computed?.tvaStatusLabel || "TVA à confirmer"}
+                          {normalizedTvaStatusLabel || "TVA à confirmer"}
                         </p>
                         <p style={{ marginTop: 6, fontSize: 13, color: "#475569" }}>
                           {computed?.tvaHint ||
@@ -8551,7 +9021,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
               <div className="fiscalTimeline">
                 <div className="dashboardSectionHeader">
                   <div className="dashboardSectionHeaderMain">
-                    <h3 className="dashboardSectionTitle">Repères fiscaux</h3>
+                    <h3 className="dashboardSectionTitle">{FISCAL_MARKERS_COPY.title}</h3>
                   </div>
                 </div>
                 <div className="timelineList">
@@ -8561,13 +9031,6 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                         <span className="timelineIcon">{item.icon}</span>
                         <span className="timelineLabel">{item.label}</span>
                       </div>
-                      {item.key === "tva" && (
-                        <div
-                          className={`dashboardConfidenceBadge confidence-${dashboardConfidence.tone}`}
-                        >
-                          {dashboardConfidence.label}
-                        </div>
-                      )}
                       <div className="timelineValue">{item.value}</div>
                       <div className="timelineHint">{item.hint}</div>
                     </div>
@@ -8580,100 +9043,100 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 <div className="financialAnalysis dashboardSectionZone dashboardSectionZoneMint">
                   <div className="dashboardSectionHeader">
                     <div className="dashboardSectionHeaderMain">
-                      <h3 className="dashboardSectionTitle">📊 Analyse financière</h3>
+                      <h3 className="dashboardSectionTitle">{ANALYSIS_COPY.title}</h3>
                     </div>
                     <div className="dashboardSectionActions">
-                      <div
-                        className={`dashboardConfidenceBadge confidence-${dashboardConfidence.tone}`}
+                      <button
+                        className="btn btnActionUtility btnSmall"
+                        type="button"
+                        onClick={() => toggleDashboardSection("analysis")}
                       >
-                        {dashboardConfidence.label}
-                      </div>
+                        {dashboardSections.analysis ? "Voir" : "Réduire"}
+                      </button>
                     </div>
                   </div>
-                  {computed.monthlyExpenses === 0 && revenues.length > 0 && (
-                    <div className="dashboardTrustCard" style={{ marginBottom: 16 }}>
-                      <div className="dashboardRecommendationTitle">
-                        Analyse encore partielle
+                  {!dashboardSections.analysis ? (
+                    <>
+                      {computed.monthlyExpenses === 0 && revenues.length > 0 && (
+                        <div className="dashboardTrustCard" style={{ marginBottom: 16 }}>
+                          <div className="dashboardRecommendationTitle">
+                            {ANALYSIS_COPY.missingExpensesTitle}
+                          </div>
+                          <div className="dashboardRecommendationText">
+                            {ANALYSIS_COPY.missingExpensesText}
+                          </div>
+                        </div>
+                      )}
+                      <div className="fiscalDashboard" style={{ marginTop: 12 }}>
+                        {!shouldShowAnnualProjection ? (
+                          <div className="fiscalCard">
+                            <div className="fiscalLabel">{ANALYSIS_COPY.projectionLabel}</div>
+                            <div
+                              className="dashboardHelperText"
+                              style={{ fontSize: 11, marginTop: 0 }}
+                            >
+                              {ANALYSIS_COPY.projectionPendingText}
+                            </div>
+                          </div>
+                        ) : computed.annualRevenue !== undefined && (
+                          <div className="fiscalCard">
+                            <div className="fiscalLabel">{ANALYSIS_COPY.projectionLabel}</div>
+                            <div className="fiscalValue">
+                              {computed.annualNet?.toLocaleString("fr-FR") || "—"} €
+                            </div>
+                            <div className="dashboardHelperText">
+                              {ANALYSIS_COPY.projectionValueHelper}
+                            </div>
+                            <div className="dashboardHelperText">
+                              {annualProjectionHelper}
+                            </div>
+                          </div>
+                        )}
+                        {computed.monthlyExpenses > 0 && (
+                          <div className="fiscalCard">
+                            <div className="fiscalLabel">{ANALYSIS_COPY.expensesLabel}</div>
+                            <div className="fiscalValue">
+                              {computed.monthlyExpenses?.toLocaleString("fr-FR") ||
+                                "—"}{" "}
+                              €
+                            </div>
+                            <div
+                              className="muted"
+                              style={{ fontSize: 12, marginTop: 6 }}
+                            >
+                              {ANALYSIS_COPY.expensesHelper}
+                            </div>
+                          </div>
+                        )}
+                        {computed.coverageRatio && (
+                          <div className="fiscalCard">
+                            <div className="fiscalLabel">{ANALYSIS_COPY.coverageLabel}</div>
+                            <div className="fiscalValue">
+                              {Math.round(computed.coverageRatio * 100)}%
+                            </div>
+                            <div
+                              className="muted"
+                              style={{ fontSize: 12, marginTop: 6 }}
+                            >
+                              {ANALYSIS_COPY.coverageHelper}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      <div className="dashboardRecommendationText">
-                        Sans dépense renseignée, la marge réelle et la santé financière restent
-                        des repères incomplets. Le suivi revenus fonctionne, mais cette lecture
-                        reste volontairement prudente.
-                      </div>
+                    </>
+                  ) : (
+                    <div className="dashboardHelperText" style={{ marginTop: 0 }}>
+                      {computed.monthlyExpenses > 0
+                        ? ANALYSIS_COPY.collapsedWithExpenses(computed.monthlyExpenses)
+                        : ANALYSIS_COPY.collapsedEmpty}
                     </div>
                   )}
-                  <div className="fiscalDashboard" style={{ marginTop: 12 }}>
-                    {!shouldShowAnnualProjection ? (
-                      <div className="fiscalCard">
-                        <div className="fiscalLabel">📊 Tendance en apprentissage</div>
-                        <div
-                          className="dashboardHelperText"
-                          style={{ fontSize: 11 }}
-                        >
-                          Ajoute encore quelques revenus ou quelques jours
-                          d’activité pour obtenir une projection annuelle plus
-                          fiable.
-                        </div>
-                        <div className="dashboardHelperText">
-                          Projection activée après 5 revenus ou 7 jours.
-                        </div>
-                        <div className="dashboardHelperText">
-                          Les premières estimations deviennent plus fiables après quelques jours ou plusieurs revenus.
-                        </div>
-                      </div>
-                    ) : computed.annualRevenue !== undefined && (
-                      <div className="fiscalCard">
-                        <div className="fiscalLabel">Projection annuelle</div>
-                        <div className="fiscalValue">
-                          {computed.annualNet?.toLocaleString("fr-FR") || "—"} €
-                        </div>
-                        <div className="dashboardHelperText">
-                          Après charges et cotisations
-                        </div>
-                        <div className="dashboardHelperText">
-                          {annualProjectionHelper}
-                        </div>
-                      </div>
-                    )}
-                    {computed.monthlyExpenses > 0 && (
-                      <div className="fiscalCard">
-                        <div className="fiscalLabel">Dépenses mensuelles</div>
-                        <div className="fiscalValue">
-                          {computed.monthlyExpenses?.toLocaleString("fr-FR") ||
-                            "—"}{" "}
-                          €
-                        </div>
-                        <div
-                          className="muted"
-                          style={{ fontSize: 12, marginTop: 6 }}
-                        >
-                          Tes charges personnelles
-                        </div>
-                      </div>
-                    )}
-                    {computed.coverageRatio && (
-                      <div className="fiscalCard">
-                        <div className="fiscalLabel">
-                          Couverture des dépenses
-                        </div>
-                        <div className="fiscalValue">
-                          {Math.round(computed.coverageRatio * 100)}%
-                        </div>
-                        <div
-                          className="muted"
-                          style={{ fontSize: 12, marginTop: 6 }}
-                        >
-                          Revenus / Dépenses
-                        </div>
-                      </div>
-                    )}
-                  </div>
                 </div>
               )}
 
               <div className="fiscalScoreCard">
                 <div className="fiscalScoreHeader">
-                  <h3>🎯 Score fiscal</h3>
+                  <h3>{SCORE_COPY.title}</h3>
                   <div
                     className={`dashboardConfidenceBadge confidence-${dashboardConfidence.tone}`}
                   >
@@ -9398,15 +9861,14 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 <div className="securityItem">
                   <strong>🔐 Accès sécurisé</strong>
                   <p className="muted">
-                    Connexion sécurisée par email et mot de passe.
+                    Connexion par email et mot de passe.
                   </p>
                 </div>
 
                 <div className="securityItem">
                   <strong>🛡️ Données protégées</strong>
                   <p className="muted">
-                    Les informations sont enregistrées dans un espace personnel
-                    sécurisé.
+                    Tes données restent dans un espace personnel protégé.
                   </p>
                 </div>
 
@@ -9422,62 +9884,19 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                     🚫 Pas d’accès direct aux services administratifs
                   </strong>
                   <p className="muted">
-                    Microassist ne se connecte pas automatiquement à l’URSSAF ni
-                    aux impôts.
+                    Microassist ne déclare rien à ta place auprès de l’URSSAF ou des impôts.
                   </p>
                 </div>
               </div>
 
               <div className="securityNoteBox">
                 <p>
-                  Microassist fournit des repères pratiques et un espace de
-                  suivi. Il ne remplace pas un expert-comptable.
+                  Microassist donne des repères pratiques. Il ne remplace pas un expert-comptable.
                 </p>
               </div>
             </section>
           )}
 
-          {visibleSections.feedback && (
-            <section
-              id="feedback"
-              ref={feedbackRef}
-              className="card feedbackCta"
-            >
-              <div className="sectionHead">
-                <h2>⭐ Partagez votre avis</h2>
-                <button
-                  className="iconBtn"
-                  type="button"
-                  onClick={() => hideSection("feedback")}
-                  aria-label="Masquer cette section"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <p className="muted">
-                Tu utilises Microassist ? Dis-moi ce qui manque, ce qui est
-                utile, ce qui peut être amélioré. Ça prend 30 secondes et ça
-                compte vraiment.
-              </p>
-
-              <a
-                className="btn btnPrimary"
-                href="https://docs.google.com/forms/d/e/1FAIpQLSfFLqWZajP6Dy0Zm5-bS9cnE5-joWecfCgfyIhzGRMbsk-jqA/viewform"
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() =>
-                  trackEvent("feedback_open", feedbackContextSnapshot)
-                }
-              >
-                Ouvrir le formulaire
-              </a>
-
-              <p className="muted" style={{ marginTop: 10 }}>
-                Le formulaire s’ouvre dans un nouvel onglet.
-              </p>
-            </section>
-          )}
         </main>
 
         {showAddRevenue && (
