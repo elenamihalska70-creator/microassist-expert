@@ -39,6 +39,8 @@ const FIRST_REVENUE_ONBOARDING_SEEN_KEY =
   "microassist_first_revenue_onboarding_seen";
 const BETA_MICRO_FEEDBACK_KEY = "microassist_beta_micro_feedback";
 const BETA_SEEN_KEY = "beta_seen";
+const PROFILE_CONFLICT_STRATEGY_KEY = "microassist_profile_conflict_strategy";
+const SUBSCRIPTIONS_TABLE_ENABLED = false;
 const FEEDBACK_FORM_URL =
   "https://docs.google.com/forms/d/e/1FAIpQLSfFLqWZajP6Dy0Zm5-bS9cnE5-joWecfCgfyIhzGRMbsk-jqA/viewform";
 const FOUNDER_OFFER_LIMIT = 100;
@@ -200,6 +202,22 @@ const ROLE_BASED_TIPS = {
       firstInvoice:
         "Tu as déjà de l’activité enregistrée. Une première facture aide à cadrer le suivi client, les encaissements et la TVA collectée.",
     },
+    pointOfDay: {
+      tvaExceeded: "La TVA demande maintenant une préparation concrète.",
+      tvaSoon: "La TVA mérite une vigilance renforcée pour les prochains revenus.",
+      incompleteProfile: "Ton profil reste à compléter pour fiabiliser les calculs.",
+      missingExpenses:
+        "Aucune dépense renseignée : la marge et la lecture de santé restent partielles.",
+      lowHistory: "Encore quelques revenus et les estimations deviendront plus fiables.",
+      allGood: "Ton suivi avance bien. Continue comme ça.",
+    },
+    nextMonth: {
+      tva: "Prépare le suivi TVA du mois prochain.",
+      guest: "Crée ton compte pour retrouver ce suivi le mois prochain.",
+      earlyHistory: "Ajoute encore quelques saisies pour mieux préparer le mois prochain.",
+      reminders: "Active tes rappels pour mieux anticiper le mois prochain.",
+      ready: "Ton suivi est prêt pour le mois prochain.",
+    },
   },
   service: {
     dailyFiscalTip: {
@@ -219,6 +237,24 @@ const ROLE_BASED_TIPS = {
         "Ton historique de prestations devient utile. Créer ton compte permet de le conserver dans la durée.",
       firstInvoice:
         "Tu as déjà de l’activité enregistrée. Une première facture aide à cadrer le suivi client et les encaissements.",
+    },
+    pointOfDay: {
+      tvaExceeded: "La TVA demande maintenant une préparation concrète sur tes prestations.",
+      tvaSoon: "La TVA mérite une vigilance renforcée sur tes prochains encaissements.",
+      incompleteProfile: "Ton profil reste à compléter pour fiabiliser les calculs liés à ton activité de service.",
+      missingExpenses:
+        "Aucun frais renseigné : la marge de tes prestations reste partielle.",
+      lowHistory:
+        "Encore quelques prestations enregistrées et les estimations seront plus fiables.",
+      allGood: "Ton suivi de prestations avance bien. Continue comme ça.",
+    },
+    nextMonth: {
+      tva: "Prépare le suivi TVA du mois prochain sur tes prestations.",
+      guest: "Crée ton compte pour retrouver ton suivi de prestations le mois prochain.",
+      earlyHistory:
+        "Ajoute encore quelques prestations pour mieux préparer le mois prochain.",
+      reminders: "Active tes rappels pour anticiper sereinement le mois prochain.",
+      ready: "Ton suivi est prêt pour le mois prochain.",
     },
   },
   vente: {
@@ -240,6 +276,22 @@ const ROLE_BASED_TIPS = {
       firstInvoice:
         "Tu as déjà de l’activité enregistrée. Une première facture aide à cadrer le suivi client, les encaissements et la TVA collectée.",
     },
+    pointOfDay: {
+      tvaExceeded: "La TVA demande maintenant une préparation concrète sur tes ventes.",
+      tvaSoon: "La TVA mérite une vigilance renforcée sur tes prochaines ventes.",
+      incompleteProfile: "Ton profil reste à compléter pour fiabiliser les calculs liés à ton activité de vente.",
+      missingExpenses:
+        "Aucun achat ni frais renseigné : la marge de tes ventes reste partielle.",
+      lowHistory: "Encore quelques ventes enregistrées et les estimations seront plus fiables.",
+      allGood: "Ton suivi de ventes avance bien. Continue comme ça.",
+    },
+    nextMonth: {
+      tva: "Prépare le suivi TVA du mois prochain sur tes ventes.",
+      guest: "Crée ton compte pour retrouver ton suivi de ventes le mois prochain.",
+      earlyHistory: "Ajoute encore quelques ventes pour mieux préparer le mois prochain.",
+      reminders: "Active tes rappels pour anticiper sereinement le mois prochain.",
+      ready: "Ton suivi est prêt pour le mois prochain.",
+    },
   },
   mixte: {
     dailyFiscalTip: {
@@ -260,196 +312,22 @@ const ROLE_BASED_TIPS = {
       firstInvoice:
         "Tu as déjà de l’activité enregistrée. Une première facture aide à cadrer le suivi client, les encaissements et la TVA collectée.",
     },
-  },
-};
-const ROLE_BASED_POINT_DU_JOUR = {
-  default: {
-    tvaExceeded: "La TVA demande maintenant une préparation concrète.",
-    tvaSoon: "La TVA mérite une vigilance renforcée pour les prochains revenus.",
-    missingExpenses:
-      "Aucune dépense renseignée : la marge et la lecture de santé restent partielles.",
-    starter: "Encore quelques revenus et les estimations deviendront plus fiables.",
-    default: "Ton suivi avance bien. Continue comme ça.",
-  },
-  service: {
-    tvaExceeded: "La TVA demande maintenant une préparation concrète sur tes prestations.",
-    tvaSoon: "La TVA mérite une vigilance renforcée sur tes prochains encaissements.",
-    missingExpenses: "Aucun frais renseigné : la marge de tes prestations reste partielle.",
-    starter: "Encore quelques prestations enregistrées et les estimations seront plus fiables.",
-    default: "Ton suivi de prestations avance bien. Continue comme ça.",
-  },
-  vente: {
-    tvaExceeded: "La TVA demande maintenant une préparation concrète sur tes ventes.",
-    tvaSoon: "La TVA mérite une vigilance renforcée sur tes prochaines ventes.",
-    missingExpenses: "Aucun achat ni frais renseigné : la marge de tes ventes reste partielle.",
-    starter: "Encore quelques ventes enregistrées et les estimations seront plus fiables.",
-    default: "Ton suivi de ventes avance bien. Continue comme ça.",
-  },
-  mixte: {
-    tvaExceeded: "La TVA demande maintenant une préparation concrète sur l’ensemble de ton activité.",
-    tvaSoon: "La TVA mérite une vigilance renforcée sur tes prochains encaissements.",
-    missingExpenses: "Aucun frais renseigné : la marge de ton activité mixte reste partielle.",
-    starter: "Encore quelques revenus enregistrés et les estimations seront plus fiables.",
-    default: "Ton suivi d’activité avance bien. Continue comme ça.",
-  },
-};
-const ROLE_BASED_NEXT_MONTH = {
-  default: {
-    tva: "Prépare le suivi TVA du mois prochain.",
-    guest: "Crée ton compte pour retrouver ce suivi le mois prochain.",
-    starter: "Ajoute encore quelques saisies pour mieux préparer le mois prochain.",
-    reminders: "Active tes rappels pour mieux anticiper le mois prochain.",
-    ready: "Ton suivi est prêt pour le mois prochain.",
-  },
-  service: {
-    tva: "Prépare le suivi TVA du mois prochain sur tes prestations.",
-    guest: "Crée ton compte pour retrouver ton suivi de prestations le mois prochain.",
-    starter: "Ajoute encore quelques prestations pour mieux préparer le mois prochain.",
-    reminders: "Active tes rappels pour anticiper sereinement le mois prochain.",
-    ready: "Ton suivi est prêt pour le mois prochain.",
-  },
-  vente: {
-    tva: "Prépare le suivi TVA du mois prochain sur tes ventes.",
-    guest: "Crée ton compte pour retrouver ton suivi de ventes le mois prochain.",
-    starter: "Ajoute encore quelques ventes pour mieux préparer le mois prochain.",
-    reminders: "Active tes rappels pour anticiper sereinement le mois prochain.",
-    ready: "Ton suivi est prêt pour le mois prochain.",
-  },
-  mixte: {
-    tva: "Prépare le suivi TVA du mois prochain sur l’ensemble de ton activité.",
-    guest: "Crée ton compte pour retrouver ce suivi le mois prochain.",
-    starter: "Ajoute encore quelques revenus pour mieux préparer le mois prochain.",
-    reminders: "Active tes rappels pour anticiper sereinement le mois prochain.",
-    ready: "Ton suivi est prêt pour le mois prochain.",
-  },
-};
-const ROLE_BASED_PREMIUM_CTA = {
-  default: {
-    guest_free: {
-      title: "🎁 Offre fondateur",
-      benefit: "Exports illimités, historique complet et alertes avancées pour mieux piloter ton activité.",
-      cta: "Découvrir Premium",
+    pointOfDay: {
+      tvaExceeded: "La TVA demande maintenant une préparation concrète sur l’ensemble de ton activité.",
+      tvaSoon: "La TVA mérite une vigilance renforcée sur tes prochains encaissements.",
+      incompleteProfile: "Ton profil reste à compléter pour fiabiliser les calculs liés à ton activité mixte.",
+      missingExpenses:
+        "Aucun frais renseigné : la marge de ton activité mixte reste partielle.",
+      lowHistory:
+        "Encore quelques revenus enregistrés et les estimations seront plus fiables.",
+      allGood: "Ton suivi d’activité avance bien. Continue comme ça.",
     },
-    registered_founder_active: {
-      title: "⭐ Essai Premium actif",
-      benefit: "Exports illimités, historique complet et alertes avancées déjà activés dans ton espace.",
-      cta: "Voir mes avantages Premium",
-    },
-    registered_founder_ending: {
-      title: "⏳ Essai Premium bientôt terminé",
-      benefit: "Garde les exports illimités, l’historique complet et les alertes avancées après l’essai.",
-      cta: "Voir Premium après l’essai",
-    },
-    registered_free_after_trial: {
-      title: "🔓 Réactiver Premium",
-      benefit: "Retrouve les exports illimités, l’historique complet et les alertes avancées.",
-      cta: "Réactiver Premium",
-    },
-    premium_paid_active: {
-      title: "⭐ Premium actif",
-      benefit: "Ton espace inclut déjà les exports illimités, l’historique complet et les alertes avancées.",
-      cta: "Voir mes avantages Premium",
-    },
-    premium_qa_override: {
-      title: "🧪 Premium QA actif",
-      benefit: "Mode de test local activé avec les avantages Premium visibles dans le dashboard.",
-      cta: "Voir les avantages Premium",
-    },
-  },
-  service: {
-    guest_free: {
-      title: "🎁 Offre fondateur pour tes prestations",
-      benefit: "Historique complet, exports illimités et alertes utiles pour piloter tes prestations.",
-      cta: "Voir Premium pour mes prestations",
-    },
-    registered_founder_active: {
-      title: "⭐ Essai Premium actif pour tes prestations",
-      benefit: "Tu suis déjà mieux tes prestations avec l’historique complet, les exports illimités et les alertes avancées.",
-      cta: "Voir Premium pour mes prestations",
-    },
-    registered_founder_ending: {
-      title: "⏳ Essai Premium bientôt terminé",
-      benefit: "Continue à piloter tes prestations avec l’historique complet, les exports illimités et les alertes avancées.",
-      cta: "Continuer Premium pour mes prestations",
-    },
-    registered_free_after_trial: {
-      title: "🔓 Réactiver Premium pour tes prestations",
-      benefit: "Retrouve les exports illimités, l’historique complet et les alertes utiles à ton activité de service.",
-      cta: "Réactiver Premium pour mes prestations",
-    },
-    premium_paid_active: {
-      title: "⭐ Premium actif pour tes prestations",
-      benefit: "Ton espace Premium t’aide déjà à suivre tes prestations avec plus de continuité.",
-      cta: "Voir Premium pour mes prestations",
-    },
-    premium_qa_override: {
-      title: "🧪 Premium QA actif",
-      benefit: "Mode de test local activé pour les avantages Premium liés à tes prestations.",
-      cta: "Voir les avantages Premium",
-    },
-  },
-  vente: {
-    guest_free: {
-      title: "🎁 Offre fondateur pour tes ventes",
-      benefit: "Historique complet, exports illimités et alertes utiles pour piloter tes ventes.",
-      cta: "Voir Premium pour mes ventes",
-    },
-    registered_founder_active: {
-      title: "⭐ Essai Premium actif pour tes ventes",
-      benefit: "Tu pilotes déjà mieux tes ventes avec l’historique complet, les exports illimités et les alertes avancées.",
-      cta: "Voir Premium pour mes ventes",
-    },
-    registered_founder_ending: {
-      title: "⏳ Essai Premium bientôt terminé",
-      benefit: "Continue à suivre tes ventes avec l’historique complet, les exports illimités et les alertes avancées.",
-      cta: "Continuer Premium pour mes ventes",
-    },
-    registered_free_after_trial: {
-      title: "🔓 Réactiver Premium pour tes ventes",
-      benefit: "Retrouve les exports illimités, l’historique complet et les alertes utiles à ton activité de vente.",
-      cta: "Réactiver Premium pour mes ventes",
-    },
-    premium_paid_active: {
-      title: "⭐ Premium actif pour tes ventes",
-      benefit: "Ton espace Premium t’aide déjà à suivre tes ventes avec plus de continuité.",
-      cta: "Voir Premium pour mes ventes",
-    },
-    premium_qa_override: {
-      title: "🧪 Premium QA actif",
-      benefit: "Mode de test local activé pour les avantages Premium liés à tes ventes.",
-      cta: "Voir les avantages Premium",
-    },
-  },
-  mixte: {
-    guest_free: {
-      title: "🎁 Offre fondateur pour ton activité",
-      benefit: "Historique complet, exports illimités et alertes utiles pour piloter ton activité mixte.",
-      cta: "Voir Premium pour mon activité",
-    },
-    registered_founder_active: {
-      title: "⭐ Essai Premium actif pour ton activité",
-      benefit: "Tu pilotes déjà mieux ton activité mixte avec l’historique complet, les exports illimités et les alertes avancées.",
-      cta: "Voir Premium pour mon activité",
-    },
-    registered_founder_ending: {
-      title: "⏳ Essai Premium bientôt terminé",
-      benefit: "Continue à suivre ton activité mixte avec l’historique complet, les exports illimités et les alertes avancées.",
-      cta: "Continuer Premium pour mon activité",
-    },
-    registered_free_after_trial: {
-      title: "🔓 Réactiver Premium pour ton activité",
-      benefit: "Retrouve les exports illimités, l’historique complet et les alertes utiles à ton activité mixte.",
-      cta: "Réactiver Premium pour mon activité",
-    },
-    premium_paid_active: {
-      title: "⭐ Premium actif pour ton activité",
-      benefit: "Ton espace Premium t’aide déjà à piloter ton activité mixte avec plus de continuité.",
-      cta: "Voir Premium pour mon activité",
-    },
-    premium_qa_override: {
-      title: "🧪 Premium QA actif",
-      benefit: "Mode de test local activé pour les avantages Premium liés à ton activité mixte.",
-      cta: "Voir les avantages Premium",
+    nextMonth: {
+      tva: "Prépare le suivi TVA du mois prochain sur l’ensemble de ton activité.",
+      guest: "Crée ton compte pour retrouver ce suivi le mois prochain.",
+      earlyHistory: "Ajoute encore quelques revenus pour mieux préparer le mois prochain.",
+      reminders: "Active tes rappels pour anticiper sereinement le mois prochain.",
+      ready: "Ton suivi est prêt pour le mois prochain.",
     },
   },
 };
@@ -463,6 +341,7 @@ const FULL_RESET_LOCAL_STORAGE_KEYS = [
   CHART_KEY,
   UI_KEY,
   PENDING_AUTH_SUCCESS_KEY,
+  PROFILE_CONFLICT_STRATEGY_KEY,
 ];
 const MIN_REALISTIC_FISCAL_DATE = "2000-01-01";
 // ... константы ...
@@ -475,6 +354,18 @@ function labelFromOptions(stepKey, value) {
 function track(eventName, params = {}) {
   if (window.gtag) {
     window.gtag("event", eventName, params);
+  }
+}
+
+function debugLog(...args) {
+  if (import.meta.env.DEV) {
+    console.info(...args);
+  }
+}
+
+function debugWarn(...args) {
+  if (import.meta.env.DEV) {
+    console.warn(...args);
   }
 }
 
@@ -1130,6 +1021,313 @@ function getActivityRole(activityType) {
   }
 }
 
+function readLocalDraftPayload() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function readLocalDraftAnswers() {
+  const payload = readLocalDraftPayload();
+  return payload?.answers && typeof payload.answers === "object"
+    ? sanitizeFiscalAnswers(payload.answers)
+    : null;
+}
+
+function pickProfileField(source, aliases) {
+  if (!source || typeof source !== "object") return null;
+
+  for (const key of aliases) {
+    const value = source[key];
+    if (value !== undefined && value !== null && value !== "") {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function normalizeProfileConflictValue(value, type = "string") {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  if (type === "date") {
+    return normalizeDateValue(value) || null;
+  }
+
+  if (type === "booleanish") {
+    if (value === true || value === "true" || value === "yes") return "yes";
+    if (value === false || value === "false" || value === "no") return "no";
+  }
+
+  return String(value).trim().toLowerCase();
+}
+
+function buildProfileConflictSnapshot(source) {
+  return {
+    activity: normalizeProfileConflictValue(
+      pickProfileField(source, ["activity", "activityType", "activity_type"]),
+    ),
+    declarationFrequency: normalizeProfileConflictValue(
+      pickProfileField(source, [
+        "declarationFrequency",
+        "declaration_period",
+        "declaration_frequency",
+      ]),
+    ),
+    acre: normalizeProfileConflictValue(
+      pickProfileField(source, ["acre", "hasAcre"]),
+      "booleanish",
+    ),
+    businessStartDate: normalizeProfileConflictValue(
+      pickProfileField(source, [
+        "businessStartDate",
+        "startDate",
+        "business_start_date",
+      ]),
+      "date",
+    ),
+  };
+}
+
+function hasFiscalProfileConflict(localAnswers, remoteProfile) {
+  const localSnapshot = buildProfileConflictSnapshot(localAnswers);
+  const remoteSnapshot = buildProfileConflictSnapshot(remoteProfile);
+
+  return (
+    localSnapshot.activity !== remoteSnapshot.activity ||
+    localSnapshot.declarationFrequency !== remoteSnapshot.declarationFrequency ||
+    localSnapshot.acre !== remoteSnapshot.acre ||
+    localSnapshot.businessStartDate !== remoteSnapshot.businessStartDate
+  );
+}
+
+function haveStructuredFiscalFieldsChanged(previousAnswers = {}, nextAnswers = {}) {
+  return (
+    normalizeProfileConflictValue(previousAnswers.activity_type) !==
+      normalizeProfileConflictValue(nextAnswers.activity_type) ||
+    normalizeProfileConflictValue(previousAnswers.declaration_frequency) !==
+      normalizeProfileConflictValue(nextAnswers.declaration_frequency) ||
+    normalizeProfileConflictValue(previousAnswers.acre, "booleanish") !==
+      normalizeProfileConflictValue(nextAnswers.acre, "booleanish") ||
+    normalizeProfileConflictValue(previousAnswers.business_start_date, "date") !==
+      normalizeProfileConflictValue(nextAnswers.business_start_date, "date")
+  );
+}
+
+function readProfileConflictStrategy() {
+  try {
+    return localStorage.getItem(PROFILE_CONFLICT_STRATEGY_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
+function writeProfileConflictStrategy(strategy) {
+  try {
+    if (!strategy) {
+      localStorage.removeItem(PROFILE_CONFLICT_STRATEGY_KEY);
+      return null;
+    }
+
+    localStorage.setItem(PROFILE_CONFLICT_STRATEGY_KEY, strategy);
+    return strategy;
+  } catch {
+    return strategy || null;
+  }
+}
+
+function buildFiscalProfilePayload(userId, normalizedProfileAnswers) {
+  return {
+    user_id: userId,
+    business_status:
+      normalizedProfileAnswers.entry_status === "micro_yes"
+        ? "micro_entreprise"
+        : "other",
+    activity_type: normalizedProfileAnswers.activity_type || null,
+    declaration_frequency:
+      normalizedProfileAnswers.declaration_frequency || null,
+    tva_mode: "franchise_en_base",
+    acre: normalizedProfileAnswers.acre || null,
+    acre_start_date: normalizedProfileAnswers.acre_start_date || null,
+    business_start_date: normalizedProfileAnswers.business_start_date || null,
+  };
+}
+
+function isSameFiscalProfilePayload(payload, currentProfile) {
+  if (!payload || !currentProfile) return false;
+
+  return (
+    payload.user_id === currentProfile.user_id &&
+    payload.business_status === (currentProfile.business_status || null) &&
+    payload.activity_type === (currentProfile.activity_type || null) &&
+    payload.declaration_frequency ===
+      (currentProfile.declaration_frequency || null) &&
+    payload.tva_mode === (currentProfile.tva_mode || null) &&
+    payload.acre === (currentProfile.acre || null) &&
+    payload.acre_start_date === (currentProfile.acre_start_date || null) &&
+    payload.business_start_date ===
+      (currentProfile.business_start_date || null)
+  );
+}
+
+function buildProfilePayload(user, currentProfile = {}, overrides = {}) {
+  const fallbackDisplayName =
+    user?.user_metadata?.first_name?.trim() ||
+    user?.user_metadata?.full_name?.trim() ||
+    user?.email?.split("@")?.[0]?.trim() ||
+    null;
+
+  return {
+    id: user?.id || currentProfile?.id || currentProfile?.user_id || null,
+    email: overrides.email ?? currentProfile?.email ?? user?.email ?? null,
+    full_name:
+      overrides.full_name ??
+      currentProfile?.full_name ??
+      currentProfile?.display_name ??
+      fallbackDisplayName,
+    plan: overrides.plan ?? currentProfile?.plan ?? null,
+    subscription_status:
+      overrides.subscription_status ??
+      currentProfile?.subscription_status ??
+      null,
+    is_premium:
+      overrides.is_premium ?? currentProfile?.is_premium ?? false,
+    trial_started_at:
+      overrides.trial_started_at ?? currentProfile?.trial_started_at ?? null,
+    trial_ends_at:
+      overrides.trial_ends_at ?? currentProfile?.trial_ends_at ?? null,
+    stripe_customer_id:
+      overrides.stripe_customer_id ??
+      currentProfile?.stripe_customer_id ??
+      null,
+    locale:
+      overrides.locale ??
+      currentProfile?.locale ??
+      user?.user_metadata?.locale ??
+      null,
+    onboarding_completed:
+      overrides.onboarding_completed ??
+      currentProfile?.onboarding_completed ??
+      false,
+  };
+}
+
+function buildSubscriptionPayload(userId, currentSubscription = {}, overrides = {}) {
+  return {
+    user_id: userId || currentSubscription?.user_id || null,
+    provider: overrides.provider ?? currentSubscription?.provider ?? "stripe",
+    stripe_customer_id:
+      overrides.stripe_customer_id ??
+      currentSubscription?.stripe_customer_id ??
+      null,
+    stripe_subscription_id:
+      overrides.stripe_subscription_id ??
+      currentSubscription?.stripe_subscription_id ??
+      null,
+    stripe_price_id:
+      overrides.stripe_price_id ?? currentSubscription?.stripe_price_id ?? null,
+    status: overrides.status ?? currentSubscription?.status ?? null,
+    current_period_start:
+      overrides.current_period_start ??
+      currentSubscription?.current_period_start ??
+      null,
+    current_period_end:
+      overrides.current_period_end ??
+      currentSubscription?.current_period_end ??
+      null,
+    cancel_at_period_end:
+      overrides.cancel_at_period_end ??
+      currentSubscription?.cancel_at_period_end ??
+      false,
+    trial_started_at:
+      overrides.trial_started_at ??
+      currentSubscription?.trial_started_at ??
+      null,
+    trial_ends_at:
+      overrides.trial_ends_at ?? currentSubscription?.trial_ends_at ?? null,
+  };
+}
+
+function buildSubscriptionLikeState({
+  user,
+  userProfile,
+  subscriptionRecord,
+  localPremiumStatus,
+}) {
+  const metadataSubscription =
+    user?.app_metadata?.subscription ||
+    user?.user_metadata?.subscription ||
+    null;
+
+  const metadataPlan =
+    metadataSubscription?.plan ||
+    user?.app_metadata?.plan ||
+    user?.user_metadata?.plan ||
+    null;
+  const metadataIsPremium =
+    typeof metadataSubscription?.is_premium === "boolean"
+      ? metadataSubscription.is_premium
+      : typeof user?.app_metadata?.is_premium === "boolean"
+        ? user.app_metadata.is_premium
+        : typeof user?.user_metadata?.is_premium === "boolean"
+          ? user.user_metadata.is_premium
+          : null;
+  const metadataTrialStartedAt =
+    metadataSubscription?.trial_started_at ||
+    user?.app_metadata?.trial_started_at ||
+    user?.user_metadata?.trial_started_at ||
+    null;
+  const metadataTrialEndsAt =
+    metadataSubscription?.trial_ends_at ||
+    user?.app_metadata?.trial_ends_at ||
+    user?.user_metadata?.trial_ends_at ||
+    null;
+  const metadataSubscriptionStatus =
+    metadataSubscription?.subscription_status ||
+    user?.app_metadata?.subscription_status ||
+    user?.user_metadata?.subscription_status ||
+    null;
+
+  return {
+    plan:
+      userProfile?.plan ||
+      metadataPlan ||
+      null,
+    isPremium:
+      (typeof userProfile?.is_premium === "boolean"
+        ? userProfile.is_premium
+        : null) ??
+      (["active", "trialing"].includes(subscriptionRecord?.status)
+        ? true
+        : null) ??
+      metadataIsPremium ??
+      Boolean(localPremiumStatus),
+    trialStartedAt:
+      subscriptionRecord?.trial_started_at ||
+      userProfile?.trial_started_at ||
+      metadataTrialStartedAt ||
+      null,
+    trialEndsAt:
+      subscriptionRecord?.trial_ends_at ||
+      userProfile?.trial_ends_at ||
+      metadataTrialEndsAt ||
+      null,
+    subscriptionStatus:
+      subscriptionRecord?.status ||
+      userProfile?.subscription_status ||
+      metadataSubscriptionStatus ||
+      null,
+  };
+}
+
 function isStepAvailable(stepConfig, sourceAnswers) {
   if (!stepConfig?.condition) {
     return true;
@@ -1215,6 +1413,16 @@ useEffect(() => {
   const [profileEditDraft, setProfileEditDraft] = useState({});
   const [showResetModal, setShowResetModal] = useState(false);
   const [resetInProgress, setResetInProgress] = useState(false);
+  const [profileConflictState, setProfileConflictState] = useState({
+    open: false,
+    localAnswers: null,
+    remoteProfile: null,
+  });
+  const [profileSyncBlocked, setProfileSyncBlocked] = useState(
+    () => readProfileConflictStrategy() === "keep_local",
+  );
+  const [pendingStructuredProfileEdit, setPendingStructuredProfileEdit] =
+    useState(null);
   
   const [focusMode, setFocusMode] = useState(false); // ✅ ДОБАВИТЬ
   const { user, loading: authLoading } = useAuth();
@@ -1367,6 +1575,8 @@ useEffect(() => {
       setAuthInitialMode("signup");
       setAppView("landing");
       setFocusMode(false);
+      setUserProfile(null);
+      setSubscriptionRecord(null);
       setFiscalProfile(null);
       setFiscalProfileLoaded(false);
       fiscalProfileFetchRef.current = {
@@ -1380,6 +1590,7 @@ useEffect(() => {
         userId: null,
         completedForUserId: null,
       };
+      fiscalProfileSaveSourceRef.current = "auto_sync";
       setAnswers({});
       setStepIndex(0);
       setMessages(buildInitialAssistantMessages());
@@ -1389,6 +1600,13 @@ useEffect(() => {
       setProfileEditMode("idle");
       setSelectedProfileField(null);
       setProfileEditDraft({});
+      setPendingStructuredProfileEdit(null);
+      setProfileConflictState({
+        open: false,
+        localAnswers: null,
+        remoteProfile: null,
+      });
+      setProfileSyncBlocked(false);
       setAssistantCollapsed(false);
       setHelpOpen(false);
       setIsTyping(false);
@@ -1454,6 +1672,8 @@ useEffect(() => {
   }, [clearAuthenticatedRuntimeState, logoutPending, showSaveNotice]);
 
   const [selectedMonth, setSelectedMonth] = useState("all");
+  const [userProfile, setUserProfile] = useState(null);
+  const [subscriptionRecord, setSubscriptionRecord] = useState(null);
   const [fiscalProfile, setFiscalProfile] = useState(null);
   const [fiscalProfileLoaded, setFiscalProfileLoaded] = useState(false);
   const [localPremiumStatus, setLocalPremiumStatus] = useState(() =>
@@ -1471,14 +1691,23 @@ useEffect(() => {
     completedForUserId: null,
   });
   const previousUserIdRef = useRef(null);
-  
-  // Once authenticated, UI rights must come from Supabase only.
-  const persistedPlan = fiscalProfile?.plan || null;
-  const profilePremiumStatus = Boolean(fiscalProfile?.is_premium);
+  const fiscalProfileSaveSourceRef = useRef("auto_sync");
+  const subscriptionLikeState = useMemo(
+    () =>
+      buildSubscriptionLikeState({
+        user,
+        userProfile,
+        subscriptionRecord,
+        localPremiumStatus,
+      }),
+    [localPremiumStatus, subscriptionRecord, user, userProfile],
+  );
+  const persistedPlan = subscriptionLikeState.plan;
+  const profilePremiumStatus = subscriptionLikeState.isPremium;
 
   const founderActivatedAt = useMemo(() => {
     const activationCandidates = [
-      fiscalProfile?.trial_started_at,
+      subscriptionLikeState.trialStartedAt,
       fiscalProfile?.created_at,
       user?.created_at,
     ];
@@ -1488,11 +1717,11 @@ useEffect(() => {
         .map((value) => (value ? new Date(value) : null))
         .find((date) => date && !Number.isNaN(date.getTime())) || null
     );
-  }, [fiscalProfile?.created_at, fiscalProfile?.trial_started_at, user?.created_at]);
+  }, [fiscalProfile?.created_at, subscriptionLikeState.trialStartedAt, user?.created_at]);
 
   const founderExpiresAt = useMemo(() => {
-    if (fiscalProfile?.trial_ends_at) {
-      const persistedExpiry = new Date(fiscalProfile.trial_ends_at);
+    if (subscriptionLikeState.trialEndsAt) {
+      const persistedExpiry = new Date(subscriptionLikeState.trialEndsAt);
 
       if (!Number.isNaN(persistedExpiry.getTime())) {
         return persistedExpiry;
@@ -1506,7 +1735,7 @@ useEffect(() => {
     const derivedExpiry = new Date(founderActivatedAt);
     derivedExpiry.setDate(derivedExpiry.getDate() + 90);
     return derivedExpiry;
-  }, [fiscalProfile?.trial_ends_at, founderActivatedAt]);
+  }, [subscriptionLikeState.trialEndsAt, founderActivatedAt]);
 
   const trialDaysLeft = useMemo(() => {
     if (!founderExpiresAt) return null;
@@ -1628,6 +1857,96 @@ useEffect(() => {
     writeLocalPremiumStatus(nextValue);
   }
 
+  const refreshUserProfile = useCallback(async () => {
+    if (!user?.id) {
+      setUserProfile(null);
+      return null;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (error) {
+        debugWarn("Load profiles warning:", error.message);
+        setUserProfile(null);
+        return null;
+      }
+
+      setUserProfile(data || null);
+      return data || null;
+    } catch (error) {
+      debugWarn("Unexpected profiles load warning:", error);
+      setUserProfile(null);
+      return null;
+    }
+  }, [user?.id]);
+
+const refreshSubscriptionRecord = useCallback(async () => {
+  if (!SUBSCRIPTIONS_TABLE_ENABLED) {
+    setSubscriptionRecord(null);
+    return null;
+  }
+
+  if (!user?.id) {
+    setSubscriptionRecord(null);
+    return null;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("subscriptions")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("updated_at", { ascending: false })
+      .limit(1);
+
+    if (error) {
+      const message = error?.message || "";
+
+      const isMissingSubscriptionsTable =
+        message.includes("Could not find the table 'public.subscriptions'") ||
+        message.includes('relation "public.subscriptions" does not exist');
+
+      if (isMissingSubscriptionsTable) {
+        debugLog("[subscriptions] table not ready yet, fallback to profiles only");
+        setSubscriptionRecord(null);
+        return null;
+      }
+
+      debugWarn("Load subscriptions warning:", error.message);
+      setSubscriptionRecord(null);
+      return null;
+    }
+
+    const nextSubscription = Array.isArray(data) ? data[0] || null : null;
+    const normalizedSubscription = nextSubscription
+      ? buildSubscriptionPayload(user.id, nextSubscription)
+      : null;
+
+    setSubscriptionRecord(normalizedSubscription);
+    return normalizedSubscription;
+  } catch (error) {
+    const message = error?.message || "";
+
+    const isMissingSubscriptionsTable =
+      message.includes("Could not find the table 'public.subscriptions'") ||
+      message.includes('relation "public.subscriptions" does not exist');
+
+    if (isMissingSubscriptionsTable) {
+      debugLog("[subscriptions] table not ready yet, fallback to profiles only");
+      setSubscriptionRecord(null);
+      return null;
+    }
+
+    debugWarn("Unexpected subscriptions load warning:", error);
+    setSubscriptionRecord(null);
+    return null;
+  }
+}, [user?.id]);
 
 
   const refreshRevenues = useCallback(async () => {
@@ -1734,7 +2053,6 @@ useEffect(() => {
         console.error("Load fiscal profile error:", error.message);
         setFiscalProfile(null);
         setFiscalProfileLoaded(true);
-        setLocalPremiumStatus(readLocalPremiumStatus());
         fetchState.lastFetchedAt = Date.now();
         fetchState.lastData = null;
         return null;
@@ -1742,11 +2060,6 @@ useEffect(() => {
 
       setFiscalProfile(data || null);
       setFiscalProfileLoaded(true);
-      if (data) {
-        const nextPremiumStatus = Boolean(data.is_premium);
-        setLocalPremiumStatus(nextPremiumStatus);
-        writeLocalPremiumStatus(nextPremiumStatus);
-      }
       fetchState.lastFetchedAt = Date.now();
       fetchState.lastData = data || null;
       return data || null;
@@ -1760,7 +2073,6 @@ useEffect(() => {
       console.error("Unexpected error in refreshFiscalProfile:", error);
       setFiscalProfile(null);
       setFiscalProfileLoaded(true);
-      setLocalPremiumStatus(readLocalPremiumStatus());
       fiscalProfileFetchRef.current.lastFetchedAt = Date.now();
       fiscalProfileFetchRef.current.lastData = null;
       return null;
@@ -1804,124 +2116,142 @@ useEffect(() => {
       setLocalPremiumStatus(normalizedValue);
       writeLocalPremiumStatus(normalizedValue);
 
-      if (!user?.id) {
-        return true;
-      }
+      if (user?.id) {
+        const profilePayload = buildProfilePayload(user, userProfile, {
+          plan: persistedPlan,
+          subscription_status:
+            subscriptionLikeState.subscriptionStatus || userProfile?.subscription_status || null,
+          is_premium: normalizedValue,
+          trial_started_at:
+            subscriptionLikeState.trialStartedAt || userProfile?.trial_started_at || null,
+          trial_ends_at:
+            subscriptionLikeState.trialEndsAt || userProfile?.trial_ends_at || null,
+          stripe_customer_id: userProfile?.stripe_customer_id || null,
+        });
 
-      const { error } = await supabase
-        .from("fiscal_profiles")
-        .update({ is_premium: normalizedValue })
-        .eq("user_id", user.id);
+        debugLog("[profiles] sending payload", {
+          source: "persist_premium_status",
+          payload: profilePayload,
+        });
 
-      if (error) {
-        const missingColumn =
-          error.code === "PGRST204" ||
-          error.message?.includes("is_premium") ||
-          error.details?.includes?.("is_premium");
+        try {
+          const { data, error } = await supabase
+            .from("profiles")
+            .upsert(profilePayload, { onConflict: "id" })
+            .select()
+            .single();
 
-        if (missingColumn) {
-          console.warn(
-            "is_premium column not available yet; keeping local premium fallback only.",
-          );
-          return false;
+          debugLog("[profiles] save result", {
+            source: "persist_premium_status",
+            data,
+            error,
+          });
+
+          if (error) {
+            debugWarn(
+              "Persist premium status fallback to local-only state:",
+              error.message,
+            );
+          } else {
+            setUserProfile(data || profilePayload);
+          }
+        } catch (error) {
+          debugWarn("Persist premium status fallback to local-only state:", error);
         }
-
-        console.error("Persist premium status error:", error.message);
-        return false;
       }
 
       if (refresh) {
-        await refreshFiscalProfile({ force: true });
+        await Promise.all([
+          refreshFiscalProfile({ force: true }),
+          refreshUserProfile(),
+          SUBSCRIPTIONS_TABLE_ENABLED
+            ? refreshSubscriptionRecord()
+            : Promise.resolve(null),
+        ]);
       }
 
+      debugLog("[profiles] premium status stored outside fiscal_profiles", {
+        normalizedValue,
+        userId: user?.id || null,
+      });
       return true;
     },
-    [refreshFiscalProfile, user?.id],
+    [
+      persistedPlan,
+      userProfile,
+      refreshFiscalProfile,
+      refreshUserProfile,
+      refreshSubscriptionRecord,
+      subscriptionLikeState.subscriptionStatus,
+      subscriptionLikeState.trialEndsAt,
+      subscriptionLikeState.trialStartedAt,
+      user,
+    ],
   );
 
-  const saveFiscalProfileToSupabase = useCallback(async (profileAnswers) => {
+  const saveFiscalProfileToSupabase = useCallback(async (profileAnswers, options = {}) => {
+    const {
+      source = "auto_sync",
+      showSuccessNotice = false,
+    } = options;
     const normalizedProfileAnswers = sanitizeFiscalAnswers(profileAnswers);
     if (!user?.id) {
-      return;
+      return { ok: false, skipped: true, reason: "missing_user" };
     }
 
     if (!fiscalProfileLoaded) {
-      return;
+      return { ok: false, skipped: true, reason: "profile_not_loaded" };
+    }
+    const payload = buildFiscalProfilePayload(user.id, normalizedProfileAnswers);
+
+    if (isSameFiscalProfilePayload(payload, fiscalProfile)) {
+      debugLog("[fiscal_profiles] save skipped (duplicate payload ignored)", {
+        source,
+        payload,
+      });
+      return { ok: true, skipped: true, reason: "duplicate_ignored" };
     }
 
-    const planToPersist = persistedPlan || defaultGuestPlan;
-    const nextPremiumStatus =
-      Boolean(fiscalProfile?.is_premium) || planToPersist === "beta_founder";
+    debugLog("[fiscal_profiles] sending payload", {
+      source,
+      payload,
+    });
 
-    const payload = {
-      user_id: user.id,
-      plan: planToPersist,
-      is_premium: nextPremiumStatus,
-      business_status:
-        normalizedProfileAnswers.entry_status === "micro_yes"
-          ? "micro_entreprise"
-          : "other",
-      activity_type: normalizedProfileAnswers.activity_type,
-      declaration_frequency: normalizedProfileAnswers.declaration_frequency,
-      tva_mode: "franchise_en_base",
-      acre: normalizedProfileAnswers.acre || null,
-      acre_start_date: normalizedProfileAnswers.acre_start_date || null,
-      business_start_date: normalizedProfileAnswers.business_start_date || null,
-    };
-
-    if (planToPersist === "beta_founder") {
-      if (!fiscalProfile?.trial_started_at) {
-        const trialStartedAt = new Date();
-        const trialEndsAt = new Date(trialStartedAt);
-        trialEndsAt.setDate(trialEndsAt.getDate() + 90);
-
-        payload.trial_started_at = trialStartedAt.toISOString();
-        payload.trial_ends_at = trialEndsAt.toISOString();
-      } else if (!fiscalProfile?.trial_ends_at) {
-        const persistedStart = new Date(fiscalProfile.trial_started_at);
-
-        if (!Number.isNaN(persistedStart.getTime())) {
-          const persistedEnd = new Date(persistedStart);
-          persistedEnd.setDate(persistedEnd.getDate() + 90);
-          payload.trial_ends_at = persistedEnd.toISOString();
-        }
-      }
-    }
-
-    let { error } = await supabase
+    const { data, error } = await supabase
       .from("fiscal_profiles")
-      .upsert(payload, { onConflict: "user_id" });
+      .upsert(payload, { onConflict: "user_id" })
+      .select()
+      .single();
 
-    if (
-      error &&
-      (error.code === "PGRST204" ||
-        error.message?.includes("is_premium") ||
-        error.details?.includes?.("is_premium"))
-    ) {
-      const fallbackPayload = { ...payload };
-      delete fallbackPayload.is_premium;
-
-      const fallbackResponse = await supabase
-        .from("fiscal_profiles")
-        .upsert(fallbackPayload, { onConflict: "user_id" });
-      error = fallbackResponse.error;
-    }
+    debugLog("[fiscal_profiles] save result", {
+      source,
+      data,
+      error,
+    });
 
     if (error) {
-      console.error("Fiscal profile upsert error:", error.message);
-      return;
+      console.error("Fiscal profile upsert error:", {
+        source,
+        payload,
+        error,
+      });
+      showSaveNotice(
+        "Impossible d’enregistrer ton profil fiscal pour le moment.",
+        4000,
+      );
+      return { ok: false, skipped: false, error };
     }
 
-    setLocalPremiumStatus(nextPremiumStatus);
-    writeLocalPremiumStatus(nextPremiumStatus);
-    console.log("Fiscal profile saved ✅");
+    if (showSuccessNotice) {
+      showSaveNotice("Profil fiscal enregistré ✅", 3000);
+    }
 
     const nextRemindAt = calculateNextReminder(
       normalizedProfileAnswers.declaration_frequency,
     );
 
     if (!nextRemindAt) {
-      return;
+      return { ok: true, skipped: false, data };
     }
 
     const { error: reminderError } = await supabase.from("reminders").upsert(
@@ -1937,14 +2267,13 @@ useEffect(() => {
     if (reminderError) {
       console.error("Reminder upsert error:", reminderError.message);
     }
+
+    return { ok: true, skipped: false, data };
   }, [
     user?.id,
-    defaultGuestPlan,
-    fiscalProfile?.is_premium,
-    fiscalProfile?.trial_ends_at,
-    fiscalProfile?.trial_started_at,
+    fiscalProfile,
     fiscalProfileLoaded,
-    persistedPlan,
+    showSaveNotice,
   ]);
 
   async function saveReminderPrefsToSupabase(prefsToSave = reminderPrefs) {
@@ -2037,6 +2366,43 @@ useEffect(() => {
 
     const migrationRequest = (async () => {
       let migrated = false;
+      const conflictStrategy = readProfileConflictStrategy();
+
+      // Un conflit déjà détecté bloque toute fusion automatique ultérieure.
+      if (conflictStrategy) {
+        return false;
+      }
+
+      const localDraftAnswers = readLocalDraftAnswers();
+      const hasLocalStructuredProfile = Boolean(
+        localDraftAnswers?.activity_type ||
+        localDraftAnswers?.declaration_frequency ||
+        localDraftAnswers?.acre ||
+        localDraftAnswers?.business_start_date,
+      );
+      const remoteProfile = await refreshFiscalProfile({ force: true });
+      const hasRemoteStructuredProfile = Boolean(
+        remoteProfile?.activity_type ||
+        remoteProfile?.declaration_frequency ||
+        remoteProfile?.acre ||
+        remoteProfile?.business_start_date,
+      );
+
+      if (
+        hasLocalStructuredProfile &&
+        hasRemoteStructuredProfile &&
+        hasFiscalProfileConflict(localDraftAnswers, remoteProfile)
+      ) {
+        setProfileConflictState({
+          open: true,
+          localAnswers: localDraftAnswers,
+          remoteProfile,
+        });
+        setProfileSyncBlocked(true);
+        writeProfileConflictStrategy("detected");
+        migrationState.completedForUserId = user.id;
+        return false;
+      }
 
       // 1. Migrer les revenus locaux
       const localRevenues = localStorage.getItem(GUEST_REVENUES_KEY);
@@ -2109,9 +2475,18 @@ useEffect(() => {
             data.answers &&
             (data.answers.activity_type || data.answers.declaration_frequency)
           ) {
-            await saveFiscalProfileToSupabase(data.answers);
-            migrated = true;
-            console.log("✅ Profil fiscal local migré");
+            const fiscalProfileSave = await saveFiscalProfileToSupabase(
+              data.answers,
+              {
+                source: "migration_local_profile",
+                showSuccessNotice: false,
+              },
+            );
+
+            if (fiscalProfileSave?.ok) {
+              migrated = true;
+              console.log("✅ Profil fiscal local migré");
+            }
           }
         } catch (e) {
           console.error("Erreur migration profil:", e);
@@ -2217,7 +2592,48 @@ useEffect(() => {
   }, [user, refreshInvoices]);
 
   useEffect(() => {
+    if (!user) {
+      setUserProfile(null);
+      return;
+    }
+    refreshUserProfile();
+  }, [user, refreshUserProfile]);
+
+  useEffect(() => {
+    if (!user) {
+      setSubscriptionRecord(null);
+      return;
+    }
+    if (!SUBSCRIPTIONS_TABLE_ENABLED) {
+      setSubscriptionRecord(null);
+      return;
+    }
+    refreshSubscriptionRecord();
+  }, [user, refreshSubscriptionRecord]);
+
+  useEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "PASSWORD_RECOVERY" && session) {
+        setShowBetaNotice(false);
+        openAuthModal("recovery");
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [openAuthModal]);
+
+  useEffect(() => {
     const hash = window.location.hash;
+    const searchParams = new URLSearchParams(window.location.search);
+
+    if (searchParams.get("mode") === "recovery") {
+      setShowBetaNotice(false);
+      openAuthModal("recovery");
+    }
 
     if (!hash) return;
 
@@ -2687,9 +3103,15 @@ useEffect(() => {
     if (hasBlockingFiscalDateError) return;
     if (!user) return;
     if (user && !fiscalProfileLoaded) return;
+    if (profileSyncBlocked) return;
 
     const timeoutId = setTimeout(() => {
-      saveFiscalProfileToSupabase(sanitizedAnswers);
+      const source = fiscalProfileSaveSourceRef.current || "auto_sync";
+      fiscalProfileSaveSourceRef.current = "auto_sync";
+      saveFiscalProfileToSupabase(sanitizedAnswers, {
+        source,
+        showSuccessNotice: false,
+      });
 
     }, 2000);
 
@@ -2703,6 +3125,7 @@ useEffect(() => {
     sanitizedAnswers?.business_start_date,
     hasBlockingFiscalDateError,
     fiscalProfileLoaded,
+    profileSyncBlocked,
     saveFiscalProfileToSupabase,
     user,
     showSaveNotice,
@@ -2987,18 +3410,6 @@ useEffect(() => {
   );
   const roleBasedTips = useMemo(
     () => ROLE_BASED_TIPS[activityRole] || ROLE_BASED_TIPS.default,
-    [activityRole],
-  );
-  const roleBasedPointDuJour = useMemo(
-    () => ROLE_BASED_POINT_DU_JOUR[activityRole] || ROLE_BASED_POINT_DU_JOUR.default,
-    [activityRole],
-  );
-  const roleBasedNextMonth = useMemo(
-    () => ROLE_BASED_NEXT_MONTH[activityRole] || ROLE_BASED_NEXT_MONTH.default,
-    [activityRole],
-  );
-  const roleBasedPremiumCta = useMemo(
-    () => ROLE_BASED_PREMIUM_CTA[activityRole] || ROLE_BASED_PREMIUM_CTA.default,
     [activityRole],
   );
   const authGreetingName = useMemo(() => {
@@ -4273,27 +4684,27 @@ useEffect(() => {
   }, [revenues, visibleInvoices]);
   const dashboardNextMonthPrep = useMemo(() => {
     if (computed?.tvaStatus === "soon" || computed?.tvaStatus === "exceeded") {
-      return roleBasedNextMonth.tva;
+      return roleBasedTips.nextMonth.tva;
     }
 
     if (!user && shouldShowGuestLocalMessage) {
-      return roleBasedNextMonth.guest;
+      return roleBasedTips.nextMonth.guest;
     }
 
     if (revenues.length > 0 && revenues.length < 5) {
-      return roleBasedNextMonth.starter;
+      return roleBasedTips.nextMonth.earlyHistory;
     }
 
     if (!hasConfiguredReminders) {
-      return roleBasedNextMonth.reminders;
+      return roleBasedTips.nextMonth.reminders;
     }
 
-    return roleBasedNextMonth.ready;
+    return roleBasedTips.nextMonth.ready;
   }, [
     computed?.tvaStatus,
     hasConfiguredReminders,
     revenues.length,
-    roleBasedNextMonth,
+    roleBasedTips,
     shouldShowGuestLocalMessage,
     user,
   ]);
@@ -4342,15 +4753,15 @@ useEffect(() => {
         icon: "🧾",
         text:
           computed?.tvaStatus === "exceeded"
-            ? roleBasedPointDuJour.tvaExceeded
-            : roleBasedPointDuJour.tvaSoon,
+            ? roleBasedTips.pointOfDay.tvaExceeded
+            : roleBasedTips.pointOfDay.tvaSoon,
       };
     }
 
     if (revenues.length > 0 && !isFiscalProfileComplete) {
       return {
         icon: "📝",
-        text: "Ton profil reste à compléter pour fiabiliser les calculs.",
+        text: roleBasedTips.pointOfDay.incompleteProfile,
       };
     }
 
@@ -4361,14 +4772,14 @@ useEffect(() => {
     ) {
       return {
         icon: "💡",
-        text: roleBasedPointDuJour.missingExpenses,
+        text: roleBasedTips.pointOfDay.missingExpenses,
       };
     }
 
     if (revenues.length > 0 && revenues.length < 5) {
       return {
         icon: "📈",
-        text: roleBasedPointDuJour.starter,
+        text: roleBasedTips.pointOfDay.lowHistory,
       };
     }
 
@@ -4378,14 +4789,14 @@ useEffect(() => {
 
     return {
       icon: "✨",
-      text: roleBasedPointDuJour.default,
+      text: roleBasedTips.pointOfDay.allGood,
     };
   }, [
     computed?.monthlyExpenses,
     computed?.tvaStatus,
     isFiscalProfileComplete,
     revenues.length,
-    roleBasedPointDuJour,
+    roleBasedTips,
     shouldShowGuestLocalMessage,
     user,
   ]);
@@ -4473,61 +4884,54 @@ useEffect(() => {
   ]);
   const guestFounderDays = founderDaysRemaining ?? 90;
   const premiumBannerContent = useMemo(() => {
-    const premiumCopy =
-      roleBasedPremiumCta[premiumState] || roleBasedPremiumCta.guest_free;
-
     switch (premiumState) {
       case "registered_founder_active":
         return {
-          line1: premiumCopy.title,
+          line1: "⭐ Offre fondateur activée",
           line2: "Premium offert pendant 3 mois",
-          line3: premiumCopy.benefit,
-          cta: premiumCopy.cta,
+          line3:
+            "Tu bénéficies déjà des exports illimités et de l’historique complet.",
+          cta: "Voir les avantages Premium",
         };
       case "registered_founder_ending":
         return {
-          line1: `${premiumCopy.title} ${founderDaysRemaining} jour${founderDaysRemaining > 1 ? "s" : ""}`,
+          line1: `⏳ Offre fondateur encore active ${founderDaysRemaining} jour${founderDaysRemaining > 1 ? "s" : ""}`,
           line2: "Ton accès Premium reste disponible jusqu’à la fin de l’essai.",
-          line3: premiumCopy.benefit,
-          cta: premiumCopy.cta,
+          line3: "Tu pourras ensuite choisir sereinement si tu veux le prolonger à 5 €/mois.",
+          cta: "Voir les avantages Premium",
         };
       case "registered_free_after_trial":
         return {
-          line1: premiumCopy.title,
+          line1: "🔓 Premium a expiré",
           line2:
             "Les exports illimités et l’historique complet ne sont plus inclus.",
-          line3: premiumCopy.benefit,
-          cta: premiumCopy.cta,
+          line3: "Réactive Premium pour continuer sans limite.",
+          cta: "Réactiver Premium • 5 €/mois",
         };
       case "premium_paid_active":
         return {
-          line1: premiumCopy.title,
-          line2: premiumCopy.benefit,
+          line1: "⭐ Premium actif",
+          line2: "Exports illimités, historique complet, alertes avancées.",
           line3: "",
-          cta: premiumCopy.cta,
+          cta: "Voir les avantages Premium",
         };
       case "premium_qa_override":
         return {
-          line1: premiumCopy.title,
-          line2: premiumCopy.benefit,
+          line1: "🧪 Premium QA actif",
+          line2: "Mode de test local activé.",
           line3: "",
-          cta: premiumCopy.cta,
+          cta: "Voir les avantages Premium",
         };
       case "guest_free":
       default:
         return {
-          line1: `${premiumCopy.title} : J-${guestFounderDays}`,
+          line1: `🎁 Offre fondateur : J-${guestFounderDays}`,
           line2: `3 mois offerts pour les ${FOUNDER_OFFER_LIMIT} premiers utilisateurs`,
-          line3: premiumCopy.benefit,
-          cta: premiumCopy.cta,
+          line3: "Ensuite, libre à toi de continuer ou non.",
+          cta: "Voir les avantages Premium",
         };
     }
-  }, [
-    founderDaysRemaining,
-    guestFounderDays,
-    premiumState,
-    roleBasedPremiumCta,
-  ]);
+  }, [founderDaysRemaining, guestFounderDays, premiumState]);
   const premiumModalContent = useMemo(() => {
     const normalizedSource = String(premiumModalSource || "unknown");
 
@@ -5099,11 +5503,15 @@ const goToView = useCallback((nextView, options = {}) => {
     localStorage.setItem(BETA_SEEN_KEY, "1");
     setShowBetaNotice(false);
 
-    if (window.location.hash) {
+    const cleanSearchParams = new URLSearchParams(window.location.search);
+    cleanSearchParams.delete("mode");
+    const nextSearch = cleanSearchParams.toString();
+
+    if (window.location.hash || window.location.search.includes("mode=")) {
       window.history.replaceState(
         null,
         "",
-        window.location.pathname + window.location.search,
+        `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}`,
       );
     }
 
@@ -5112,6 +5520,8 @@ const goToView = useCallback((nextView, options = {}) => {
     showSaveNotice(
       pendingAuthSuccess === "email_confirmed"
         ? "Bienvenue ✅ Ton espace fiscal est prêt."
+        : profileConflictState.open
+          ? "Connexion réussie ✅ Un choix de profil est nécessaire avant toute synchronisation."
         : migrated
           ? "Connexion réussie ✅ Tes données ont été importées et ton espace fiscal est prêt."
           : "Connexion réussie ✅ Ton espace fiscal est prêt.",
@@ -5133,7 +5543,44 @@ const goToView = useCallback((nextView, options = {}) => {
   refreshInvoices,
   goToDashboard,
   showSaveNotice,
+  profileConflictState.open,
 ]);
+
+  const handleUseRemoteProfile = useCallback(() => {
+    const remoteAnswers = getAssistantAnswersFromProfile(
+      profileConflictState.remoteProfile,
+    );
+
+    setAnswers(remoteAnswers);
+    setHasDraft(Boolean(remoteAnswers && Object.keys(remoteAnswers).length > 0));
+    setProfileSyncBlocked(false);
+    writeProfileConflictStrategy("use_remote");
+    setProfileConflictState({
+      open: false,
+      localAnswers: null,
+      remoteProfile: null,
+    });
+    showSaveNotice("Le profil du compte a été appliqué sur cet appareil.", 4000);
+  }, [profileConflictState.remoteProfile, showSaveNotice]);
+
+  const handleKeepLocalDraft = useCallback(() => {
+    if (profileConflictState.localAnswers) {
+      setAnswers(profileConflictState.localAnswers);
+      setHasDraft(true);
+    }
+
+    setProfileSyncBlocked(true);
+    writeProfileConflictStrategy("keep_local");
+    setProfileConflictState({
+      open: false,
+      localAnswers: null,
+      remoteProfile: null,
+    });
+    showSaveNotice(
+      "Le brouillon local est conservé sans synchronisation automatique.",
+      4000,
+    );
+  }, [profileConflictState.localAnswers, showSaveNotice]);
 
   const handleResumeDraft = useCallback(() => {
     setAppView("assistant");
@@ -6515,6 +6962,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
     FISCAL_STEPS.find((candidate) => candidate.key === "activity_type")?.options || [];
   const acreOptions =
     FISCAL_STEPS.find((candidate) => candidate.key === "acre")?.options || [];
+  const acreEditOptions = acreOptions.filter((opt) => opt.value !== "unknown");
   const declarationOptions =
     FISCAL_STEPS.find((candidate) => candidate.key === "declaration_frequency")?.options || [];
 
@@ -6543,11 +6991,24 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
     });
   }
 
+  function buildProfileEditDraftFromAnswers(sourceAnswers = answers) {
+    return {
+      activity_type: sourceAnswers?.activity_type || "",
+      acre: sourceAnswers?.acre || "",
+      business_start_date: normalizeDateValue(
+        sourceAnswers?.business_start_date || "",
+      ),
+      acre_start_date: normalizeDateValue(sourceAnswers?.acre_start_date || ""),
+      declaration_frequency: sourceAnswers?.declaration_frequency || "",
+    };
+  }
+
   function handleProfileEditCancel() {
     setProfileEditMode("pick_field");
     setAssistantFieldError("");
     setInput("");
     setProfileEditDraft({});
+    setPendingStructuredProfileEdit(null);
   }
 
   function handleCloseProfileEdit() {
@@ -6557,6 +7018,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
     setAssistantFieldError("");
     setInput("");
     setProfileEditDraft({});
+    setPendingStructuredProfileEdit(null);
   }
 
   function handleSaveProfileFieldEdit() {
@@ -6610,7 +7072,16 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
       return;
     }
 
+    if (haveStructuredFiscalFieldsChanged(answers, nextAnswers)) {
+      setAssistantFieldError("");
+      setPendingStructuredProfileEdit({
+        nextAnswers,
+      });
+      return;
+    }
+
     setAssistantFieldError("");
+    fiscalProfileSaveSourceRef.current = "manual_profile_edit";
     setAnswers(nextAnswers);
     showSaveNotice(
       "Profil mis à jour. Les estimations ont été recalculées.",
@@ -6674,13 +7145,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
     setAssistantEditMode(true);
     setProfileEditMode("edit_step");
     setSelectedProfileField(stepKey);
-    setProfileEditDraft({
-      activity_type: answers?.activity_type || "",
-      acre: answers?.acre || "",
-      business_start_date: normalizeDateValue(answers?.business_start_date || ""),
-      acre_start_date: normalizeDateValue(answers?.acre_start_date || ""),
-      declaration_frequency: answers?.declaration_frequency || "",
-    });
+    setProfileEditDraft(buildProfileEditDraftFromAnswers(answers));
     setAssistantCollapsed(false);
     setHelpOpen(false);
     setAssistantFieldError("");
@@ -6704,6 +7169,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
     setProfileEditMode("idle");
     setSelectedProfileField(null);
     setProfileEditDraft({});
+    setPendingStructuredProfileEdit(null);
     setInput("");
     setHelpOpen(false);
     setAssistantFieldError("");
@@ -6713,6 +7179,23 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
         text: "Profil chargé ✅ Le champ a été mis à jour.",
       },
     ]);
+  }
+
+  function handleConfirmStructuredProfileEdit() {
+    if (!pendingStructuredProfileEdit?.nextAnswers) {
+      return;
+    }
+
+    fiscalProfileSaveSourceRef.current = "manual_profile_edit";
+    setAnswers(pendingStructuredProfileEdit.nextAnswers);
+    showSaveNotice("Calculs mis à jour selon ton profil actuel", 3000);
+    finishSelectiveEdit();
+  }
+
+  function handleCancelStructuredProfileEdit() {
+    setPendingStructuredProfileEdit(null);
+    setProfileEditDraft(buildProfileEditDraftFromAnswers(answers));
+    setAssistantFieldError("");
   }
 
   return (
@@ -7715,7 +8198,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                       {selectedProfileField === "acre" && (
                         <>
                           <div className="choiceRow" style={{ marginTop: 12 }}>
-                            {acreOptions.map((opt) => (
+                            {acreEditOptions.map((opt) => (
                               <button
                                 key={opt.value}
                                 className="btn btnChoice"
@@ -10234,6 +10717,96 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
               setAuthOpen(false);
             }}
           />
+        )}
+
+        {profileConflictState.open && (
+          <div className="modalOverlay" onClick={(e) => e.stopPropagation()}>
+            <div
+              className="modalCard"
+              style={{ maxWidth: "560px" }}
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="profile-conflict-title"
+            >
+              <div className="sectionHead">
+                <h3 id="profile-conflict-title">
+                  Deux profils différents ont été détectés
+                </h3>
+              </div>
+
+              <p style={{ marginTop: 16, lineHeight: 1.6 }}>
+                Deux profils différents ont été détectés sur cet appareil et sur
+                ce compte. Pour éviter des calculs incorrects, Microassist ne les
+                fusionne pas automatiquement.
+              </p>
+
+              <div className="miniActions" style={{ marginTop: 20 }}>
+                <button
+                  className="btn btnGhost"
+                  type="button"
+                  onClick={handleUseRemoteProfile}
+                >
+                  Utiliser le profil du compte
+                </button>
+
+                <button
+                  className="btn btnPrimary"
+                  type="button"
+                  onClick={handleKeepLocalDraft}
+                >
+                  Garder le brouillon local
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {pendingStructuredProfileEdit && (
+          <div className="modalOverlay" onClick={(e) => e.stopPropagation()}>
+            <div
+              className="modalCard"
+              style={{ maxWidth: "560px" }}
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="structured-profile-warning-title"
+            >
+              <div className="sectionHead">
+                <h3 id="structured-profile-warning-title">
+                  Tu modifies un élément important de ton profil fiscal
+                </h3>
+              </div>
+
+              <p style={{ marginTop: 16, lineHeight: 1.6 }}>
+                Cela peut modifier tes calculs (charges, TVA, échéances)
+                <br />
+                et l’interprétation de tes revenus déjà enregistrés.
+              </p>
+
+              <p style={{ marginTop: 14, lineHeight: 1.6 }}>
+                Que souhaites-tu faire ?
+              </p>
+
+              <div className="miniActions" style={{ marginTop: 20 }}>
+                <button
+                  className="btn btnPrimary"
+                  type="button"
+                  onClick={handleConfirmStructuredProfileEdit}
+                >
+                  Appliquer les changements
+                </button>
+
+                <button
+                  className="btn btnGhost"
+                  type="button"
+                  onClick={handleCancelStructuredProfileEdit}
+                >
+                  Annuler
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {showResetModal && (

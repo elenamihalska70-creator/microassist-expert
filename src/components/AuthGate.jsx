@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase.js";
 
 const PASSWORD_MIN_LENGTH = 8;
+const RECOVERY_SUCCESS_REDIRECT_DELAY_MS = 1400;
 
 function getFriendlyAuthError(error, mode) {
   const message = error?.message?.toLowerCase() || "";
@@ -58,6 +59,7 @@ export default function AuthGate({
   const [mode, setMode] = useState(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [forgotPasswordSent, setForgotPasswordSent] = useState(false);
   const [signupCompleted, setSignupCompleted] = useState(false);
@@ -65,7 +67,14 @@ export default function AuthGate({
   const [resendingConfirmation, setResendingConfirmation] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [recoveryCompleted, setRecoveryCompleted] = useState(false);
   const successSentRef = useRef(false);
+  const modeRef = useRef(mode);
+  const recoverySuccessTimeoutRef = useRef(null);
+
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
 
   const completeSuccess = useCallback(() => {
     if (successSentRef.current) return;
@@ -81,6 +90,7 @@ export default function AuthGate({
         setMode("recovery");
         setEmail(session.user?.email || "");
         setPassword("");
+        setConfirmPassword("");
         setNotice("Choisis un nouveau mot de passe pour finaliser la réinitialisation.");
         setError("");
         setSignupCompleted(false);
@@ -88,7 +98,7 @@ export default function AuthGate({
         return;
       }
 
-      if (event === "SIGNED_IN" && session) {
+      if (event === "SIGNED_IN" && session && modeRef.current !== "recovery") {
         completeSuccess();
       }
     });
@@ -112,7 +122,18 @@ export default function AuthGate({
     setResendingConfirmation(false);
     setNotice("");
     setError("");
+    setPassword("");
+    setConfirmPassword("");
+    setRecoveryCompleted(false);
   }, [initialMode]);
+
+  useEffect(() => {
+    return () => {
+      if (recoverySuccessTimeoutRef.current) {
+        clearTimeout(recoverySuccessTimeoutRef.current);
+      }
+    };
+  }, []);
 
   function resetFeedback(nextMode) {
     setMode(nextMode);
@@ -122,6 +143,9 @@ export default function AuthGate({
     setResendingConfirmation(false);
     setNotice("");
     setError("");
+    setPassword("");
+    setConfirmPassword("");
+    setRecoveryCompleted(false);
   }
 
   function switchToSignInWithExistingAccountMessage() {
@@ -145,8 +169,16 @@ export default function AuthGate({
         return "Merci de renseigner ton nouveau mot de passe.";
       }
 
+      if (!confirmPassword.trim()) {
+        return "Merci de confirmer ton nouveau mot de passe.";
+      }
+
       if (cleanPassword.length < PASSWORD_MIN_LENGTH) {
         return `Ton mot de passe doit contenir au moins ${PASSWORD_MIN_LENGTH} caractères.`;
+      }
+
+      if (cleanPassword !== confirmPassword.trim()) {
+        return "Les deux mots de passe doivent être identiques.";
       }
 
       return null;
@@ -196,12 +228,21 @@ export default function AuthGate({
         });
 
         if (updateError) {
-          setError("Impossible de mettre à jour ton mot de passe pour le moment.");
+          setError(
+            updateError?.message?.toLowerCase?.().includes("password")
+              ? `Ton mot de passe doit contenir au moins ${PASSWORD_MIN_LENGTH} caractères.`
+              : "Impossible de mettre à jour ton mot de passe pour le moment.",
+          );
           return;
         }
 
-        setNotice("Mot de passe mis à jour ✅ Ton espace est prêt.");
-        completeSuccess();
+        setRecoveryCompleted(true);
+        setNotice(
+          "Mot de passe mis à jour ✅ Redirection en cours vers ton espace.",
+        );
+        recoverySuccessTimeoutRef.current = window.setTimeout(() => {
+          completeSuccess();
+        }, RECOVERY_SUCCESS_REDIRECT_DELAY_MS);
         return;
       }
 
@@ -298,7 +339,7 @@ export default function AuthGate({
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(
         cleanEmail,
         {
-          redirectTo: window.location.origin + window.location.pathname,
+          redirectTo: `${window.location.origin}${window.location.pathname}?mode=recovery`,
         },
       );
 
@@ -358,7 +399,7 @@ export default function AuthGate({
     mode === "recovery"
       ? submitting
         ? "Mise à jour..."
-        : "Mettre à jour le mot de passe"
+        : "Mettre à jour mon mot de passe"
       : mode === "signup"
       ? submitting
         ? "Création..."
@@ -370,7 +411,7 @@ export default function AuthGate({
         : "Se connecter";
 
   const isSubmitLocked =
-    submitting || (mode === "signup" && signupCompleted);
+    submitting || recoveryCompleted || (mode === "signup" && signupCompleted);
 
   if (isAuthenticated && mode !== "recovery") {
     return (
@@ -440,13 +481,13 @@ export default function AuthGate({
           {mode === "signup"
             ? "Créer un compte"
             : mode === "recovery"
-              ? "Choisir un nouveau mot de passe"
+              ? "Réinitialiser mon mot de passe"
               : "Connexion à ton espace"}
         </h2>
 
         <p className="muted">
           {mode === "recovery"
-            ? "Définis un nouveau mot de passe pour récupérer ton espace fiscal."
+            ? "Tu es en mode récupération de mot de passe. Définis simplement un nouveau mot de passe pour reconnecter ton compte."
             : "Utilise ton email et ton mot de passe pour retrouver ton profil fiscal, tes revenus, tes factures et ton historique."}
         </p>
 
@@ -488,6 +529,8 @@ export default function AuthGate({
             <label className="field">
               <span>Email</span>
               <input
+                id="auth-email"
+                name="email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -504,6 +547,8 @@ export default function AuthGate({
               {mode === "recovery" ? "Nouveau mot de passe" : "Mot de passe"}
             </span>
             <input
+              id={mode === "recovery" ? "auth-new-password" : "auth-password"}
+              name={mode === "recovery" ? "newPassword" : "password"}
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -517,6 +562,23 @@ export default function AuthGate({
               disabled={isSubmitLocked}
             />
           </label>
+
+          {mode === "recovery" && (
+            <label className="field">
+              <span>Confirmer le mot de passe</span>
+              <input
+                id="auth-confirm-password"
+                name="confirmPassword"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Répète le nouveau mot de passe"
+                autoComplete="new-password"
+                required
+                disabled={isSubmitLocked}
+              />
+            </label>
+          )}
 
           <button
             type="submit"

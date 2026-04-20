@@ -2885,3 +2885,164 @@ section[id] {
   background: #d97706;
   transform: translateY(-1px);
 }
+
+/* Pricing Page Styles */
+.pricingPage {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 40px 20px;
+  position: relative;
+}
+
+.pricingHeader {
+  text-align: center;
+  margin-bottom: 40px;
+  position: relative;
+}
+
+.pricingHeader h1 {
+  font-size: 32px;
+  color: #1f2937;
+  margin-bottom: 12px;
+}
+
+.closeButton {
+  position: absolute;
+  top: 0;
+  right: 0;
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #9ca3af;
+}
+
+.pricingGrid {
+  display: flex;
+  gap: 24px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin: 40px 0;
+}
+
+.pricingCard {
+  flex: 1;
+  min-width: 280px;
+  background: white;
+  border-radius: 24px;
+  padding: 24px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+  border: 1px solid #e2e8f0;
+  transition: transform 0.2s;
+  position: relative;
+}
+
+.pricingCard:hover {
+  transform: translateY(-4px);
+}
+
+.pricingCard.featured {
+  border: 2px solid #7c3aed;
+  background: linear-gradient(135deg, #fff 0%, #f5f3ff 100%);
+}
+
+.popularBadge {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #7c3aed;
+  color: white;
+  padding: 4px 16px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pricingBadge {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 8px;
+}
+
+.pricingCard h2 {
+  font-size: 24px;
+  margin: 0 0 8px 0;
+}
+
+.price {
+  font-size: 36px;
+  font-weight: 800;
+  color: #1f2937;
+  margin: 16px 0;
+}
+
+.price span {
+  font-size: 16px;
+  font-weight: normal;
+  color: #6b7280;
+}
+
+.annualPrice {
+  font-size: 14px;
+  color: #10b981;
+  margin-bottom: 16px;
+  font-weight: 500;
+}
+
+.pricingCard ul {
+  list-style: none;
+  padding: 0;
+  margin: 20px 0;
+}
+
+.pricingCard li {
+  padding: 8px 0;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 14px;
+}
+
+.guarantee {
+  margin-top: 16px;
+  font-size: 13px;
+  color: #f59e0b;
+  text-align: center;
+  font-weight: 500;
+}
+
+.faqSection {
+  margin-top: 60px;
+  max-width: 800px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.faqSection h3 {
+  text-align: center;
+  margin-bottom: 24px;
+  font-size: 24px;
+}
+
+.faqSection details {
+  background: #f8fafc;
+  padding: 16px;
+  border-radius: 12px;
+  margin-bottom: 12px;
+}
+
+.faqSection summary {
+  font-weight: 600;
+  cursor: pointer;
+  color: #1f2937;
+}
+
+.faqSection details[open] summary {
+  margin-bottom: 12px;
+}
+
+.faqSection p {
+  margin: 0;
+  color: #4b5563;
+  line-height: 1.5;
+}
