@@ -2,7 +2,26 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase.js";
 
 const PASSWORD_MIN_LENGTH = 8;
-const RECOVERY_SUCCESS_REDIRECT_DELAY_MS = 1400;
+const RECOVERY_SUCCESS_REDIRECT_DELAY_MS = 900;
+
+function isRecoveryUrlNow() {
+  const search = window.location.search || "";
+  const hash = window.location.hash || "";
+  return (
+    search.includes("mode=recovery") ||
+    hash.includes("type=recovery") ||
+    hash.includes("access_token=") ||
+    hash.includes("refresh_token=")
+  );
+}
+
+function hasRecoveryParams() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return isRecoveryUrlNow();
+}
 
 function getFriendlyAuthError(error, mode) {
   const message = error?.message?.toLowerCase() || "";
@@ -51,10 +70,12 @@ function isExistingAccountSignUpResult(data) {
 export default function AuthGate({
   onClose,
   onSuccess,
+  onRecoveryComplete,
   onLogout,
   onGoToDashboard,
   initialMode = "signup",
   isAuthenticated = false,
+  isRecoveryFlow = false,
 }) {
   const [mode, setMode] = useState(initialMode);
   const [email, setEmail] = useState("");
@@ -71,9 +92,16 @@ export default function AuthGate({
   const successSentRef = useRef(false);
   const modeRef = useRef(mode);
   const recoverySuccessTimeoutRef = useRef(null);
+  const recoveryFlowRef = useRef(
+    initialMode === "recovery" || hasRecoveryParams(),
+  );
 
   useEffect(() => {
     modeRef.current = mode;
+  }, [mode]);
+
+  useEffect(() => {
+    recoveryFlowRef.current = mode === "recovery" || hasRecoveryParams();
   }, [mode]);
 
   const completeSuccess = useCallback(() => {
@@ -86,19 +114,63 @@ export default function AuthGate({
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === "PASSWORD_RECOVERY" && session) {
+      const recoveryFromUrl = hasRecoveryParams();
+      console.log("[recovery-debug] auth event", {
+        event,
+        mode: modeRef.current,
+        recoveryFromUrl,
+        recoveryRef: recoveryFlowRef.current,
+      });
+
+      if (
+        event === "PASSWORD_RECOVERY" ||
+        recoveryFromUrl ||
+        recoveryFlowRef.current
+      ) {
+        if (event === "PASSWORD_RECOVERY") {
+          console.info("[recovery] PASSWORD_RECOVERY received");
+        }
+
+        recoveryFlowRef.current = true;
         setMode("recovery");
-        setEmail(session.user?.email || "");
+        setEmail(session?.user?.email || "");
         setPassword("");
         setConfirmPassword("");
-        setNotice("Choisis un nouveau mot de passe pour finaliser la réinitialisation.");
+        setNotice(
+          "Tu peux maintenant définir un nouveau mot de passe pour sécuriser et reconnecter ton compte.",
+        );
         setError("");
         setSignupCompleted(false);
         setForgotPasswordSent(false);
         return;
       }
 
-      if (event === "SIGNED_IN" && session && modeRef.current !== "recovery") {
+      if (
+        event === "SIGNED_IN" &&
+        session &&
+        (recoveryFlowRef.current || recoveryFromUrl)
+      ) {
+        console.info("[recovery] SIGNED_IN ignored during recovery");
+        return;
+      }
+
+      if (event === "SIGNED_IN" && session) {
+        const recoveryFromUrl = isRecoveryUrlNow();
+
+        console.log("[recovery-debug] SIGNED_IN in AuthGate", {
+          mode: modeRef.current,
+          isRecoveryFlow,
+          recoveryFromUrl,
+        });
+
+        if (
+          modeRef.current === "recovery" ||
+          isRecoveryFlow ||
+          recoveryFromUrl
+        ) {
+          return;
+        }
+
         completeSuccess();
       }
     });
@@ -106,9 +178,11 @@ export default function AuthGate({
     return () => {
       subscription.unsubscribe();
     };
-  }, [completeSuccess]);
+  }, [completeSuccess, isRecoveryFlow]);
 
   useEffect(() => {
+    recoveryFlowRef.current =
+      initialMode === "recovery" || hasRecoveryParams();
     setMode(
       initialMode === "signin"
         ? "signin"
@@ -169,7 +243,7 @@ export default function AuthGate({
         return "Merci de renseigner ton nouveau mot de passe.";
       }
 
-      if (!confirmPassword.trim()) {
+      if (!confirmPassword) {
         return "Merci de confirmer ton nouveau mot de passe.";
       }
 
@@ -177,7 +251,7 @@ export default function AuthGate({
         return `Ton mot de passe doit contenir au moins ${PASSWORD_MIN_LENGTH} caractères.`;
       }
 
-      if (cleanPassword !== confirmPassword.trim()) {
+      if (cleanPassword !== confirmPassword) {
         return "Les deux mots de passe doivent être identiques.";
       }
 
@@ -207,7 +281,7 @@ export default function AuthGate({
     }
 
     const cleanEmail = email.trim().toLowerCase();
-    const cleanPassword = password.trim();
+    const cleanPassword = password;
     const validationError = validateForm(cleanEmail, cleanPassword);
 
     setNotice("");
@@ -237,11 +311,13 @@ export default function AuthGate({
         }
 
         setRecoveryCompleted(true);
+        recoveryFlowRef.current = false;
+        console.info("[recovery] password updated successfully");
         setNotice(
-          "Mot de passe mis à jour ✅ Redirection en cours vers ton espace.",
+          "Mot de passe mis à jour ✅ Ton accès est sécurisé. Retour à ton espace en cours.",
         );
         recoverySuccessTimeoutRef.current = window.setTimeout(() => {
-          completeSuccess();
+          onRecoveryComplete?.();
         }, RECOVERY_SUCCESS_REDIRECT_DELAY_MS);
         return;
       }
@@ -487,7 +563,7 @@ export default function AuthGate({
 
         <p className="muted">
           {mode === "recovery"
-            ? "Tu es en mode récupération de mot de passe. Définis simplement un nouveau mot de passe pour reconnecter ton compte."
+            ? "Tu es en mode récupération de mot de passe. Étape 1 : choisis un nouveau mot de passe. Étape 2 : valide pour retrouver ton espace."
             : "Utilise ton email et ton mot de passe pour retrouver ton profil fiscal, tes revenus, tes factures et ton historique."}
         </p>
 
@@ -620,7 +696,7 @@ export default function AuthGate({
             ? "Le lien reçu par email ouvre cette étape de réinitialisation sécurisée."
             : mode === "signup"
             ? "Ton compte gratuit te permet de synchroniser ton espace fiscal sur plusieurs appareils."
-            : "Tu peux te connecter directement sans attendre de lien magique."}
+            : "Si tu as oublié ton mot de passe, utilise le lien de réinitialisation ci-dessus."}
         </p>
 
         {notice && <p className="authNotice">{notice}</p>}

@@ -369,6 +369,24 @@ function debugWarn(...args) {
   }
 }
 
+function hasRecoveryUrlState() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const searchParams = new URLSearchParams(window.location.search);
+  const hash = window.location.hash.startsWith("#")
+    ? window.location.hash.slice(1)
+    : window.location.hash;
+
+  return (
+    searchParams.get("mode") === "recovery" ||
+    hash.includes("type=recovery") ||
+    hash.includes("access_token=") ||
+    hash.includes("refresh_token=")
+  );
+}
+
 function getCurrentMonthlyExportStorageKey() {
   const now = new Date();
   return `microassist_exports_${now.getFullYear()}_${now.getMonth() + 1}`;
@@ -1403,6 +1421,7 @@ useEffect(() => {
   const [helpOpen, setHelpOpen] = useState(false); // ✅ ДОБАВИТЬ
   const [authOpen, setAuthOpen] = useState(false);
   const [authInitialMode, setAuthInitialMode] = useState("signup");
+  const [isRecoveryFlow, setIsRecoveryFlow] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
   const [assistantFieldError, setAssistantFieldError] = useState("");
   const [assistantEditMode, setAssistantEditMode] = useState(false);
@@ -1429,6 +1448,43 @@ useEffect(() => {
   const [appView, setAppView] = useState("landing");
   const [userName, setUserName] = useState("");
   const [hydrated, setHydrated] = useState(false);
+  const inputRef = useRef(null);
+  const chatEndRef = useRef(null);
+  const assistantRef = useRef(null);
+  const securityRef = useRef(null);
+  const heroRef = useRef(null);
+  const servicesRef = useRef(null);
+  const howItWorksRef = useRef(null);
+  const fiscalRef = useRef(null);
+  const chartRef = useRef(null);
+  const viewLabel =
+    appView === "landing"
+      ? "Assistant fiscal"
+      : appView === "assistant"
+        ? "Profil fiscal"
+        : "Espace fiscal";
+
+  const goToView = useCallback((nextView, options = {}) => {
+    const { push = true, focus = false } = options;
+    if (push) window.history.pushState({ appView: nextView }, "");
+    setAppView(nextView);
+    setFocusMode(focus);
+    if (nextView === "assistant") setAssistantCollapsed(false);
+  }, []);
+
+  const goToDashboard = useCallback((options = {}) => {
+    const { scroll = true } = options;
+    goToView("dashboard", { push: true, focus: true });
+
+    if (!scroll) return;
+
+    setTimeout(() => {
+      fiscalRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 100);
+  }, [goToView]);
   // Состояния для доходов
   const [showAddRevenue, setShowAddRevenue] = useState(false);
   const [revenues, setRevenues] = useState([]);
@@ -1566,13 +1622,69 @@ useEffect(() => {
 
   const openAuthModal = useCallback((mode = "signup") => {
     setAuthInitialMode(mode);
+    setIsRecoveryFlow(mode === "recovery");
     setAuthOpen(true);
   }, []);
 
+const closeAuthModal = useCallback((reason = "unknown") => {
+  console.log("[AUTH CLOSE]", {
+    reason,
+    isRecoveryFlow,
+    authInitialMode,
+    authOpen,
+    search: window.location.search,
+    hash: window.location.hash,
+  });
+
+  if (!isRecoveryFlow) {
+  setAuthOpen(false);
+}
+}, [isRecoveryFlow, authInitialMode, authOpen]);
+
+const openRecoveryModal = useCallback(() => {
+  console.log("[RECOVERY OPEN MODAL]", {
+    search: window.location.search,
+    hash: window.location.hash,
+  });
+
+  setShowBetaNotice(false);
+  setAuthInitialMode("recovery");
+  setIsRecoveryFlow(true);
+  setAuthOpen(true);
+}, []);
+
+const handleRecoveryComplete = useCallback(() => {
+  console.log("[RECOVERY COMPLETE]", {
+    search: window.location.search,
+    hash: window.location.hash,
+  });
+
+  setIsRecoveryFlow(false);
+  setAuthInitialMode("signin");
+  if (!isRecoveryFlow) {
+  setAuthOpen(false);
+}
+
+  const nextSearchParams = new URLSearchParams(window.location.search);
+  nextSearchParams.delete("mode");
+  const nextSearch = nextSearchParams.toString();
+
+  window.history.replaceState(
+    null,
+    "",
+    `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}`,
+  );
+
+  setTimeout(() => {
+    goToDashboard({ scroll: false });
+  }, 150);
+}, [goToDashboard]);
+
   const clearAuthenticatedRuntimeState = useCallback(
     ({ clearLocalSessionKeys = false } = {}) => {
-      setAuthOpen(false);
+      closeAuthModal("auth user change effect");
       setAuthInitialMode("signup");
+      setIsRecoveryFlow(false);
       setAppView("landing");
       setFocusMode(false);
       setUserProfile(null);
@@ -2611,33 +2723,53 @@ const refreshSubscriptionRecord = useCallback(async () => {
     refreshSubscriptionRecord();
   }, [user, refreshSubscriptionRecord]);
 
-  useEffect(() => {
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === "PASSWORD_RECOVERY" && session) {
-        setShowBetaNotice(false);
-        openAuthModal("recovery");
-      }
+useEffect(() => {
+  const {
+    data: { subscription },
+  } = supabase.auth.onAuthStateChange((event, session) => {
+    console.log("[AUTH EVENT APP]", {
+      event,
+      hasSession: Boolean(session),
+      userId: session?.user?.id || null,
+      search: window.location.search,
+      hash: window.location.hash,
+      isRecoveryFlow,
     });
 
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [openAuthModal]);
+    if (event === "PASSWORD_RECOVERY" && session) {
+      openRecoveryModal();
+    }
+  });
+
+  return () => {
+    subscription.unsubscribe();
+  };
+}, [openRecoveryModal, isRecoveryFlow]);
 
   useEffect(() => {
-    const hash = window.location.hash;
-    const searchParams = new URLSearchParams(window.location.search);
+    if (hasRecoveryUrlState()) {
+      console.log("[recovery-debug] open recovery from App URL");
+      setAuthInitialMode("recovery");
+      setIsRecoveryFlow(true);
+      setAuthOpen(true);
+    }
 
-    if (searchParams.get("mode") === "recovery") {
-      setShowBetaNotice(false);
-      openAuthModal("recovery");
+    const searchParams = new URLSearchParams(window.location.search);
+    const hash = window.location.hash;
+    const hashParams = new URLSearchParams(
+      hash.startsWith("#") ? hash.slice(1) : hash,
+    );
+
+    if (
+      searchParams.get("mode") === "recovery" ||
+      hashParams.get("type") === "recovery" ||
+      hashParams.get("access_token") ||
+      hashParams.get("refresh_token")
+    ) {
+      openRecoveryModal();
     }
 
     if (!hash) return;
-
-    const hashParams = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
     const authType = hashParams.get("type");
     const accessToken = hashParams.get("access_token");
     const authError = hashParams.get("error");
@@ -2672,10 +2804,9 @@ const refreshSubscriptionRecord = useCallback(async () => {
     }
 
     if (authType === "recovery") {
-      setShowBetaNotice(false);
-      openAuthModal("recovery");
+      openRecoveryModal();
     }
-  }, [openAuthModal, showSaveNotice]);
+  }, [openRecoveryModal, openAuthModal, showSaveNotice]);
 
 // sync reminder prefs depuis Supabase
 useEffect(() => {
@@ -2714,23 +2845,6 @@ useEffect(() => {
   const [messages, setMessages] = useState(() => buildInitialAssistantMessages());
 
   const step = steps[stepIndex];
-
-  const inputRef = useRef(null);
-  const chatEndRef = useRef(null);
-  const assistantRef = useRef(null);
-  const securityRef = useRef(null);
-  const heroRef = useRef(null);
-  const servicesRef = useRef(null);
-  const howItWorksRef = useRef(null);
-  const fiscalRef = useRef(null);
-  const chartRef = useRef(null);
-
-  const viewLabel =
-    appView === "landing"
-      ? "Assistant fiscal"
-      : appView === "assistant"
-        ? "Profil fiscal"
-        : "Espace fiscal";
 
   useLayoutEffect(() => {
     if ("scrollRestoration" in window.history) {
@@ -4727,8 +4841,9 @@ useEffect(() => {
       return writeBetaMicroFeedbackState(next);
     });
   }, [showTVADiagnosticModal]);
-
-  useEffect(() => {
+  
+useEffect
+  (() => {
     if (!dashboardNextMonthPrep) return;
 
     setBetaMicroFeedbackState((prev) => {
@@ -5167,6 +5282,7 @@ useEffect(() => {
       }
     }
 
+    
     return {
       totalRevenues: currentMonthTotal || 0,
       revenuesCount: revenues.length || 0,
@@ -5422,14 +5538,6 @@ useEffect(() => {
   premiumCTAViewSourceRef.current = premiumTrackingSource;
 }, [appView, premiumTrackingSource]);
 
-const goToView = useCallback((nextView, options = {}) => {
-  const { push = true, focus = false } = options;
-  if (push) window.history.pushState({ appView: nextView }, "");
-  setAppView(nextView);
-  setFocusMode(focus);
-  if (nextView === "assistant") setAssistantCollapsed(false);
-}, []);
-
   const triggerFirstRevenueOnboarding = useCallback(() => {
     if (firstRevenueOnboardingSeenRef.current) {
       return;
@@ -5443,20 +5551,6 @@ const goToView = useCallback((nextView, options = {}) => {
 
     window.setTimeout(() => {
       assistantRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    }, 100);
-  }, [goToView]);
-
-  const goToDashboard = useCallback((options = {}) => {
-    const { scroll = true } = options;
-    goToView("dashboard", { push: true, focus: true });
-
-    if (!scroll) return;
-
-    setTimeout(() => {
-      fiscalRef.current?.scrollIntoView({
         behavior: "smooth",
         block: "start",
       });
@@ -5484,7 +5578,7 @@ const goToView = useCallback((nextView, options = {}) => {
   useEffect(() => {
   const pendingAuthSuccess = localStorage.getItem(PENDING_AUTH_SUCCESS_KEY);
 
-  if (authLoading || !pendingAuthSuccess || !user) return;
+  if (authLoading || !pendingAuthSuccess || !user || isRecoveryFlow) return;
 
   let cancelled = false;
 
@@ -5515,6 +5609,8 @@ const goToView = useCallback((nextView, options = {}) => {
       );
     }
 
+    if (isRecoveryFlow) return;
+
     goToDashboard({ scroll: false });
 
     showSaveNotice(
@@ -5537,6 +5633,7 @@ const goToView = useCallback((nextView, options = {}) => {
 }, [
   user,
   authLoading,
+  isRecoveryFlow,
   migrateLocalDataToSupabase,
   refreshRevenues,
   refreshFiscalProfile,
@@ -5763,67 +5860,92 @@ function openReminderManager(source = "default") {
     });
   }
 
-  useEffect(() => {
-    if (authLoading) return;
+useEffect(() => {
+  if (authLoading) return;
 
-    const currentUserId = user?.id ?? null;
-    const previousUserId = previousUserIdRef.current;
+  const search = window.location.search || "";
+  const hash = window.location.hash || "";
 
-    if (previousUserId === currentUserId) {
-      return;
-    }
+  const isRecoveryUrl =
+    search.includes("mode=recovery") ||
+    hash.includes("type=recovery") ||
+    hash.includes("access_token=") ||
+    hash.includes("refresh_token=");
 
-    previousUserIdRef.current = currentUserId;
+  const currentUserId = user?.id ?? null;
+  const previousUserId = previousUserIdRef.current;
 
-    setAuthOpen(false);
-    setFiscalProfile(null);
-    setFiscalProfileLoaded(false);
-    fiscalProfileFetchRef.current = {
-      inFlight: null,
-      userId: null,
-      lastFetchedAt: 0,
-      lastData: null,
-    };
-    guestMigrationRef.current = {
-      inFlight: null,
-      userId: null,
-      completedForUserId: null,
-    };
-    setRevenues([]);
-    setInvoices([]);
-    if (currentUserId) {
+  if (previousUserId === currentUserId) {
+    return;
+  }
+
+  previousUserIdRef.current = currentUserId;
+
+  const keepRecoveryModalOpen = isRecoveryFlow || isRecoveryUrl;
+
+  console.log("[RECOVERY DEBUG]", {
+    currentUserId,
+    previousUserId,
+    isRecoveryFlow,
+    isRecoveryUrl,
+    search,
+    hash,
+  });
+
+  if (!keepRecoveryModalOpen) {
+    closeAuthModal("auth user change effect");
+  }
+
+  setFiscalProfile(null);
+  setFiscalProfileLoaded(false);
+  fiscalProfileFetchRef.current = {
+    inFlight: null,
+    userId: null,
+    lastFetchedAt: 0,
+    lastData: null,
+  };
+  guestMigrationRef.current = {
+    inFlight: null,
+    userId: null,
+    completedForUserId: null,
+  };
+  setRevenues([]);
+  setInvoices([]);
+
+  if (currentUserId) {
+    setGuestInvoices([]);
+  } else {
+    try {
+      setGuestInvoices(
+        JSON.parse(localStorage.getItem(GUEST_INVOICES_KEY) || "[]"),
+      );
+    } catch {
       setGuestInvoices([]);
-    } else {
-      try {
-        setGuestInvoices(
-          JSON.parse(localStorage.getItem(GUEST_INVOICES_KEY) || "[]"),
-        );
-      } catch {
-        setGuestInvoices([]);
-      }
     }
-    setReminderPrefs(DEFAULT_REMINDER_PREFS);
-    setSelectedMonth("all");
-    setAnswers({});
-    setStepIndex(0);
-    setMessages(buildInitialAssistantMessages());
-    setInput("");
-    setAssistantFieldError("");
-    setHasDraft(false);
-    setLastSavedAt(null);
-    setRestoredAt(null);
-    setShowAddRevenue(false);
-    setShowRevenueDetails(false);
-    setShowInvoiceGenerator(false);
-    setShowReminderModal(false);
-    setInvoiceNotice(null);
-    setSaveNotice(null);
-    setUserName("");
-    setAssistantEditMode(false);
-    setProfileEditMode("idle");
-    setSelectedProfileField(null);
-    setProfileEditDraft({});
-  }, [authLoading, user?.id]);
+  }
+
+  setReminderPrefs(DEFAULT_REMINDER_PREFS);
+  setSelectedMonth("all");
+  setAnswers({});
+  setStepIndex(0);
+  setMessages(buildInitialAssistantMessages());
+  setInput("");
+  setAssistantFieldError("");
+  setHasDraft(false);
+  setLastSavedAt(null);
+  setRestoredAt(null);
+  setShowAddRevenue(false);
+  setShowRevenueDetails(false);
+  setShowInvoiceGenerator(false);
+  setShowReminderModal(false);
+  setInvoiceNotice(null);
+  setSaveNotice(null);
+  setUserName("");
+  setAssistantEditMode(false);
+  setProfileEditMode("idle");
+  setSelectedProfileField(null);
+  setProfileEditDraft({});
+}, [authLoading, user?.id, isRecoveryFlow]);
 
   async function resetFiscalProfileData() {
     if (!user) return true;
@@ -7197,6 +7319,13 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
     setProfileEditDraft(buildProfileEditDraftFromAnswers(answers));
     setAssistantFieldError("");
   }
+
+  console.log("[AUTH RENDER]", {
+  authOpen,
+  authInitialMode,
+  isRecoveryFlow,
+  userId: user?.id || null,
+});
 
   return (
     <>
@@ -10701,20 +10830,35 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
           />
         )}
 
+
         {/* Modal d'authentification */}
         {authOpen && (
           <AuthGate
             initialMode={authInitialMode}
-            isAuthenticated={Boolean(user)}
-            onClose={() => setAuthOpen(false)}
+            isRecoveryFlow={isRecoveryFlow}
+            isAuthenticated={Boolean(user) && !isRecoveryFlow}
+            onClose={() => {
+              if (isRecoveryFlow) {
+                return;
+              }
+              closeAuthModal("auth user change effect");
+            }}
             onLogout={handleLogout}
             onGoToDashboard={() => {
-              setAuthOpen(false);
+              if (isRecoveryFlow) {
+                return;
+              }
+              setIsRecoveryFlow(false);
+              closeAuthModal("auth user change effect");
               goToDashboard({ scroll: false });
             }}
+            onRecoveryComplete={handleRecoveryComplete}
             onSuccess={() => {
+              if (isRecoveryFlow) {
+                return;
+              }
               localStorage.setItem(PENDING_AUTH_SUCCESS_KEY, "manual_auth");
-              setAuthOpen(false);
+              closeAuthModal("auth user change effect");
             }}
           />
         )}
