@@ -17,8 +17,8 @@ import { useAuth } from "./context/AuthContext.jsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import InvoiceGenerator from "./components/InvoiceGenerator.jsx";
-import { BETA_MODE, PRICING_LIMITS } from "./config/pricing.js";
-
+import { PRICING_LIMITS } from "./config/pricing.js";
+import PricingPage from "./components/PricingPage.jsx";
 // Добавьте после других констант:
 const LS_KEY = "microassist_v1";
 const LS_VERSION = 1;
@@ -38,12 +38,12 @@ const DASHBOARD_CHECKLIST_COLLAPSED_KEY =
 const FIRST_REVENUE_ONBOARDING_SEEN_KEY =
   "microassist_first_revenue_onboarding_seen";
 const BETA_MICRO_FEEDBACK_KEY = "microassist_beta_micro_feedback";
+const EMAIL_EVENT_KEY_PREFIX = "microassist_email_event_";
 const BETA_SEEN_KEY = "beta_seen";
 const PROFILE_CONFLICT_STRATEGY_KEY = "microassist_profile_conflict_strategy";
 const SUBSCRIPTIONS_TABLE_ENABLED = false;
 const FEEDBACK_FORM_URL =
   "https://docs.google.com/forms/d/e/1FAIpQLSfFLqWZajP6Dy0Zm5-bS9cnE5-joWecfCgfyIhzGRMbsk-jqA/viewform";
-const FOUNDER_OFFER_LIMIT = 100;
 const FREE_EXPORTS_PER_MONTH = 3;
 const EMPTY_EXPORT_USAGE = {
   csv: 0,
@@ -387,6 +387,15 @@ function hasRecoveryUrlState() {
   );
 }
 
+function hasPricingViewQuery() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const searchParams = new URLSearchParams(window.location.search);
+  return searchParams.get("view") === "pricing";
+}
+
 function getCurrentMonthlyExportStorageKey() {
   const now = new Date();
   return `microassist_exports_${now.getFullYear()}_${now.getMonth() + 1}`;
@@ -533,77 +542,327 @@ function writeMonthlyExportUsage(rawValue) {
   }
 }
 
-function computePremiumLifecycleState({
-  user,
-  persistedPlan,
-  profilePremiumStatus,
-  localPremiumStatus,
-  isLocalhostQa,
-  founderActivatedAt,
-  founderExpiresAt,
-}) {
-  const hasAuthenticatedUser = Boolean(user);
-  const isQaPremium = Boolean(isLocalhostQa && localPremiumStatus);
-  const isFounderPlan = persistedPlan === "beta_founder";
-  const hasFounderActivationDate = Boolean(founderActivatedAt);
-  const daysRemaining =
-    founderExpiresAt && !Number.isNaN(founderExpiresAt.getTime())
-      ? Math.max(
-          0,
-          Math.ceil(
-            (founderExpiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
-          ),
-        )
-      : null;
-  const isFounderActive =
-    hasAuthenticatedUser &&
-    isFounderPlan &&
-    hasFounderActivationDate &&
-    daysRemaining !== null &&
-    daysRemaining > 0;
-  const isPaidPlan = Boolean(
-    persistedPlan && !["free", "beta_founder"].includes(persistedPlan),
-  );
-  const isPaidPremium =
-    hasAuthenticatedUser &&
-    !isQaPremium &&
-    (isPaidPlan || (profilePremiumStatus && !isFounderPlan));
-  const isGuestFree = !hasAuthenticatedUser && !isQaPremium;
-  const isRegisteredFounderEnding = isFounderActive && daysRemaining <= 7;
-  const isRegisteredFounderActive = isFounderActive && daysRemaining > 7;
-  const isRegisteredFreeAfterTrial =
-    hasAuthenticatedUser &&
-    !isQaPremium &&
-    !isPaidPremium &&
-    (!isFounderPlan ||
-      !hasFounderActivationDate ||
-      (daysRemaining !== null && daysRemaining <= 0));
-  const hasPremiumAccess = isQaPremium || isPaidPremium || isFounderActive;
-
-  let state = "guest_free";
-
-  if (isQaPremium) {
-    state = "premium_qa_override";
-  } else if (isPaidPremium) {
-    state = "premium_paid_active";
-  } else if (isRegisteredFounderEnding) {
-    state = "registered_founder_ending";
-  } else if (isRegisteredFounderActive) {
-    state = "registered_founder_active";
-  } else if (isRegisteredFreeAfterTrial) {
-    state = "registered_free_after_trial";
+function getTrialDaysLeft(trialEndsAt) {
+  if (!trialEndsAt) {
+    return null;
   }
 
+  const trialEndDate = new Date(trialEndsAt);
+
+  if (Number.isNaN(trialEndDate.getTime())) {
+    return null;
+  }
+
+  const diffMs = trialEndDate.getTime() - Date.now();
+  return Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+}
+
+function isTrialExpired(trialEndsAt) {
+  const daysLeft = getTrialDaysLeft(trialEndsAt);
+  return daysLeft !== null && daysLeft <= 0;
+}
+
+function getRegistrationTrialWindow(user) {
+  const createdAt = user?.created_at;
+
+  if (!createdAt) {
+    return {
+      trialStartedAt: null,
+      trialEndsAt: null,
+    };
+  }
+
+  const registrationDate = new Date(createdAt);
+
+  if (Number.isNaN(registrationDate.getTime())) {
+    return {
+      trialStartedAt: null,
+      trialEndsAt: null,
+    };
+  }
+
+  const trialEndDate = new Date(registrationDate);
+  trialEndDate.setDate(trialEndDate.getDate() + 90);
+
   return {
-    state,
-    daysRemaining,
-    hasPremiumAccess,
-    isQaPremium,
-    isPaidPremium,
-    isFounderActive,
-    isGuestFree,
-    isRegisteredFounderEnding,
-    isRegisteredFreeAfterTrial,
+    trialStartedAt: registrationDate.toISOString(),
+    trialEndsAt: trialEndDate.toISOString(),
+  };
+}
+
+function isPaidSubscriptionStatus(status) {
+  return ["active"].includes(String(status || "").toLowerCase());
+}
+
+function normalizeBillingPlanValue({
+  rawPlan,
+  hasPaidSubscription,
+  isPremium,
+  trialEndsAt,
+}) {
+  if (hasPaidSubscription) {
+    return "premium";
+  }
+
+  if (trialEndsAt && !isTrialExpired(trialEndsAt)) {
+    return "trial";
+  }
+
+  if (isPremium) {
+    return "premium";
+  }
+
+  if (String(rawPlan || "").toLowerCase() === "trial") {
+    return "trial";
+  }
+
+  return "free";
+}
+
+function getPremiumTrigger({
+  revenuesCount,
+  trialDaysLeft,
+  daysBeforeDeadline,
+  isPremium,
+  lastActivityDays,
+}) {
+  if (isPremium) return null;
+
+  if (trialDaysLeft !== null && trialDaysLeft <= 7 && trialDaysLeft > 0) {
+    return "trial_ending";
+  }
+
+  if (daysBeforeDeadline !== null && daysBeforeDeadline <= 7) {
+    return "deadline_soon";
+  }
+
+  if (revenuesCount >= 3) {
+    return "engaged_user";
+  }
+
+  if (lastActivityDays >= 7) {
+    return "inactive_user";
+  }
+
+  return null;
+}
+
+function shouldSendTrialEndingEmail(trialEndsAt) {
+  return getTrialDaysLeft(trialEndsAt) === 7;
+}
+
+function shouldSendTrialEndingEmailJ2(trialEndsAt) {
+  return getTrialDaysLeft(trialEndsAt) === 2;
+}
+
+function shouldSendTrialExpiredEmail(trialEndsAt) {
+  return getTrialDaysLeft(trialEndsAt) <= 0;
+}
+
+// Generic reminder event storage for trial_ending_j2, trial_expired,
+// and future declaration reminder emails.
+function getEmailEventStorageKey(eventType, userId) {
+  return `${EMAIL_EVENT_KEY_PREFIX}${eventType}_${userId}`;
+}
+
+function wasEmailEventHandledRecently(
+  eventType,
+  userId,
+  cooldownMs = 24 * 60 * 60 * 1000,
+) {
+  if (!eventType || !userId) return false;
+
+  const storageKey = getEmailEventStorageKey(eventType, userId);
+
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return false;
+
+    const parsed = JSON.parse(raw);
+    return (
+      parsed?.eventType === eventType &&
+      typeof parsed?.at === "number" &&
+      Date.now() - parsed.at < cooldownMs
+    );
+  } catch {
+    return false;
+  }
+}
+
+function markEmailEventHandled(eventType, userId, meta = {}) {
+  if (!eventType || !userId) return;
+
+  try {
+    localStorage.setItem(
+      getEmailEventStorageKey(eventType, userId),
+      JSON.stringify({
+        eventType,
+        at: Date.now(),
+        ...meta,
+      }),
+    );
+  } catch {
+    // ignore storage write issues
+  }
+}
+
+function buildTrialEndingEmailPayload({ email, trialEndsAt }) {
+  const trialEndLabel = trialEndsAt
+    ? new Date(trialEndsAt).toLocaleDateString("fr-FR")
+    : "";
+
+  return {
+    subject: "⏳ Ton essai Microassist se termine dans 7 jours",
+    text: [
+      "Bonjour 👋",
+      "",
+      "Ton essai Premium se termine dans 7 jours.",
+      "",
+      "Tu as pu tester :",
+      "• l’historique complet",
+      "• les rappels avant échéance",
+      "• les exports PDF",
+      "",
+      "L’objectif de Microassist est simple : t’aider à éviter les oublis et gagner du temps.",
+      "",
+      trialEndLabel
+        ? `Fin de l’essai : ${trialEndLabel}.`
+        : "La fin de ton essai approche.",
+      "",
+      "Active Premium pour continuer avec ces fonctionnalités : 5€/mois.",
+      "",
+      "À très vite,",
+      "Microassist",
+    ].join("\n"),
+    html: `
+      <p>Bonjour 👋</p>
+      <p>Ton essai Premium se termine dans <strong>7 jours</strong>.</p>
+      <p>Tu as pu tester :</p>
+      <ul>
+        <li>l’historique complet</li>
+        <li>les rappels avant échéance</li>
+        <li>les exports PDF</li>
+      </ul>
+      <p>L’objectif de Microassist est simple : t’aider à éviter les oublis et gagner du temps.</p>
+      ${
+        trialEndLabel
+          ? `<p><strong>Fin de l’essai :</strong> ${trialEndLabel}</p>`
+          : `<p>La fin de ton essai approche.</p>`
+      }
+      <p><a href="https://microassist.vercel.app/" style="background:#111;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;display:inline-block;">Voir les tarifs Premium</a></p>
+      <p>À très vite,<br/>Microassist</p>
+    `,
+    email,
+    trialEndsAt,
+  };
+}
+
+function buildTrialEndingEmailPayloadJ2({ email, trialEndsAt }) {
+  const trialEndLabel = trialEndsAt
+    ? new Date(trialEndsAt).toLocaleDateString("fr-FR")
+    : "";
+
+  return {
+    subject: "⏳ Plus que 2 jours avant la fin de ton essai Microassist",
+    text: [
+      "Bonjour 👋",
+      "",
+      "Il ne reste plus que 2 jours avant la fin de ton essai Premium Microassist.",
+      "",
+      "Pendant cet essai, tu as pu profiter de :",
+      "- l’historique complet",
+      "- les rappels avant échéance",
+      "- les exports PDF",
+      "",
+      "Après la fin de l’essai, ces fonctionnalités ne seront plus incluses dans la version gratuite.",
+      "",
+      trialEndLabel
+        ? `Fin de l’essai : ${trialEndLabel}`
+        : "Fin de l’essai : bientôt",
+      "",
+      "Voir les tarifs Premium : https://microassist.vercel.app/?view=pricing",
+      "",
+      "À très vite,",
+      "Microassist",
+    ].join("\n"),
+    html: `
+      <h2>Plus que 2 jours avant la fin de ton essai</h2>
+      <p>Il ne reste plus que <strong>2 jours</strong> avant la fin de ton essai Premium Microassist.</p>
+      <p>Pendant cet essai, tu as pu profiter de :</p>
+      <ul>
+        <li>l’historique complet</li>
+        <li>les rappels avant échéance</li>
+        <li>les exports PDF</li>
+      </ul>
+      <p>Après la fin de l’essai, ces fonctionnalités ne seront plus incluses dans la version gratuite.</p>
+      ${
+        trialEndLabel
+          ? `<p><strong>Fin de l’essai :</strong> ${trialEndLabel}</p>`
+          : `<p><strong>Fin de l’essai :</strong> bientôt</p>`
+      }
+      <p><a href="https://microassist.vercel.app/?view=pricing" style="background:#111;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;display:inline-block;">Voir les tarifs Premium</a></p>
+      <p>À très vite,<br/>Microassist</p>
+    `,
+    email,
+    trialEndsAt,
+  };
+}
+
+function buildTrialExpiredEmailPayload({ email, trialEndsAt }) {
+  const trialEndLabel = trialEndsAt
+    ? new Date(trialEndsAt).toLocaleDateString("fr-FR")
+    : "";
+
+  return {
+    subject: "Ton essai Microassist est terminé",
+    text: [
+      "Bonjour 👋",
+      "",
+      "Ton essai Premium Microassist est maintenant terminé.",
+      "",
+      "Tu peux continuer à utiliser la version gratuite avec :",
+      "- suivi simple",
+      "- estimations de base",
+      "",
+      "Pour retrouver toutes les fonctionnalités Premium :",
+      "- rappels automatiques",
+      "- historique complet",
+      "- exports PDF",
+      "",
+      "Découvre l’offre Premium ici :",
+      "https://microassist.vercel.app/?view=pricing",
+      "",
+      "À bientôt,",
+      "Microassist",
+    ].join("\n"),
+    html: `
+      <h2>Ton essai Microassist est terminé</h2>
+      <p>Ton essai Premium Microassist est maintenant terminé.</p>
+      <div>
+        <p><strong>Version gratuite</strong></p>
+        <ul>
+          <li>suivi simple</li>
+          <li>estimations de base</li>
+        </ul>
+      </div>
+      <div>
+        <p><strong>Premium</strong></p>
+        <ul>
+          <li>rappels automatiques</li>
+          <li>historique complet</li>
+          <li>exports PDF</li>
+        </ul>
+      </div>
+      ${
+        trialEndLabel
+          ? `<p><strong>Fin de l’essai :</strong> ${trialEndLabel}</p>`
+          : ""
+      }
+      <p><a href="https://microassist.vercel.app/?view=pricing" style="background:#111;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;display:inline-block;">Voir les tarifs Premium</a></p>
+      <p>À bientôt,<br/>Microassist</p>
+    `,
+    email,
+    trialEndsAt,
   };
 }
 
@@ -632,11 +891,11 @@ function normalizePremiumConversionSource(source = "unknown") {
   if (normalized.includes("reminder") || normalized.includes("sms")) {
     return "reminders";
   }
-  if (normalized.includes("dashboard_top") || normalized.includes("founder")) {
-    return "founder_banner";
+  if (normalized.includes("dashboard_top")) {
+    return "dashboard_banner";
   }
 
-  return "founder_banner";
+  return "dashboard_banner";
 }
 
 function trackPremiumEvent(source = "unknown", action = "modal_open") {
@@ -1202,6 +1461,7 @@ function buildProfilePayload(user, currentProfile = {}, overrides = {}) {
     user?.user_metadata?.full_name?.trim() ||
     user?.email?.split("@")?.[0]?.trim() ||
     null;
+  const registrationTrialWindow = getRegistrationTrialWindow(user);
 
   return {
     id: user?.id || currentProfile?.id || currentProfile?.user_id || null,
@@ -1211,7 +1471,7 @@ function buildProfilePayload(user, currentProfile = {}, overrides = {}) {
       currentProfile?.full_name ??
       currentProfile?.display_name ??
       fallbackDisplayName,
-    plan: overrides.plan ?? currentProfile?.plan ?? null,
+    plan: overrides.plan ?? currentProfile?.plan ?? "free",
     subscription_status:
       overrides.subscription_status ??
       currentProfile?.subscription_status ??
@@ -1219,9 +1479,13 @@ function buildProfilePayload(user, currentProfile = {}, overrides = {}) {
     is_premium:
       overrides.is_premium ?? currentProfile?.is_premium ?? false,
     trial_started_at:
-      overrides.trial_started_at ?? currentProfile?.trial_started_at ?? null,
+      overrides.trial_started_at ??
+      currentProfile?.trial_started_at ??
+      registrationTrialWindow.trialStartedAt,
     trial_ends_at:
-      overrides.trial_ends_at ?? currentProfile?.trial_ends_at ?? null,
+      overrides.trial_ends_at ??
+      currentProfile?.trial_ends_at ??
+      registrationTrialWindow.trialEndsAt,
     stripe_customer_id:
       overrides.stripe_customer_id ??
       currentProfile?.stripe_customer_id ??
@@ -1313,36 +1577,48 @@ function buildSubscriptionLikeState({
     user?.app_metadata?.subscription_status ||
     user?.user_metadata?.subscription_status ||
     null;
+  const registrationTrialWindow = getRegistrationTrialWindow(user);
+  const subscriptionStatus =
+    subscriptionRecord?.status ||
+    userProfile?.subscription_status ||
+    metadataSubscriptionStatus ||
+    null;
+  const hasPaidSubscription = isPaidSubscriptionStatus(subscriptionStatus);
+  const trialStartedAt =
+    subscriptionRecord?.trial_started_at ||
+    userProfile?.trial_started_at ||
+    metadataTrialStartedAt ||
+    registrationTrialWindow.trialStartedAt;
+  const trialEndsAt =
+    subscriptionRecord?.trial_ends_at ||
+    userProfile?.trial_ends_at ||
+    metadataTrialEndsAt ||
+    registrationTrialWindow.trialEndsAt;
+  const profileIsPremium =
+    typeof userProfile?.is_premium === "boolean"
+      ? userProfile.is_premium
+      : null;
+  const fallbackIsPremium =
+    profileIsPremium ?? metadataIsPremium ?? Boolean(localPremiumStatus);
+  const isPremium = hasPaidSubscription || fallbackIsPremium;
+  const rawPlan =
+    subscriptionRecord?.plan ||
+    userProfile?.plan ||
+    metadataPlan ||
+    null;
 
   return {
-    plan:
-      userProfile?.plan ||
-      metadataPlan ||
-      null,
-    isPremium:
-      (typeof userProfile?.is_premium === "boolean"
-        ? userProfile.is_premium
-        : null) ??
-      (["active", "trialing"].includes(subscriptionRecord?.status)
-        ? true
-        : null) ??
-      metadataIsPremium ??
-      Boolean(localPremiumStatus),
-    trialStartedAt:
-      subscriptionRecord?.trial_started_at ||
-      userProfile?.trial_started_at ||
-      metadataTrialStartedAt ||
-      null,
-    trialEndsAt:
-      subscriptionRecord?.trial_ends_at ||
-      userProfile?.trial_ends_at ||
-      metadataTrialEndsAt ||
-      null,
-    subscriptionStatus:
-      subscriptionRecord?.status ||
-      userProfile?.subscription_status ||
-      metadataSubscriptionStatus ||
-      null,
+    plan: normalizeBillingPlanValue({
+      rawPlan,
+      hasPaidSubscription,
+      isPremium,
+      trialEndsAt,
+    }),
+    isPremium,
+    trialStartedAt,
+    trialEndsAt,
+    subscriptionStatus,
+    hasPaidSubscription,
   };
 }
 
@@ -1457,6 +1733,7 @@ useEffect(() => {
   const howItWorksRef = useRef(null);
   const fiscalRef = useRef(null);
   const chartRef = useRef(null);
+  const pricingDeepLinkPendingRef = useRef(hasPricingViewQuery());
   const viewLabel =
     appView === "landing"
       ? "Assistant fiscal"
@@ -1471,6 +1748,11 @@ useEffect(() => {
     setFocusMode(focus);
     if (nextView === "assistant") setAssistantCollapsed(false);
   }, []);
+
+  const goToPricing = useCallback(() => {
+  goToView("pricing", { focus: false });
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}, [goToView]);
 
   const goToDashboard = useCallback((options = {}) => {
     const { scroll = true } = options;
@@ -1583,7 +1865,7 @@ useEffect(() => {
 
   const [reminderPrefs, setReminderPrefs] = useState(DEFAULT_REMINDER_PREFS);
 // Plan par défaut côté invité uniquement. Les droits reconnectés viennent du profil Supabase.
-  const defaultGuestPlan = BETA_MODE ? "beta_founder" : "free";
+ 
 
   const [revenueForm, setRevenueForm] = useState({
     amount: "",
@@ -1816,107 +2098,132 @@ const handleRecoveryComplete = useCallback(() => {
   );
   const persistedPlan = subscriptionLikeState.plan;
   const profilePremiumStatus = subscriptionLikeState.isPremium;
-
-  const founderActivatedAt = useMemo(() => {
-    const activationCandidates = [
-      subscriptionLikeState.trialStartedAt,
-      fiscalProfile?.created_at,
-      user?.created_at,
-    ];
-
-    return (
-      activationCandidates
-        .map((value) => (value ? new Date(value) : null))
-        .find((date) => date && !Number.isNaN(date.getTime())) || null
-    );
-  }, [fiscalProfile?.created_at, subscriptionLikeState.trialStartedAt, user?.created_at]);
-
-  const founderExpiresAt = useMemo(() => {
-    if (subscriptionLikeState.trialEndsAt) {
-      const persistedExpiry = new Date(subscriptionLikeState.trialEndsAt);
-
-      if (!Number.isNaN(persistedExpiry.getTime())) {
-        return persistedExpiry;
-      }
-    }
-
-    if (!founderActivatedAt) {
-      return null;
-    }
-
-    const derivedExpiry = new Date(founderActivatedAt);
-    derivedExpiry.setDate(derivedExpiry.getDate() + 90);
-    return derivedExpiry;
-  }, [subscriptionLikeState.trialEndsAt, founderActivatedAt]);
-
-  const trialDaysLeft = useMemo(() => {
-    if (!founderExpiresAt) return null;
-
-    const now = new Date();
-    const diffMs = founderExpiresAt.getTime() - now.getTime();
-    const remaining = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-
-    return Math.max(0, remaining);
-  }, [founderExpiresAt]);
-
+  const trialDaysLeft = useMemo(
+    () => getTrialDaysLeft(subscriptionLikeState.trialEndsAt),
+    [subscriptionLikeState.trialEndsAt],
+  );
   const isTrialActive = trialDaysLeft !== null && trialDaysLeft > 0;
-  const isTrialExpired = trialDaysLeft !== null && trialDaysLeft <= 0;
-  // Effective plan is the only plan used by UI limits and premium guards.
-  const effectivePlan = useMemo(() => {
-    if (!user) {
-      return "free";
-    }
-
-    if (!persistedPlan) {
-      return "free";
-    }
-
-    if (persistedPlan === "beta_founder") {
-      return isTrialActive ? "beta_founder" : "free";
-    }
-
-    return persistedPlan;
-  }, [defaultGuestPlan, isTrialActive, persistedPlan, user]);
-  const currentPlanLimits =
-    PRICING_LIMITS[effectivePlan] || PRICING_LIMITS.free;
+  const trialHasExpired = useMemo(
+    () => isTrialExpired(subscriptionLikeState.trialEndsAt),
+    [subscriptionLikeState.trialEndsAt],
+  );
   const isLocalhostQa =
     typeof window !== "undefined" &&
     import.meta.env.DEV &&
     ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
-  const premiumLifecycle = useMemo(
-    () =>
-      computePremiumLifecycleState({
-        user,
-        persistedPlan,
-        profilePremiumStatus,
-        localPremiumStatus,
-        isLocalhostQa,
-        founderActivatedAt,
-        founderExpiresAt,
-      }),
-    [
-      founderActivatedAt,
-      founderExpiresAt,
-      isLocalhostQa,
-      localPremiumStatus,
-      persistedPlan,
-      profilePremiumStatus,
-      user,
-    ],
-  );
-  const {
-    state: premiumState,
-    daysRemaining: founderDaysRemaining,
-    hasPremiumAccess,
+  const isQaPremium = Boolean(isLocalhostQa && localPremiumStatus);
+  const billingUiState = useMemo(() => {
+    if (isQaPremium) {
+      return "premium_active";
+    }
+
+    if (!user) {
+      return "guest";
+    }
+
+    if (subscriptionLikeState.hasPaidSubscription) {
+      return "premium_active";
+    }
+
+    if (subscriptionLikeState.trialEndsAt) {
+      return isTrialActive ? "trial_active" : "trial_expired";
+    }
+
+    if (profilePremiumStatus) {
+      return "premium_active";
+    }
+
+    return "registered_free";
+  }, [
     isQaPremium,
-    isPaidPremium,
-    isFounderActive,
-    isGuestFree,
-    isRegisteredFounderEnding,
-    isRegisteredFreeAfterTrial,
-  } = premiumLifecycle;
+    isTrialActive,
+    profilePremiumStatus,
+    subscriptionLikeState.hasPaidSubscription,
+    subscriptionLikeState.trialEndsAt,
+    user,
+  ]);
+  const hasPremiumAccess =
+    isQaPremium || billingUiState === "premium_active" || billingUiState === "trial_active";
+  const trialEndsAtLabel = useMemo(() => {
+    if (!subscriptionLikeState.trialEndsAt) {
+      return "";
+    }
+
+    const trialEndDate = new Date(subscriptionLikeState.trialEndsAt);
+
+    if (Number.isNaN(trialEndDate.getTime())) {
+      return "";
+    }
+
+    return trialEndDate.toLocaleDateString("fr-FR", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+    });
+  }, [subscriptionLikeState.trialEndsAt]);
+  const daysBeforeDeadline = null;
+  const lastActivityDays = 0;
+  const premiumTrigger = getPremiumTrigger({
+    revenuesCount: revenues?.length || 0,
+    trialDaysLeft,
+    daysBeforeDeadline:
+      typeof daysBeforeDeadline === "number" ? daysBeforeDeadline : null,
+    isPremium: Boolean(subscriptionLikeState?.isPremium),
+    lastActivityDays:
+      typeof lastActivityDays === "number" ? lastActivityDays : 0,
+  });
+  const sendTrialEndingEmail = useCallback(
+    async (payload) => {
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+
+      if (!supabaseAnonKey) {
+        console.warn(
+          "[trial-email-send] error",
+          "Missing Supabase anon key",
+        );
+        return null;
+      }
+
+      const response = await fetch(
+        "https://bvymwuokljxgoavfehav.supabase.co/functions/v1/send-trial-ending-email",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${supabaseAnonKey}`,
+          },
+          body: JSON.stringify(payload),
+        },
+      );
+
+      let result = null;
+      try {
+        result = await response.json();
+      } catch {
+        result = null;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          `send-trial-ending-email failed with status ${response.status}`,
+        );
+      }
+
+      return result;
+    },
+    [],
+  );
+
+
+  // Effective plan is the only plan used by UI limits and premium guards.
+  const effectivePlan = useMemo(() => {
+    return hasPremiumAccess ? "premium" : "free";
+  }, [hasPremiumAccess]);
+  const currentPlanLimits = hasPremiumAccess
+    ? PRICING_LIMITS.essential || PRICING_LIMITS.free
+    : PRICING_LIMITS.free;
   const hasSmsPremiumAccess =
-    effectivePlan !== "free" && effectivePlan !== "beta_founder";
+    effectivePlan === "premium";
   const usedExports = monthlyExportUsage.total;
   const remainingExports =
     !hasPremiumAccess
@@ -1924,18 +2231,18 @@ const handleRecoveryComplete = useCallback(() => {
       : Infinity;
   const isExportLimitReached = !hasPremiumAccess && remainingExports <= 0;
   const exportHelperText = useMemo(() => {
-    switch (premiumState) {
-      case "registered_founder_active":
+    if (isQaPremium) {
+      return "Mode Premium QA • exports illimités";
+    }
+
+    switch (billingUiState) {
+      case "trial_active":
+      case "premium_active":
         return "PDF + CSV illimités • historique complet";
-      case "registered_founder_ending":
-        return "PDF + CSV illimités jusqu’à la fin de l’offre";
-      case "registered_free_after_trial":
+      case "trial_expired":
         return "Limite atteinte • Réactive Premium pour continuer";
-      case "premium_paid_active":
-        return "PDF + CSV illimités • historique complet";
-      case "premium_qa_override":
-        return "Mode Premium QA • exports illimités";
-      case "guest_free":
+      case "guest":
+      case "registered_free":
       default:
         if (remainingExports <= 0) {
           return "Limite atteinte • Passe Premium pour continuer";
@@ -1947,21 +2254,21 @@ const handleRecoveryComplete = useCallback(() => {
 
         return `Il te reste ${remainingExports} exports gratuits ce mois-ci`;
     }
-  }, [premiumState, remainingExports]);
+  }, [billingUiState, isQaPremium, remainingExports]);
   const premiumExportBadge = useMemo(() => {
-    switch (premiumState) {
-      case "registered_founder_active":
-        return "⭐ Offre fondateur active";
-      case "registered_founder_ending":
-        return "⏳ Offre fondateur active";
-      case "premium_paid_active":
+    if (isQaPremium) {
+      return "🧪 Premium QA";
+    }
+
+    switch (billingUiState) {
+      case "trial_active":
+        return `⏳ Essai actif${trialDaysLeft ? ` • ${trialDaysLeft} jour${trialDaysLeft > 1 ? "s" : ""} restants` : ""}`;
+      case "premium_active":
         return "⭐ Premium actif";
-      case "premium_qa_override":
-        return "🧪 Premium QA";
       default:
         return "";
     }
-  }, [premiumState]);
+  }, [billingUiState, isQaPremium, trialDaysLeft]);
 
   function toggleLocalPremiumQa() {
     const nextValue = !localPremiumStatus;
@@ -2224,13 +2531,18 @@ const refreshSubscriptionRecord = useCallback(async () => {
     async (nextIsPremium, options = {}) => {
       const { refresh = true } = options;
       const normalizedValue = Boolean(nextIsPremium);
+      const nextPlan = normalizedValue
+        ? "premium"
+        : isTrialExpired(subscriptionLikeState.trialEndsAt)
+          ? "free"
+          : "trial";
 
       setLocalPremiumStatus(normalizedValue);
       writeLocalPremiumStatus(normalizedValue);
 
       if (user?.id) {
         const profilePayload = buildProfilePayload(user, userProfile, {
-          plan: persistedPlan,
+          plan: nextPlan,
           subscription_status:
             subscriptionLikeState.subscriptionStatus || userProfile?.subscription_status || null,
           is_premium: normalizedValue,
@@ -2289,7 +2601,6 @@ const refreshSubscriptionRecord = useCallback(async () => {
       return true;
     },
     [
-      persistedPlan,
       userProfile,
       refreshFiscalProfile,
       refreshUserProfile,
@@ -2823,22 +3134,6 @@ useEffect(() => {
   }));
 }, [fiscalProfile, hasSmsPremiumAccess]);
 
-useEffect(() => {
-  if (isLocalhostQa || !user || !fiscalProfileLoaded) return;
-  if (persistedPlan !== "beta_founder" || !profilePremiumStatus || !isTrialExpired) {
-    return;
-  }
-
-  persistPremiumStatus(false, { refresh: true });
-}, [
-  fiscalProfileLoaded,
-  isLocalhostQa,
-  isTrialExpired,
-  persistPremiumStatus,
-  persistedPlan,
-  profilePremiumStatus,
-  user,
-]);
 
   const steps = FISCAL_STEPS;
 
@@ -3323,6 +3618,54 @@ useEffect(() => {
       window.removeEventListener("popstate", handlePopState);
     };
   }, []);
+
+  useEffect(() => {
+    if (!hydrated || authLoading) return;
+    if (appView === "pricing") return;
+    if (isRecoveryFlow) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const requestedView = params.get("view");
+    const hasPendingPricingDeepLink =
+      pricingDeepLinkPendingRef.current || requestedView === "pricing";
+
+    if (!hasPendingPricingDeepLink) return;
+
+    if (requestedView === "pricing") {
+      console.log("[deep-link] detected pricing query param");
+    }
+
+    const hash = window.location.hash.startsWith("#")
+      ? window.location.hash.slice(1)
+      : window.location.hash;
+    const hashParams = new URLSearchParams(hash);
+    const hasAuthRedirectInProgress =
+      hasRecoveryUrlState() ||
+      Boolean(hashParams.get("type")) ||
+      Boolean(hashParams.get("access_token")) ||
+      Boolean(hashParams.get("refresh_token")) ||
+      Boolean(hashParams.get("error")) ||
+      Boolean(hashParams.get("error_code"));
+
+    if (hasAuthRedirectInProgress) {
+      console.log("[deep-link] skipped due to higher priority flow", {
+        flow: "auth_redirect",
+      });
+      return;
+    }
+
+    console.log("[deep-link] pricing opened from query param");
+    pricingDeepLinkPendingRef.current = false;
+    goToView("pricing", { push: false, focus: false });
+    window.history.replaceState(
+      {
+        ...(window.history.state || {}),
+        appView: "pricing",
+      },
+      "",
+      window.location.pathname,
+    );
+  }, [appView, authLoading, goToView, hydrated, isRecoveryFlow]);
 
   useEffect(() => {
     if (!user) {
@@ -4181,17 +4524,17 @@ useEffect(() => {
     if (!user && (revenues.length > 0 || guestInvoices.length > 0)) {
       return {
         title: "Mode local actif",
-        text: "Ton suivi fonctionne déjà normalement ici. Un compte gratuit permet simplement de retrouver ces données plus tard.",
+        text: "Commence gratuitement. Crée un compte pour retrouver ton espace. Passe à Premium si tu veux aller plus loin.",
         cta: "Créer mon compte gratuit",
         onClick: () => openAuthModal("signup"),
       };
     }
 
-    if (user && isFounderActive) {
+    if (billingUiState === "trial_active") {
       return {
         title: "Essai Premium actif",
-        text: "Ton essai Premium est encore disponible. C’est un bon moment pour voir tranquillement ce qui t’aide vraiment au quotidien.",
-        cta: "Découvrir les avantages Premium",
+        text: "Ton compte te permet déjà de retrouver ton espace. Pendant l’essai, découvre tranquillement ce que Premium ajoute au quotidien.",
+        cta: "Voir Premium",
         onClick: () => openPremiumModal("dashboard_next_step_trial"),
       };
     }
@@ -4201,8 +4544,8 @@ useEffect(() => {
     guestInvoices.length,
     handleEditProfile,
     handleOpenRevenuePopup,
+    billingUiState,
     isFiscalProfileComplete,
-    isFounderActive,
     openAuthModal,
     revenues.length,
     user,
@@ -4251,7 +4594,7 @@ useEffect(() => {
         ? null
         : {
             title: "Retrouver ce suivi plus tard",
-            text: "Ton espace est déjà utile en local. Un compte gratuit sert surtout à le récupérer facilement sur la durée.",
+            text: "Commence gratuitement. Crée un compte pour retrouver ton espace. Passe à Premium si tu veux aller plus loin.",
             cta: "Créer mon compte",
             onClick: () => openAuthModal("signup"),
           };
@@ -4266,13 +4609,13 @@ useEffect(() => {
       };
     }
 
-    if (user && isFounderActive) {
-      return dashboardNextStep?.cta === "Découvrir les avantages Premium"
+    if (billingUiState === "trial_active") {
+      return dashboardNextStep?.cta === "Voir Premium"
         ? null
         : {
-            title: "Profiter calmement de l’essai",
-            text: "Ton essai actif te laisse encore du temps pour tester les rappels et voir ce qui t’aide vraiment.",
-            cta: "Voir les avantages Premium",
+            title: "Pendant ton essai",
+            text: "Teste surtout les exports et l’historique pour voir si Premium t’aide vraiment dans ton suivi.",
+            cta: "Voir Premium",
             onClick: () => openPremiumModal("dashboard_recommendation_premium"),
           };
     }
@@ -4284,7 +4627,7 @@ useEffect(() => {
     guestInvoices.length,
     handleOpenInvoiceGenerator,
     handleOpenRevenuePopup,
-    isFounderActive,
+    billingUiState,
     openAuthModal,
     revenues.length,
     user,
@@ -4293,7 +4636,7 @@ useEffect(() => {
   const dashboardLaunchAnchors = useMemo(() => {
     const anchors = [];
 
-    if (premiumState === "premium_qa_override") {
+    if (isQaPremium) {
       anchors.push({
         key: "qa",
         tone: "accent",
@@ -4315,7 +4658,7 @@ useEffect(() => {
     }
 
     return anchors;
-  }, [premiumState, saveNotice]);
+  }, [isQaPremium, saveNotice]);
   const dashboardFloatingAction = useMemo(() => {
     if (dashboardPrimaryAction) return dashboardPrimaryAction;
 
@@ -4507,45 +4850,6 @@ useEffect(() => {
     hasSmsPremiumAccess,
     openReminderManager,
     reminderPrefs,
-  ]);
-  const dashboardPremiumMoment = useMemo(() => {
-    if (hasPremiumAccess) return null;
-
-    if (computed?.tvaStatus === "soon" || computed?.tvaStatus === "exceeded") {
-      return {
-        icon: "🧾",
-        text: "Passe au Premium pour recevoir une alerte TVA au bon moment.",
-      };
-    }
-
-    if (activeReminderItems.length > 3) {
-      return {
-        icon: "🔔",
-        text: "Centralise tes rappels URSSAF, TVA et CFE avec alertes intelligentes.",
-      };
-    }
-
-    if (visibleInvoices.length > 0) {
-      return {
-        icon: "🧾",
-        text: "Débloque l’historique illimité et les exports avancés.",
-      };
-    }
-
-    if (dashboardMaturityLevel.level === "En progrès") {
-      return {
-        icon: "⭐",
-        text: "Ton cockpit devient puissant. Premium t’aide à automatiser la suite.",
-      };
-    }
-
-    return null;
-  }, [
-    activeReminderItems.length,
-    computed?.tvaStatus,
-    dashboardMaturityLevel.level,
-    hasPremiumAccess,
-    visibleInvoices.length,
   ]);
   const urgentReminderSignature = useMemo(
     () =>
@@ -4997,56 +5301,57 @@ useEffect
     revenues.length,
     visibleInvoices.length,
   ]);
-  const guestFounderDays = founderDaysRemaining ?? 90;
   const premiumBannerContent = useMemo(() => {
-    switch (premiumState) {
-      case "registered_founder_active":
+    if (isQaPremium) {
+      return {
+        line1: "🧪 Premium QA actif",
+        line2: "Mode de test local activé.",
+        line3: "",
+        cta: "Voir les avantages Premium",
+      };
+    }
+
+    switch (billingUiState) {
+      case "guest":
         return {
-          line1: "⭐ Offre fondateur activée",
-          line2: "Premium offert pendant 3 mois",
-          line3:
-            "Tu bénéficies déjà des exports illimités et de l’historique complet.",
-          cta: "Voir les avantages Premium",
+          line1: "✨ Crée ton compte",
+          line2: "Commence gratuitement. Crée un compte pour retrouver ton espace.",
+          line3: "Passe à Premium si tu veux aller plus loin.",
+          cta: "Créer mon compte gratuit",
         };
-      case "registered_founder_ending":
+      case "trial_active":
         return {
-          line1: `⏳ Offre fondateur encore active ${founderDaysRemaining} jour${founderDaysRemaining > 1 ? "s" : ""}`,
-          line2: "Ton accès Premium reste disponible jusqu’à la fin de l’essai.",
-          line3: "Tu pourras ensuite choisir sereinement si tu veux le prolonger à 5 €/mois.",
-          cta: "Voir les avantages Premium",
+          line1: `⏳ Essai Premium actif${trialDaysLeft !== null ? ` • ${trialDaysLeft} jour${trialDaysLeft > 1 ? "s" : ""} restant${trialDaysLeft > 1 ? "s" : ""}` : ""}`,
+          line2: "Commence gratuitement. Ton compte te permet déjà de retrouver ton espace.",
+          line3: trialEndsAtLabel
+            ? `Passe à Premium si tu veux aller plus loin. Fin de l’essai le ${trialEndsAtLabel}.`
+            : "Passe à Premium si tu veux aller plus loin.",
+          cta: "Voir Premium",
         };
-      case "registered_free_after_trial":
+      case "trial_expired":
         return {
-          line1: "🔓 Premium a expiré",
-          line2:
-            "Les exports illimités et l’historique complet ne sont plus inclus.",
-          line3: "Réactive Premium pour continuer sans limite.",
-          cta: "Réactiver Premium • 5 €/mois",
+          line1: "🔓 Essai Premium expiré",
+          line2: "Ton compte gratuit te permet toujours de retrouver ton espace.",
+          line3: "Passe à Premium pour continuer sans limite.",
+          cta: "Activer Premium • 5 €/mois",
         };
-      case "premium_paid_active":
+      case "premium_active":
         return {
           line1: "⭐ Premium actif",
-          line2: "Exports illimités, historique complet, alertes avancées.",
+          line2: "Ton espace est synchronisé et Premium débloque les options avancées.",
           line3: "",
-          cta: "Voir les avantages Premium",
+          cta: "Voir Premium",
         };
-      case "premium_qa_override":
-        return {
-          line1: "🧪 Premium QA actif",
-          line2: "Mode de test local activé.",
-          line3: "",
-          cta: "Voir les avantages Premium",
-        };
-      case "guest_free":
+      case "registered_free":
       default:
         return {
-          line1: `🎁 Offre fondateur : J-${guestFounderDays}`,
-          line2: `3 mois offerts pour les ${FOUNDER_OFFER_LIMIT} premiers utilisateurs`,
-          line3: "Ensuite, libre à toi de continuer ou non.",
-          cta: "Voir les avantages Premium",
+          line1: "⭐ Premium disponible",
+          line2: "Commence gratuitement. Ton compte te permet de retrouver ton espace.",
+          line3: "Passe à Premium si tu veux aller plus loin.",
+          cta: "Voir Premium",
         };
     }
-  }, [founderDaysRemaining, guestFounderDays, premiumState]);
+  }, [billingUiState, isQaPremium, trialDaysLeft, trialEndsAtLabel]);
   const premiumModalContent = useMemo(() => {
     const normalizedSource = String(premiumModalSource || "unknown");
 
@@ -5189,6 +5494,291 @@ useEffect
     premiumContextualCTA?.source || "default",
   );
   const premiumBannerButtonLabel = premiumBannerContent.cta;
+  const handleBillingBannerAction = useCallback(() => {
+    if (billingUiState === "guest") {
+      openAuthModal("signup");
+      return;
+    }
+
+    openPremiumModal(premiumContextualCTA?.source || "dashboard_top");
+  }, [billingUiState, openAuthModal, openPremiumModal, premiumContextualCTA?.source]);
+  useEffect(() => {
+    if (!premiumTrigger) return;
+    if (billingUiState === "guest") return;
+
+    const storageKey = "microassist_premium_trigger_last";
+    const cooldownMs = 24 * 60 * 60 * 1000;
+
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (
+          parsed?.trigger === premiumTrigger &&
+          typeof parsed?.at === "number" &&
+          Date.now() - parsed.at < cooldownMs
+        ) {
+          return;
+        }
+      }
+    } catch {
+      // ignore storage parsing issues
+    }
+
+    openPremiumModal(premiumTrigger);
+
+    try {
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify({
+          trigger: premiumTrigger,
+          at: Date.now(),
+        }),
+      );
+    } catch {
+      // ignore storage write issues
+    }
+  }, [billingUiState, openPremiumModal, premiumTrigger]);
+  useEffect(() => {
+    if (!user?.id || !user?.email) return;
+    if (billingUiState !== "trial_active") return;
+    if (!subscriptionLikeState?.trialEndsAt) return;
+    if (getTrialDaysLeft(subscriptionLikeState.trialEndsAt) !== 7) return;
+    const eventType = "trial_ending_j7";
+
+    if (wasEmailEventHandledRecently(eventType, user.id)) {
+      console.info("[trial-email-send] skipped", {
+        eventType,
+        reason: "recently_handled",
+        userId: user.id,
+      });
+      return;
+    }
+
+    const emailPayload = buildTrialEndingEmailPayload({
+      email: user.email,
+      trialEndsAt: subscriptionLikeState.trialEndsAt,
+    });
+    const requestBody = {
+      userId: user.id,
+      email: user.email,
+      eventType,
+      subject: emailPayload.subject,
+      text: emailPayload.text,
+      html: emailPayload.html,
+      trialEndsAt: subscriptionLikeState.trialEndsAt,
+    };
+
+    console.info("[trial-email-send] start", {
+      eventType,
+      userId: user.id,
+      email: user.email,
+      trialEndsAt: subscriptionLikeState.trialEndsAt,
+    });
+
+    let cancelled = false;
+
+    const run = async () => {
+      try {
+        const result = await sendTrialEndingEmail(requestBody);
+
+        if (cancelled) return;
+
+        if (result?.ok === true && result?.skipped === true) {
+          console.info("[trial-email-send] skipped", result);
+          markEmailEventHandled(eventType, user.id, {
+            trialEndsAt: subscriptionLikeState?.trialEndsAt || null,
+          });
+          return;
+        }
+
+        if (result?.ok === true && result?.success === true) {
+          console.info("[trial-email-send] success", result);
+          markEmailEventHandled(eventType, user.id, {
+            trialEndsAt: subscriptionLikeState?.trialEndsAt || null,
+          });
+          return;
+        }
+
+        console.warn("[trial-email-send] error", result);
+      } catch (error) {
+        if (cancelled) return;
+        console.warn("[trial-email-send] error", error);
+      }
+    };
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    billingUiState,
+    sendTrialEndingEmail,
+    subscriptionLikeState?.trialEndsAt,
+    user?.email,
+    user?.id,
+  ]);
+  useEffect(() => {
+    if (!user?.id || !user?.email) return;
+    if (billingUiState !== "trial_active") return;
+    if (!subscriptionLikeState?.trialEndsAt) return;
+    if (!shouldSendTrialEndingEmailJ2(subscriptionLikeState.trialEndsAt)) return;
+    const eventType = "trial_ending_j2";
+
+    if (wasEmailEventHandledRecently(eventType, user.id)) {
+      console.info("[trial-email-send-j2] skipped", {
+        eventType,
+        reason: "recently_handled",
+        userId: user.id,
+      });
+      return;
+    }
+
+    const emailPayload = buildTrialEndingEmailPayloadJ2({
+      email: user.email,
+      trialEndsAt: subscriptionLikeState.trialEndsAt,
+    });
+    const requestBody = {
+      userId: user.id,
+      email: user.email,
+      eventType,
+      subject: emailPayload.subject,
+      text: emailPayload.text,
+      html: emailPayload.html,
+      trialEndsAt: subscriptionLikeState.trialEndsAt,
+    };
+
+    console.info("[trial-email-send-j2] start", {
+      eventType,
+      userId: user.id,
+      email: user.email,
+      trialEndsAt: subscriptionLikeState.trialEndsAt,
+    });
+
+    let cancelled = false;
+
+    const run = async () => {
+      try {
+        const result = await sendTrialEndingEmail(requestBody);
+
+        if (cancelled) return;
+
+        if (result?.ok === true && result?.skipped === true) {
+          console.info("[trial-email-send-j2] skipped", result);
+          markEmailEventHandled(eventType, user.id, {
+            trialEndsAt: subscriptionLikeState?.trialEndsAt || null,
+          });
+          return;
+        }
+
+        if (result?.ok === true && result?.success === true) {
+          console.info("[trial-email-send-j2] success", result);
+          markEmailEventHandled(eventType, user.id, {
+            trialEndsAt: subscriptionLikeState?.trialEndsAt || null,
+          });
+          return;
+        }
+
+        console.warn("[trial-email-send-j2] error", result);
+      } catch (error) {
+        if (cancelled) return;
+        console.warn("[trial-email-send-j2] error", error);
+      }
+    };
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    billingUiState,
+    sendTrialEndingEmail,
+    subscriptionLikeState?.trialEndsAt,
+    user?.email,
+    user?.id,
+  ]);
+  useEffect(() => {
+    if (!user?.id || !user?.email) return;
+    if (billingUiState === "premium_active") return;
+    if (!subscriptionLikeState?.trialEndsAt) return;
+    if (!shouldSendTrialExpiredEmail(subscriptionLikeState.trialEndsAt)) return;
+    const eventType = "trial_expired";
+
+    if (wasEmailEventHandledRecently(eventType, user.id)) {
+      console.info("[trial-email-expired] skipped", {
+        eventType,
+        reason: "recently_handled",
+        userId: user.id,
+      });
+      return;
+    }
+
+    const emailPayload = buildTrialExpiredEmailPayload({
+      email: user.email,
+      trialEndsAt: subscriptionLikeState.trialEndsAt,
+    });
+    const requestBody = {
+      userId: user.id,
+      email: user.email,
+      eventType,
+      subject: emailPayload.subject,
+      text: emailPayload.text,
+      html: emailPayload.html,
+      trialEndsAt: subscriptionLikeState.trialEndsAt,
+    };
+
+    console.info("[trial-email-expired] start", {
+      eventType,
+      userId: user.id,
+      email: user.email,
+      trialEndsAt: subscriptionLikeState.trialEndsAt,
+    });
+
+    let cancelled = false;
+
+    const run = async () => {
+      try {
+        const result = await sendTrialEndingEmail(requestBody);
+
+        if (cancelled) return;
+
+        if (result?.ok === true && result?.skipped === true) {
+          console.info("[trial-email-expired] skipped", result);
+          markEmailEventHandled(eventType, user.id, {
+            trialEndsAt: subscriptionLikeState?.trialEndsAt || null,
+          });
+          return;
+        }
+
+        if (result?.ok === true && result?.success === true) {
+          console.info("[trial-email-expired] success", result);
+          markEmailEventHandled(eventType, user.id, {
+            trialEndsAt: subscriptionLikeState?.trialEndsAt || null,
+          });
+          return;
+        }
+
+        console.warn("[trial-email-expired] error", result);
+      } catch (error) {
+        if (cancelled) return;
+        console.warn("[trial-email-expired] error", error);
+      }
+    };
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    billingUiState,
+    sendTrialEndingEmail,
+    subscriptionLikeState?.trialEndsAt,
+    user?.email,
+    user?.id,
+  ]);
   const dashboardTopNudge = useMemo(() => {
     const latestRevenueDate = revenues
       .map((item) => parseIsoDate(item?.date))
@@ -5611,6 +6201,21 @@ useEffect(() => {
 
     if (isRecoveryFlow) return;
 
+    if (pricingDeepLinkPendingRef.current) {
+      goToView("pricing", { push: false, focus: false });
+      pricingDeepLinkPendingRef.current = false;
+      window.history.replaceState(
+        {
+          ...(window.history.state || {}),
+          appView: "pricing",
+        },
+        "",
+        window.location.pathname,
+      );
+      console.log("[deep-link] pricing opened from query param");
+      return;
+    }
+
     goToDashboard({ scroll: false });
 
     showSaveNotice(
@@ -5638,6 +6243,7 @@ useEffect(() => {
   refreshRevenues,
   refreshFiscalProfile,
   refreshInvoices,
+  goToView,
   goToDashboard,
   showSaveNotice,
   profileConflictState.open,
@@ -6994,7 +7600,6 @@ const joinPremiumWaitlist = useCallback(
         "activated",
         "active",
         "premium_active",
-        "founder_granted",
       ].includes(String(status || "").toLowerCase());
 
       trackEvent("premium_waitlist_submit", {
@@ -7066,7 +7671,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
   const source =
     sourceOverride ||
     premiumModalSource ||
-    (isTrialExpired ? "premium_after_trial" : "pricing_modal");
+    (billingUiState === "trial_expired" ? "premium_after_trial" : "pricing_modal");
 
   track("signup_cta_clicked", { source });
   await joinPremiumWaitlist({
@@ -7074,7 +7679,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
     source,
   });
 }, [
-  isTrialExpired,
+  billingUiState,
   joinPremiumWaitlist,
   premiumModalSource,
   premiumWaitlistEmail,
@@ -7422,6 +8027,14 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
               </button>
 
               <button
+  type="button"
+  className={`navButton ${appView === "pricing" ? "isActive" : ""}`}
+  onClick={goToPricing}
+>
+  Tarifs
+</button>
+
+              <button
                 type="button"
                 className="navLink"
                 onClick={() => goToLandingSection("contact")}
@@ -7739,7 +8352,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
             </section>
           )}
 
-          {!focusMode && (
+          {!focusMode && appView === "landing" && (
             <div className="sectionTools">
               <button
                 className="btn btnGhost btnSmall"
@@ -7751,7 +8364,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
             </div>
           )}
 
-          {!focusMode && visibleSections.about && (
+          {!focusMode && appView === "landing" && visibleSections.about && (
             <section className="card">
               <div className="sectionHead">
                 <h2>À propos de Microassist</h2>
@@ -7799,7 +8412,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
             </section>
           )}
 
-          {!focusMode && visibleSections.howItWorks && (
+          {!focusMode && appView === "landing" && visibleSections.howItWorks && (
             <section ref={howItWorksRef} className="card">
               <div className="sectionHead">
                 <h2>Comment ça marche</h2>
@@ -7836,7 +8449,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
             </section>
           )}
 
-          {!focusMode && visibleSections.roadmap && (
+          {!focusMode && appView === "landing" && visibleSections.roadmap && (
             <section id="prochainement" className="card">
               <div className="sectionHead">
                 <h2>Pour qui & bientôt</h2>
@@ -7866,7 +8479,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
             </section>
           )}
 
-          {focusMode && appView !== "assistant" && (
+          {focusMode && appView === "landing" && (
             <div className="focusBar">
               <div className="focusLeft">
                 <strong>Mode démo</strong>
@@ -7903,7 +8516,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
             </div>
           )}
 
-          {appView === "assistant" && (
+          {appView === "assistant" ? (
             <section id="assistant" ref={assistantRef} className="card">
               <div className="assistantHeader">
                 <div>
@@ -8566,9 +9179,26 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 </div>
               ) : null}
             </section>
-          )}
+          ) : appView === "pricing" ? (
+            <PricingPage
+              onClose={() => goToView("landing", { focus: false })}
+              onTryWithoutAccount={() => goToView("landing", { focus: false })}
+              onSelectPlan={(plan) => {
+                if (plan === "free") {
+                  openAuthModal("signup");
+                  return;
+                }
 
-          {appView === "dashboard" && (
+                if (plan === "premium") {
+                  openPremiumModal("pricing_page");
+                  return;
+                }
+
+                goToView("landing", { focus: false });
+              }}
+            />
+          ) : appView === "dashboard" ? (
+
             <section ref={fiscalRef} className="card">
               {shouldShowDashboardTopNudge && (
                 <div
@@ -8649,11 +9279,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                     <button
                       className="btn btnActionSecondary btnSmall"
                       type="button"
-                      onClick={() =>
-                        openPremiumModal(
-                          premiumContextualCTA?.source || "dashboard_top",
-                        )
-                      }
+                      onClick={handleBillingBannerAction}
                     >
                       {premiumBannerButtonLabel}
                     </button>
@@ -8661,28 +9287,6 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 </div>
 
                 <div className="sectionHeadActions">
-                  <div
-                    className={`dashboardPremiumMiniBadge ${
-                      hasPremiumAccess ? "is-active" : "is-inactive"
-                    }`}
-                  >
-                    <span className="dashboardPremiumMiniIcon" aria-hidden="true">
-                      {hasPremiumAccess ? "👑" : "⭐"}
-                    </span>
-                    <span className="dashboardPremiumMiniText">
-                      {hasPremiumAccess ? "Premium actif" : "Premium 5 €/mois"}
-                    </span>
-                    {!hasPremiumAccess && (
-                      <button
-                        className="btn btnActionUtility btnSmall dashboardPremiumMiniButton"
-                        type="button"
-                        onClick={() => openPremiumModal("dashboard_mini_badge")}
-                      >
-                        En savoir plus
-                      </button>
-                    )}
-                  </div>
-
                   {!showChart && monthlyHistory.length > 0 && (
                     <button
                       className="btn btnActionUtility btnSmall"
@@ -8739,23 +9343,6 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
 
                 </div>
               </div>
-
-<div className="dashboardPremiumBadge">
-  {user && !hasPremiumAccess && (
-    <>
-      <span className="dashboardPremiumBadgeIcon">⭐</span>
-      <span className="dashboardPremiumBadgeText">Premium 5 €/mois</span>
-      <button
-        type="button"
-        className="btnActionUtility"
-        onClick={openPremiumModal}
-      >
-        En savoir plus
-      </button>
-    </>
-  )}
-
-</div>
 
               <div className="dashboardLaunchRail">
                 {dashboardLaunchAnchors.length > 0 && (
@@ -8939,28 +9526,6 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                     </span>
                     <span>{dashboardTrustState.text}</span>
                   </div>
-                </div>
-              )}
-
-              {dashboardPremiumMoment && (
-                <div className="dashboardPremiumMomentCard">
-                  <div className="dashboardPremiumMomentText">
-                    <span className="dashboardDailyInsightIcon" aria-hidden="true">
-                      {dashboardPremiumMoment.icon}
-                    </span>
-                    <span>{dashboardPremiumMoment.text}</span>
-                  </div>
-                  {!dashboardPrimaryAction && (
-                    <div className="dashboardPremiumMomentActions">
-                      <button
-                        className="btn btnActionSecondary btnSmall"
-                        type="button"
-                        onClick={() => openPremiumModal("dashboard_premium_moment")}
-                      >
-                        Voir Premium
-                      </button>
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -10453,9 +11018,9 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 </>
               )}
             </section>
-          )}
+          ) : null}
 
-          {!focusMode && visibleSections.security && (
+          {!focusMode && appView === "landing" && visibleSections.security && (
             <section ref={securityRef} className="card">
               <div className="sectionHead">
                 <h2>🔒 Sécurité & confidentialité</h2>
@@ -11372,7 +11937,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
               </div>
             </div>
           </div>
-        )}
+          )}
       </div>
       {showInvoiceGenerator && (
         <InvoiceGenerator
