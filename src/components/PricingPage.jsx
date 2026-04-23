@@ -1,10 +1,28 @@
 import React from "react";
+import { ACCESS_MATRIX } from "../config/accessMatrix.js";
 
 export default function PricingPage({
   onClose,
   onSelectPlan,
   onTryWithoutAccount,
 }) {
+  const freeFeatures = ACCESS_MATRIX.registered_free.features;
+  const premiumFeatures = ACCESS_MATRIX.premium_active.features;
+  const founderFeatures = ACCESS_MATRIX.founder_trial.features;
+  const freeSmartPrioritiesCount =
+    freeFeatures.smart_priorities_count === "all"
+      ? "toutes"
+      : freeFeatures.smart_priorities_count;
+  const premiumSmartPrioritiesCount =
+    premiumFeatures.smart_priorities_count === "all"
+      ? "toutes"
+      : premiumFeatures.smart_priorities_count;
+  const formatFeatureValue = (value, fallbackFalse = "❌") => {
+    if (value === true) return "✅";
+    if (value === false) return fallbackFalse;
+    return value;
+  };
+
   return (
     <div className="pricingPage">
       <div className="pricingHeader">
@@ -52,19 +70,30 @@ export default function PricingPage({
           </div>
 
           <p className="pricingCardIntro">
-            Commence gratuitement. Crée un compte pour retrouver ton espace.
+            Tu vois l’essentiel. Crée un compte pour retrouver ton espace.
           </p>
 
           <ul>
-            <li>✅ Suivi des revenus</li>
+            <li>
+              {freeFeatures.revenue_tracking ? "✅" : "❌"} Suivi des revenus
+            </li>
             <li>✅ Calcul des charges URSSAF</li>
             <li>✅ Alerte TVA</li>
             <li>✅ Prise en compte de l’ACRE</li>
             <li>✅ Espace personnel sécurisé</li>
-            <li>✅ Synchronisation multi-appareils</li>
-            <li>⚠ Historique avancé limité</li>
-            <li>❌ Export PDF complet</li>
-            <li>❌ Rappels email et SMS avancés</li>
+            <li>✅ Retrouver ton espace avec un compte gratuit</li>
+            <li>
+              {freeSmartPrioritiesCount > 0 ? "⚠" : "❌"}{" "}
+              {freeSmartPrioritiesCount > 0
+                ? `${freeSmartPrioritiesCount} Smart Priorité visible`
+                : "Smart Priorités avancées"}
+            </li>
+            <li>
+              {freeFeatures.export_pdf ? "✅" : "❌"} Export PDF
+            </li>
+            <li>❌ Alertes email automatiques</li>
+            <li>❌ Alertes intelligentes prioritaires</li>
+            <li>✅ Tu vois l’essentiel de ton suivi</li>
           </ul>
 
           <button
@@ -72,7 +101,7 @@ export default function PricingPage({
             onClick={() => onSelectPlan?.("free")}
             type="button"
           >
-            Créer mon compte gratuit
+            Créer mon compte
           </button>
         </div>
 
@@ -83,21 +112,42 @@ export default function PricingPage({
           <div className="price">
             5€ <span>/mois</span>
           </div>
-          <div className="annualPrice">ou 49€/an</div>
+          <div className="annualPrice">Paiement bientôt disponible</div>
 
           <p className="pricingCardIntro">
-            Gagne du temps, évite les oublis et suis ton activité plus sereinement.
+            Microassist te prévient avant les échéances importantes et t’aide à agir plus tôt.
           </p>
 
           <ul>
             <li>✅ Tout le compte gratuit</li>
-            <li>✅ Historique complet</li>
-            <li>✅ Export PDF professionnel</li>
+            <li>
+              {premiumSmartPrioritiesCount === "toutes" ? "✅" : "⚠"} Smart
+              Priorités complètes
+            </li>
+            <li>
+              {premiumFeatures.export_pdf ? "✅" : "❌"} Export PDF
+            </li>
             <li>✅ Export CSV</li>
-            <li>✅ Rappels email avant échéance</li>
-            <li>✅ Alertes SMS importantes</li>
-            <li>✅ Recommandations plus avancées</li>
-            <li>✅ Support prioritaire</li>
+            <li>
+              {premiumFeatures.declaration_email_j7 ? "✅" : "❌"} Email rappel
+              J-7
+            </li>
+            <li>
+              {premiumFeatures.declaration_email_j2 ? "✅" : "❌"} Email rappel
+              J-2
+            </li>
+            <li>
+              {premiumFeatures.smart_priority_email ? "✅" : "❌"} Alertes
+              intelligentes par email
+            </li>
+            <li>
+              {premiumFeatures.reminders_advanced ? "✅" : "❌"} Rappels et
+              priorités avancés
+            </li>
+            <li>
+              {premiumFeatures.premium_like_access ? "✅" : "❌"} Accès complet
+              aux fonctionnalités Premium
+            </li>
           </ul>
 
           <button
@@ -105,12 +155,28 @@ export default function PricingPage({
             onClick={() => onSelectPlan?.("premium")}
             type="button"
           >
-            Activer Premium • 5€/mois
+            Être informé du lancement Premium
           </button>
 
           <div className="guarantee">
             Sans engagement. Résiliation possible à tout moment.
           </div>
+        </div>
+      </div>
+
+      <div className="pricingIntroNotice" style={{ marginTop: 18 }}>
+        <div className="pricingIntroNoticeText">
+          <h2>Période d’essai</h2>
+          <p>
+            Les fondateurs bénéficient de {founderFeatures.trial_days} jours
+            d’essai. Les comptes standard profitent d’un essai plus court.
+          </p>
+          <p>
+            Les premiers jours incluent une période découverte avec accès
+            complet pour tester comment Microassist t’aide à agir plus tôt.
+            Cet accès découverte dépend de ton onboarding, pas de la formule
+            gratuite ou Premium.
+          </p>
         </div>
       </div>
 
@@ -127,8 +193,8 @@ export default function PricingPage({
 
           <div className="pricingCompareRow">
             <div>Suivi des revenus</div>
-            <div>✅</div>
-            <div>✅</div>
+            <div>{formatFeatureValue(freeFeatures.revenue_tracking)}</div>
+            <div>{formatFeatureValue(premiumFeatures.revenue_tracking)}</div>
           </div>
 
           <div className="pricingCompareRow">
@@ -144,34 +210,45 @@ export default function PricingPage({
           </div>
 
           <div className="pricingCompareRow">
-            <div>Synchronisation multi-appareils</div>
+            <div>Retrouver ton espace</div>
             <div>✅</div>
             <div>✅</div>
           </div>
 
           <div className="pricingCompareRow">
-            <div>Historique</div>
-            <div>Limité</div>
-            <div>Illimité</div>
+            <div>Smart Priorités visibles</div>
+            <div>
+              {freeSmartPrioritiesCount === 0
+                ? "Aucune"
+                : freeSmartPrioritiesCount}
+            </div>
+            <div>{premiumSmartPrioritiesCount}</div>
           </div>
 
           <div className="pricingCompareRow">
             <div>Export PDF</div>
-            <div>❌</div>
-            <div>✅</div>
+            <div>{formatFeatureValue(freeFeatures.export_pdf)}</div>
+            <div>{formatFeatureValue(premiumFeatures.export_pdf)}</div>
           </div>
 
           <div className="pricingCompareRow">
-            <div>Rappels email</div>
-            <div>❌</div>
-            <div>✅</div>
+            <div>Email rappel J-7</div>
+            <div>{formatFeatureValue(freeFeatures.declaration_email_j7)}</div>
+            <div>{formatFeatureValue(premiumFeatures.declaration_email_j7)}</div>
           </div>
 
           <div className="pricingCompareRow">
-            <div>Alertes SMS</div>
-            <div>❌</div>
-            <div>✅</div>
+            <div>Email rappel J-2</div>
+            <div>{formatFeatureValue(freeFeatures.declaration_email_j2)}</div>
+            <div>{formatFeatureValue(premiumFeatures.declaration_email_j2)}</div>
           </div>
+
+          <div className="pricingCompareRow">
+            <div>Alerte intelligente par email</div>
+            <div>{formatFeatureValue(freeFeatures.smart_priority_email)}</div>
+            <div>{formatFeatureValue(premiumFeatures.smart_priority_email)}</div>
+          </div>
+
         </div>
       </div>
 
@@ -212,9 +289,8 @@ export default function PricingPage({
         <details>
           <summary>Que se passe-t-il si je reste en gratuit ?</summary>
           <p>
-            Tu gardes les fonctions essentielles. Premium sert surtout à aller
-            plus loin avec l’historique complet, les exports et certains
-            rappels.
+            Tu vois l’essentiel. Premium te prévient avant les échéances
+            importantes et t’aide à agir plus tôt.
           </p>
         </details>
       </div>

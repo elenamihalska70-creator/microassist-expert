@@ -1464,6 +1464,23 @@ section[id] {
   font-weight: 700;
 }
 
+.dashboardFooterLinks {
+  margin-top: 18px;
+  display: flex;
+  justify-content: center;
+}
+
+.dashboardProblemLink {
+  color: #64748b;
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.dashboardProblemLink:hover {
+  color: #334155;
+  text-decoration: underline;
+}
+
 /* Status colors */
 .tipOk, .mainActionBox.ok { background: #f6fbf7; border-color: rgba(82, 133, 97, 0.16); }
 .tipWarning, .mainActionBox.warning { background: #fffaf4; border-color: rgba(188, 141, 74, 0.2); }
@@ -1889,6 +1906,90 @@ section[id] {
 .muted {
   opacity: 0.75;
   margin-top: 8px;
+}
+.smartPrioritiesEngine {
+  margin-bottom: 14px;
+}
+
+.discoveryBanner {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fffdf7 0%, #f8fafc 100%);
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+}
+
+.discoveryBannerTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.discoveryBannerText {
+  margin-top: 6px;
+  color: #334155;
+  line-height: 1.55;
+}
+
+.discoveryBannerList {
+  margin: 10px 0 0 18px;
+  padding: 0;
+  color: #334155;
+  line-height: 1.5;
+}
+
+.discoveryBannerActions {
+  margin-top: 12px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.priorityCard {
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.priorityCard.high {
+  background: #ffe5e5;
+}
+
+.priorityCard.medium {
+  background: #fff4e5;
+}
+
+.priorityCard.low {
+  background: #f2f2f2;
+}
+
+.priorityTitle {
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 6px;
+}
+
+.priorityMessage {
+  color: #334155;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
+.priorityLockCard {
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+  background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+  border: 1px dashed rgba(99, 102, 241, 0.28);
+}
+
+.priorityLockList {
+  margin: 0 0 12px 18px;
+  padding: 0;
+  color: #334155;
+  line-height: 1.5;
 }
 .dashboardHelperText {
   margin: 6px 0 0;
@@ -3345,5 +3446,3 @@ section[id] {
     min-width: 560px;
   }
 }
-
-

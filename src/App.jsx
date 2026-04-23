@@ -18,6 +18,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import InvoiceGenerator from "./components/InvoiceGenerator.jsx";
 import { PRICING_LIMITS } from "./config/pricing.js";
+import { ACCESS_MATRIX, getAccessProfile } from "./config/accessMatrix.js";
 import PricingPage from "./components/PricingPage.jsx";
 // Добавьте после других констант:
 const LS_KEY = "microassist_v1";
@@ -387,13 +388,19 @@ function hasRecoveryUrlState() {
   );
 }
 
-function hasPricingViewQuery() {
+function getDeepLinkViewFromQuery() {
   if (typeof window === "undefined") {
-    return false;
+    return null;
   }
 
   const searchParams = new URLSearchParams(window.location.search);
-  return searchParams.get("view") === "pricing";
+  const requestedView = searchParams.get("view");
+
+  if (requestedView === "pricing" || requestedView === "dashboard") {
+    return requestedView;
+  }
+
+  return null;
 }
 
 function getCurrentMonthlyExportStorageKey() {
@@ -562,8 +569,13 @@ function isTrialExpired(trialEndsAt) {
   return daysLeft !== null && daysLeft <= 0;
 }
 
-function getRegistrationTrialWindow(user) {
+function getRegistrationTrialWindow(user, founderSource = null) {
   const createdAt = user?.created_at;
+  const isFounder =
+    founderSource?.is_founder === true ||
+    user?.app_metadata?.is_founder === true ||
+    user?.user_metadata?.is_founder === true;
+  const totalTrialDays = isFounder ? 90 : 14;
 
   if (!createdAt) {
     return {
@@ -582,7 +594,7 @@ function getRegistrationTrialWindow(user) {
   }
 
   const trialEndDate = new Date(registrationDate);
-  trialEndDate.setDate(trialEndDate.getDate() + 90);
+  trialEndDate.setDate(trialEndDate.getDate() + totalTrialDays);
 
   return {
     trialStartedAt: registrationDate.toISOString(),
@@ -647,6 +659,79 @@ function getPremiumTrigger({
   return null;
 }
 
+function getPremiumTriggerContext({
+  computed,
+  smartPriorities,
+  trialDaysLeft,
+  isEarlyAccessEndingToday = false,
+  isPostEarlyAccessTrial = false,
+}) {
+  if (computed?.tvaStatus === "exceeded") {
+    return {
+      triggerType: "tva_exceeded",
+      priorityLevel: "high",
+      message:
+        "Tu as dépassé le seuil TVA. Premium peut t’aider à anticiper la suite.",
+    };
+  }
+
+  if (
+    computed?.deadlineDate instanceof Date &&
+    !Number.isNaN(computed.deadlineDate.getTime())
+  ) {
+    const today = new Date();
+    const startOfToday = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate(),
+    );
+    const startOfDeadline = new Date(
+      computed.deadlineDate.getFullYear(),
+      computed.deadlineDate.getMonth(),
+      computed.deadlineDate.getDate(),
+    );
+    const diffMs = startOfDeadline.getTime() - startOfToday.getTime();
+    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffDays <= 2) {
+      return {
+        triggerType: "declaration_urgent",
+        priorityLevel: "high",
+        message:
+          "Ta déclaration approche. Premium te prévient avant les échéances importantes et t’aide à agir plus tôt.",
+      };
+    }
+  }
+
+  if (Array.isArray(smartPriorities) && smartPriorities.length >= 2) {
+    return {
+      triggerType: "multiple_priorities",
+      priorityLevel: "medium",
+      message:
+        "Plusieurs priorités ont été détectées. Premium te donne une vue plus complète et proactive.",
+    };
+  }
+
+  if (isEarlyAccessEndingToday) {
+    return {
+      triggerType: "early_access_ending",
+      priorityLevel: "medium",
+      message:
+        "Ton accès complet se termine aujourd’hui. Premium te permet de continuer avec toutes les alertes.",
+    };
+  }
+
+  if (isPostEarlyAccessTrial) {
+    return {
+      triggerType: "post_early_access",
+      priorityLevel: "medium",
+      message: "Certaines fonctionnalités sont maintenant en Premium.",
+    };
+  }
+
+  return null;
+}
+
 function shouldSendTrialEndingEmail(trialEndsAt) {
   return getTrialDaysLeft(trialEndsAt) === 7;
 }
@@ -657,6 +742,64 @@ function shouldSendTrialEndingEmailJ2(trialEndsAt) {
 
 function shouldSendTrialExpiredEmail(trialEndsAt) {
   return getTrialDaysLeft(trialEndsAt) <= 0;
+}
+
+function shouldSendDeclarationReminderJ2(deadlineDate) {
+  if (!(deadlineDate instanceof Date) || Number.isNaN(deadlineDate.getTime())) {
+    return false;
+  }
+
+  const today = new Date();
+  const startOfToday = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+  );
+  const startOfDeadline = new Date(
+    deadlineDate.getFullYear(),
+    deadlineDate.getMonth(),
+    deadlineDate.getDate(),
+  );
+
+  const diffMs = startOfDeadline.getTime() - startOfToday.getTime();
+  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+  return diffDays === 2;
+}
+
+function shouldSendDeclarationReminderJ7(deadlineDate) {
+  if (!(deadlineDate instanceof Date) || Number.isNaN(deadlineDate.getTime())) {
+    return false;
+  }
+
+  const today = new Date();
+  const startOfToday = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+  );
+  const startOfDeadline = new Date(
+    deadlineDate.getFullYear(),
+    deadlineDate.getMonth(),
+    deadlineDate.getDate(),
+  );
+
+  const diffMs = startOfDeadline.getTime() - startOfToday.getTime();
+  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+  return diffDays >= 0 && diffDays <= 7;
+}
+
+function formatDeclarationDeadlineLabel(deadlineDate) {
+  if (!(deadlineDate instanceof Date) || Number.isNaN(deadlineDate.getTime())) {
+    return "";
+  }
+
+  return deadlineDate.toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
 }
 
 // Generic reminder event storage for trial_ending_j2, trial_expired,
@@ -723,13 +866,14 @@ function buildTrialEndingEmailPayload({ email, trialEndsAt }) {
       "• les rappels avant échéance",
       "• les exports PDF",
       "",
-      "L’objectif de Microassist est simple : t’aider à éviter les oublis et gagner du temps.",
+      "En gratuit, tu vois l’essentiel.",
+      "Avec Premium, Microassist te prévient avant les échéances importantes et t’aide à agir plus tôt.",
       "",
       trialEndLabel
         ? `Fin de l’essai : ${trialEndLabel}.`
         : "La fin de ton essai approche.",
       "",
-      "Active Premium pour continuer avec ces fonctionnalités : 5€/mois.",
+      "Active Premium pour continuer avec cet accompagnement : 5€/mois.",
       "",
       "À très vite,",
       "Microassist",
@@ -743,7 +887,8 @@ function buildTrialEndingEmailPayload({ email, trialEndsAt }) {
         <li>les rappels avant échéance</li>
         <li>les exports PDF</li>
       </ul>
-      <p>L’objectif de Microassist est simple : t’aider à éviter les oublis et gagner du temps.</p>
+      <p>En gratuit, tu vois l’essentiel.</p>
+      <p>Avec Premium, Microassist te prévient avant les échéances importantes et t’aide à agir plus tôt.</p>
       ${
         trialEndLabel
           ? `<p><strong>Fin de l’essai :</strong> ${trialEndLabel}</p>`
@@ -774,7 +919,8 @@ function buildTrialEndingEmailPayloadJ2({ email, trialEndsAt }) {
       "- les rappels avant échéance",
       "- les exports PDF",
       "",
-      "Après la fin de l’essai, ces fonctionnalités ne seront plus incluses dans la version gratuite.",
+      "En gratuit, tu vois l’essentiel.",
+      "Avec Premium, Microassist te prévient avant les échéances importantes et t’aide à agir plus tôt.",
       "",
       trialEndLabel
         ? `Fin de l’essai : ${trialEndLabel}`
@@ -794,7 +940,8 @@ function buildTrialEndingEmailPayloadJ2({ email, trialEndsAt }) {
         <li>les rappels avant échéance</li>
         <li>les exports PDF</li>
       </ul>
-      <p>Après la fin de l’essai, ces fonctionnalités ne seront plus incluses dans la version gratuite.</p>
+      <p>En gratuit, tu vois l’essentiel.</p>
+      <p>Avec Premium, Microassist te prévient avant les échéances importantes et t’aide à agir plus tôt.</p>
       ${
         trialEndLabel
           ? `<p><strong>Fin de l’essai :</strong> ${trialEndLabel}</p>`
@@ -820,14 +967,11 @@ function buildTrialExpiredEmailPayload({ email, trialEndsAt }) {
       "",
       "Ton essai Premium Microassist est maintenant terminé.",
       "",
-      "Tu peux continuer à utiliser la version gratuite avec :",
+      "En gratuit, tu vois l’essentiel :",
       "- suivi simple",
       "- estimations de base",
       "",
-      "Pour retrouver toutes les fonctionnalités Premium :",
-      "- rappels automatiques",
-      "- historique complet",
-      "- exports PDF",
+      "Avec Premium, Microassist te prévient avant les échéances importantes et t’aide à agir plus tôt.",
       "",
       "Découvre l’offre Premium ici :",
       "https://microassist.vercel.app/?view=pricing",
@@ -839,7 +983,7 @@ function buildTrialExpiredEmailPayload({ email, trialEndsAt }) {
       <h2>Ton essai Microassist est terminé</h2>
       <p>Ton essai Premium Microassist est maintenant terminé.</p>
       <div>
-        <p><strong>Version gratuite</strong></p>
+        <p><strong>En gratuit, tu vois l’essentiel</strong></p>
         <ul>
           <li>suivi simple</li>
           <li>estimations de base</li>
@@ -847,11 +991,7 @@ function buildTrialExpiredEmailPayload({ email, trialEndsAt }) {
       </div>
       <div>
         <p><strong>Premium</strong></p>
-        <ul>
-          <li>rappels automatiques</li>
-          <li>historique complet</li>
-          <li>exports PDF</li>
-        </ul>
+        <p>Microassist te prévient avant les échéances importantes et t’aide à agir plus tôt.</p>
       </div>
       ${
         trialEndLabel
@@ -863,6 +1003,110 @@ function buildTrialExpiredEmailPayload({ email, trialEndsAt }) {
     `,
     email,
     trialEndsAt,
+  };
+}
+
+function buildDeclarationReminderEmailPayloadJ2({ email, deadlineDate }) {
+  const declarationDateLabel = formatDeclarationDeadlineLabel(deadlineDate);
+
+  return {
+    subject: "⏰ Ta déclaration arrive dans 2 jours",
+    text: [
+      "Bonjour 👋",
+      "",
+      "Ta prochaine déclaration arrive dans 2 jours.",
+      "",
+      `Date limite : ${declarationDateLabel || "à confirmer"}`,
+      "",
+      "Microassist te prévient avant les échéances importantes et t’aide à agir plus tôt.",
+      "",
+      "Tu peux retrouver ton espace fiscal ici :",
+      "https://microassist.vercel.app/?view=dashboard",
+      "",
+      "À bientôt,",
+      "Microassist",
+    ].join("\n"),
+    html: `
+      <h2>Ta déclaration arrive dans 2 jours</h2>
+      <p>Ta prochaine déclaration arrive dans <strong>2 jours</strong>.</p>
+      <p><strong>Date limite :</strong> ${declarationDateLabel || "à confirmer"}</p>
+      <p>Microassist te prévient avant les échéances importantes et t’aide à agir plus tôt.</p>
+      <p><a href="https://microassist.vercel.app/?view=dashboard" style="background:#111;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;display:inline-block;">Vérifier ma situation</a></p>
+      <p>À bientôt,<br/>Microassist</p>
+    `,
+    email,
+    deadlineDate,
+  };
+}
+
+function buildDeclarationReminderEmailPayloadJ7({ email, deadlineDate }) {
+  const declarationDateLabel = formatDeclarationDeadlineLabel(deadlineDate);
+
+  return {
+    subject: "📅 Ta déclaration arrive dans 7 jours",
+    text: [
+      "Bonjour 👋",
+      "",
+      "Ta prochaine déclaration arrive dans 7 jours.",
+      "",
+      `Date limite : ${declarationDateLabel || "à confirmer"}`,
+      "",
+      "Microassist te prévient avant les échéances importantes et t’aide à agir plus tôt.",
+      "",
+      "Tu peux retrouver ton espace fiscal ici :",
+      "https://microassist.vercel.app/?view=dashboard",
+      "",
+      "À bientôt,",
+      "Microassist",
+    ].join("\n"),
+    html: `
+      <h2>Ta déclaration arrive dans 7 jours</h2>
+      <p>Ta prochaine déclaration arrive dans <strong>7 jours</strong>.</p>
+      <p><strong>Date limite :</strong> ${declarationDateLabel || "à confirmer"}</p>
+      <p>Microassist te prévient avant les échéances importantes et t’aide à agir plus tôt.</p>
+      <p><a href="https://microassist.vercel.app/?view=dashboard" style="background:#111;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;display:inline-block;">Vérifier ma situation</a></p>
+      <p>À bientôt,<br/>Microassist</p>
+    `,
+    email,
+    deadlineDate,
+  };
+}
+
+function getTopHighSmartPriority(smartPriorities) {
+  if (!Array.isArray(smartPriorities)) return null;
+  return smartPriorities.find((item) => item?.level === "high") || null;
+}
+
+function buildSmartPriorityEmailPayload({ email, priority }) {
+  return {
+    subject: "🚨 Priorité importante dans ton espace Microassist",
+    text: [
+      "Bonjour 👋",
+      "",
+      "Microassist te prévient avant les échéances importantes et t’aide à agir plus tôt.",
+      "",
+      "Voici la priorité détectée dans ton espace fiscal :",
+      "",
+      priority?.title || "",
+      priority?.message || "",
+      "",
+      "Ouvre ton espace fiscal pour agir rapidement :",
+      "https://microassist.vercel.app/?view=dashboard",
+      "",
+      "À bientôt,",
+      "Microassist",
+    ].join("\n"),
+    html: `
+      <h2>Priorité importante dans ton espace Microassist</h2>
+      <p>Microassist te prévient avant les échéances importantes et t’aide à agir plus tôt.</p>
+      <p>Voici la priorité détectée dans ton espace fiscal.</p>
+      <p><strong>${priority?.title || ""}</strong></p>
+      <p>${priority?.message || ""}</p>
+      <p><a href="https://microassist.vercel.app/?view=dashboard" style="background:#111;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;display:inline-block;">Vérifier ma situation</a></p>
+      <p>À bientôt,<br/>Microassist</p>
+    `,
+    email,
+    priority,
   };
 }
 
@@ -1131,6 +1375,73 @@ function buildSmartAlerts({
       action: "add_revenue",
     },
   ];
+}
+
+function buildSmartPriorities(computed) {
+  const priorities = [];
+
+  if (!computed) return priorities;
+
+  if (computed.deadlineDate instanceof Date && !Number.isNaN(computed.deadlineDate.getTime())) {
+    const today = new Date();
+    const diffMs = computed.deadlineDate.getTime() - today.getTime();
+    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffDays <= 2) {
+      priorities.push({
+        level: "high",
+        title: "Déclaration urgente",
+        message: `Tu dois déclarer avant le ${computed.deadlineLabel}`,
+        action: "Déclarer maintenant",
+        actionKey: "deadline",
+      });
+    }
+  }
+
+  if (computed.tvaStatus === "exceeded") {
+    priorities.push({
+      level: "high",
+      title: "TVA dépassée",
+      message:
+        "⚠ Action urgente — Tu as dépassé le seuil TVA. Vérifie maintenant les prochaines étapes pour éviter une mauvaise surprise.",
+      action: "Vérifier maintenant",
+      actionKey: "tva",
+    });
+  }
+
+  if (computed.tvaStatus === "soon") {
+    priorities.push({
+      level: "medium",
+      title: "TVA proche du seuil",
+      message: "Tu approches du seuil TVA.",
+      action: "Anticiper",
+      actionKey: "tva",
+    });
+  }
+
+  if (computed.recommendedReserve && computed.estimatedAmount) {
+    if (computed.recommendedReserve < computed.estimatedAmount * 0.5) {
+      priorities.push({
+        level: "medium",
+        title: "Réserve insuffisante",
+        message: "Tu n’as pas assez mis de côté.",
+        action: "Ajuster",
+        actionKey: "profile",
+      });
+    }
+  }
+
+  if (computed.nextDeclarationLabel) {
+    priorities.push({
+      level: "low",
+      title: "Prochaine déclaration",
+      message: computed.nextDeclarationLabel,
+      action: null,
+      actionKey: null,
+    });
+  }
+
+  return priorities;
 }
 
 function sanitizeFiscalAnswers(sourceAnswers = {}) {
@@ -1461,7 +1772,7 @@ function buildProfilePayload(user, currentProfile = {}, overrides = {}) {
     user?.user_metadata?.full_name?.trim() ||
     user?.email?.split("@")?.[0]?.trim() ||
     null;
-  const registrationTrialWindow = getRegistrationTrialWindow(user);
+  const registrationTrialWindow = getRegistrationTrialWindow(user, currentProfile);
 
   return {
     id: user?.id || currentProfile?.id || currentProfile?.user_id || null,
@@ -1577,7 +1888,7 @@ function buildSubscriptionLikeState({
     user?.app_metadata?.subscription_status ||
     user?.user_metadata?.subscription_status ||
     null;
-  const registrationTrialWindow = getRegistrationTrialWindow(user);
+  const registrationTrialWindow = getRegistrationTrialWindow(user, userProfile);
   const subscriptionStatus =
     subscriptionRecord?.status ||
     userProfile?.subscription_status ||
@@ -1674,6 +1985,7 @@ export default function App() {
     }, duration);
   }
 }, []);
+  const smartPrioritiesRef = useRef(null);
 
 useEffect(() => {
   return () => {
@@ -1733,7 +2045,7 @@ useEffect(() => {
   const howItWorksRef = useRef(null);
   const fiscalRef = useRef(null);
   const chartRef = useRef(null);
-  const pricingDeepLinkPendingRef = useRef(hasPricingViewQuery());
+  const deepLinkViewPendingRef = useRef(getDeepLinkViewFromQuery());
   const viewLabel =
     appView === "landing"
       ? "Assistant fiscal"
@@ -1767,6 +2079,23 @@ useEffect(() => {
       });
     }, 100);
   }, [goToView]);
+  const handleOpenSmartPriorities = useCallback(() => {
+    if (appView !== "dashboard") {
+      goToDashboard({ scroll: false });
+      setTimeout(() => {
+        smartPrioritiesRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }, 120);
+      return;
+    }
+
+    smartPrioritiesRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, [appView, goToDashboard]);
   // Состояния для доходов
   const [showAddRevenue, setShowAddRevenue] = useState(false);
   const [revenues, setRevenues] = useState([]);
@@ -2102,6 +2431,9 @@ const handleRecoveryComplete = useCallback(() => {
     () => getTrialDaysLeft(subscriptionLikeState.trialEndsAt),
     [subscriptionLikeState.trialEndsAt],
   );
+  const isGuest = !user;
+  const isFounder = userProfile?.is_founder === true;
+  const totalTrialDays = isFounder ? 90 : 14;
   const isTrialActive = trialDaysLeft !== null && trialDaysLeft > 0;
   const trialHasExpired = useMemo(
     () => isTrialExpired(subscriptionLikeState.trialEndsAt),
@@ -2142,8 +2474,35 @@ const handleRecoveryComplete = useCallback(() => {
     subscriptionLikeState.trialEndsAt,
     user,
   ]);
+  const isPremiumUser = billingUiState === "premium_active";
+  const isEarlyAccessEndingToday =
+    !isGuest &&
+    !isPremiumUser &&
+    billingUiState === "trial_active" &&
+    typeof trialDaysLeft === "number" &&
+    trialDaysLeft === totalTrialDays - 7;
+  const isEarlyFullAccess =
+    !isGuest &&
+    !isPremiumUser &&
+    billingUiState === "trial_active" &&
+    typeof trialDaysLeft === "number" &&
+    trialDaysLeft > totalTrialDays - 7;
+  const isPostEarlyAccessTrial =
+    !isGuest &&
+    !isPremiumUser &&
+    (billingUiState === "trial_expired" || billingUiState === "registered_free");
+  const hasPremiumLikeAccess =
+    isPremiumUser || isEarlyFullAccess;
+  const accessProfileKey = getAccessProfile({
+    isGuest,
+    isPremiumUser,
+    isFounder,
+    isEarlyFullAccess,
+    billingUiState,
+  });
+  const accessProfile = ACCESS_MATRIX[accessProfileKey];
   const hasPremiumAccess =
-    isQaPremium || billingUiState === "premium_active" || billingUiState === "trial_active";
+    isQaPremium || hasPremiumLikeAccess;
   const trialEndsAtLabel = useMemo(() => {
     if (!subscriptionLikeState.trialEndsAt) {
       return "";
@@ -2237,6 +2596,11 @@ const handleRecoveryComplete = useCallback(() => {
 
     switch (billingUiState) {
       case "trial_active":
+        return hasPremiumLikeAccess
+          ? "PDF + CSV illimités • historique complet"
+          : remainingExports <= 0
+            ? "Essai actif • Passe à Premium pour continuer les exports"
+            : `Essai actif • ${remainingExports} export${remainingExports > 1 ? "s" : ""} gratuit${remainingExports > 1 ? "s" : ""} restant${remainingExports > 1 ? "s" : ""}`;
       case "premium_active":
         return "PDF + CSV illimités • historique complet";
       case "trial_expired":
@@ -2268,7 +2632,7 @@ const handleRecoveryComplete = useCallback(() => {
       default:
         return "";
     }
-  }, [billingUiState, isQaPremium, trialDaysLeft]);
+  }, [billingUiState, hasPremiumLikeAccess, isQaPremium, remainingExports, trialDaysLeft]);
 
   function toggleLocalPremiumQa() {
     const nextValue = !localPremiumStatus;
@@ -3621,18 +3985,22 @@ useEffect(() => {
 
   useEffect(() => {
     if (!hydrated || authLoading) return;
-    if (appView === "pricing") return;
     if (isRecoveryFlow) return;
 
     const params = new URLSearchParams(window.location.search);
     const requestedView = params.get("view");
-    const hasPendingPricingDeepLink =
-      pricingDeepLinkPendingRef.current || requestedView === "pricing";
+    const pendingDeepLinkView = deepLinkViewPendingRef.current;
+    const effectiveDeepLinkView =
+      pendingDeepLinkView ||
+      (requestedView === "pricing" || requestedView === "dashboard"
+        ? requestedView
+        : null);
 
-    if (!hasPendingPricingDeepLink) return;
+    if (!effectiveDeepLinkView) return;
+    if (appView === effectiveDeepLinkView) return;
 
-    if (requestedView === "pricing") {
-      console.log("[deep-link] detected pricing query param");
+    if (requestedView === "pricing" || requestedView === "dashboard") {
+      console.log(`[deep-link] detected ${requestedView} query param`);
     }
 
     const hash = window.location.hash.startsWith("#")
@@ -3650,17 +4018,18 @@ useEffect(() => {
     if (hasAuthRedirectInProgress) {
       console.log("[deep-link] skipped due to higher priority flow", {
         flow: "auth_redirect",
+        requestedView: effectiveDeepLinkView,
       });
       return;
     }
 
-    console.log("[deep-link] pricing opened from query param");
-    pricingDeepLinkPendingRef.current = false;
-    goToView("pricing", { push: false, focus: false });
+    console.log(`[deep-link] ${effectiveDeepLinkView} opened from query param`);
+    deepLinkViewPendingRef.current = null;
+    goToView(effectiveDeepLinkView, { push: false, focus: false });
     window.history.replaceState(
       {
         ...(window.history.state || {}),
-        appView: "pricing",
+        appView: effectiveDeepLinkView,
       },
       "",
       window.location.pathname,
@@ -4368,6 +4737,105 @@ useEffect(() => {
       currentMonthTotal,
     ],
   );
+  const smartPriorities = useMemo(() => {
+    return buildSmartPriorities({
+      ...computed,
+      recommendedReserve: availableAmount,
+    });
+  }, [availableAmount, computed]);
+  const premiumTriggerContext = useMemo(
+    () =>
+      getPremiumTriggerContext({
+        computed,
+        smartPriorities,
+        trialDaysLeft,
+        isEarlyAccessEndingToday,
+        isPostEarlyAccessTrial,
+      }),
+    [
+      computed,
+      smartPriorities,
+      trialDaysLeft,
+      isEarlyAccessEndingToday,
+      isPostEarlyAccessTrial,
+    ],
+  );
+  const sessionTriggerKey = premiumTriggerContext?.triggerType
+    ? `microassist_premium_trigger_session_${premiumTriggerContext.triggerType}`
+    : null;
+  const smartPrioritiesCountLimit =
+    accessProfile?.features?.smart_priorities_count === "all"
+      ? "all"
+      : typeof accessProfile?.features?.smart_priorities_count === "number"
+        ? accessProfile.features.smart_priorities_count
+        : 0;
+  const visibleSmartPriorities =
+    smartPrioritiesCountLimit === "all"
+      ? smartPriorities
+      : smartPriorities.slice(0, Math.max(0, smartPrioritiesCountLimit));
+  const hasLockedSmartPriorities =
+    smartPrioritiesCountLimit !== "all" &&
+    smartPriorities.length > Math.max(0, smartPrioritiesCountLimit);
+  useEffect(() => {
+    console.info("[smart-priorities]", smartPriorities);
+  }, [smartPriorities]);
+  useEffect(() => {
+    console.info("[premium-gating]", {
+      billingUiState,
+      isEarlyFullAccess,
+      hasPremiumLikeAccess,
+      smartPrioritiesCount: smartPriorities.length,
+    });
+  }, [
+    billingUiState,
+    hasPremiumLikeAccess,
+    isEarlyFullAccess,
+    smartPriorities.length,
+  ]);
+  useEffect(() => {
+    console.info("[access-profile]", {
+      accessProfileKey,
+      accessProfile,
+    });
+  }, [accessProfile, accessProfileKey]);
+  useEffect(() => {
+    console.info("[access-gating]", {
+      accessProfileKey,
+      features: accessProfile?.features,
+    });
+  }, [accessProfile?.features, accessProfileKey]);
+  useEffect(() => {
+    if (!isEarlyFullAccess) return;
+    console.info("[early-access] active");
+  }, [isEarlyFullAccess]);
+  useEffect(() => {
+    if (isGuest) {
+      console.info("[early-access-ui] guest");
+      return;
+    }
+
+    if (isEarlyAccessEndingToday) {
+      console.info("[early-access-ui] ending-today");
+      return;
+    }
+
+    if (isEarlyFullAccess) {
+      console.info("[early-access-ui] discovery");
+      return;
+    }
+
+    if (isPostEarlyAccessTrial) {
+      console.info("[early-access-ui] post-discovery-trial");
+    }
+  }, [
+    isEarlyAccessEndingToday,
+    isEarlyFullAccess,
+    isGuest,
+    isPostEarlyAccessTrial,
+  ]);
+  useEffect(() => {
+    console.info("[founder]", isFounder);
+  }, [isFounder]);
   const smartTipsZoneClass = smartAlerts.some(
     (alert) => alert.level === "danger" || alert.level === "warning",
   )
@@ -4522,12 +4990,7 @@ useEffect(() => {
     }
 
     if (!user && (revenues.length > 0 || guestInvoices.length > 0)) {
-      return {
-        title: "Mode local actif",
-        text: "Commence gratuitement. Crée un compte pour retrouver ton espace. Passe à Premium si tu veux aller plus loin.",
-        cta: "Créer mon compte gratuit",
-        onClick: () => openAuthModal("signup"),
-      };
+      return null;
     }
 
     if (billingUiState === "trial_active") {
@@ -4590,14 +5053,7 @@ useEffect(() => {
     }
 
     if (!user && (revenues.length > 0 || guestInvoices.length > 0)) {
-      return dashboardNextStep?.cta === "Créer mon compte gratuit"
-        ? null
-        : {
-            title: "Retrouver ce suivi plus tard",
-            text: "Commence gratuitement. Crée un compte pour retrouver ton espace. Passe à Premium si tu veux aller plus loin.",
-            cta: "Créer mon compte",
-            onClick: () => openAuthModal("signup"),
-          };
+      return null;
     }
 
     if (revenues.length > 0 && revenues.length < 3) {
@@ -5317,7 +5773,7 @@ useEffect
           line1: "✨ Crée ton compte",
           line2: "Commence gratuitement. Crée un compte pour retrouver ton espace.",
           line3: "Passe à Premium si tu veux aller plus loin.",
-          cta: "Créer mon compte gratuit",
+          cta: "Créer mon compte",
         };
       case "trial_active":
         return {
@@ -5355,6 +5811,66 @@ useEffect
   const premiumModalContent = useMemo(() => {
     const normalizedSource = String(premiumModalSource || "unknown");
 
+    if (normalizedSource === "tva_exceeded") {
+      return {
+        title: "Anticipe la TVA avec Premium",
+        intro:
+          "Tu as dépassé le seuil TVA. Premium t’aide à voir plus clair et à anticiper les prochaines étapes.",
+        heroTitle: "TVA à anticiper",
+        heroText:
+          "Microassist te prévient avant les échéances importantes et t’aide à agir plus tôt.",
+        firstBenefit: "✔ Alertes TVA et priorités complètes",
+      };
+    }
+
+    if (normalizedSource === "declaration_urgent") {
+      return {
+        title: "Ne rate pas ton échéance",
+        intro:
+          "Ta déclaration approche. Premium te prévient avant les échéances importantes et t’aide à agir plus tôt.",
+        heroTitle: "Échéance à préparer",
+        heroText:
+          "Garde une vue claire sur ce qui devient urgent avant qu’il ne soit trop tard.",
+        firstBenefit: "✔ Alertes avant échéances importantes",
+      };
+    }
+
+    if (normalizedSource === "multiple_priorities") {
+      return {
+        title: "Plusieurs priorités ont été détectées",
+        intro:
+          "Premium te donne une vision plus complète pour mieux anticiper et éviter les oublis.",
+        heroTitle: "Priorités complètes",
+        heroText:
+          "Vois toutes tes priorités et avance avec une lecture plus proactive de ton espace fiscal.",
+        firstBenefit: "✔ Smart Priorités complètes",
+      };
+    }
+
+    if (normalizedSource === "early_access_ending") {
+      return {
+        title: "Ton accès complet se termine aujourd’hui",
+        intro:
+          "Certaines fonctionnalités vont devenir Premium. Active Premium pour garder toutes les alertes et priorités.",
+        heroTitle: "Garde l’accès complet",
+        heroText:
+          "Continue à recevoir les alertes utiles au bon moment après ta période découverte.",
+        firstBenefit: "✔ Alertes et priorités Premium conservées",
+      };
+    }
+
+    if (normalizedSource === "post_early_access") {
+      return {
+        title: "Retrouve toutes les fonctionnalités",
+        intro:
+          "Tu vois l’essentiel, mais Premium te prévient avant les échéances importantes et t’aide à agir plus tôt.",
+        heroTitle: "Premium pour anticiper",
+        heroText:
+          "Retrouve les alertes automatiques, les priorités complètes et les exports avancés.",
+        firstBenefit: "✔ Alertes automatiques et priorités complètes",
+      };
+    }
+
     if (normalizedSource.includes("export")) {
       return {
         title: "Premium pour exporter sans limite",
@@ -5371,11 +5887,11 @@ useEffect
       return {
         title: "Premium pour anticiper la TVA",
         intro:
-          "Reçois des alertes TVA plus visibles et des rappels SMS pour préparer ta facturation au bon moment.",
+          "Reçois des alertes email et des priorités plus visibles pour préparer ta facturation au bon moment.",
         heroTitle: "Alerte TVA prioritaire",
         heroText:
           "Un suivi plus direct pour anticiper l’activation TVA sans manquer une étape clé.",
-        firstBenefit: "✔ Alertes TVA + rappels SMS automatiques",
+        firstBenefit: "✔ Alertes TVA et priorités complètes",
       };
     }
 
@@ -5416,14 +5932,46 @@ useEffect
     }
 
     return {
-      title: "Premium arrive bientôt ✨",
+      title: "Premium pour anticiper",
       intro:
-        "La version Premium est en cours de finalisation. Laisse simplement ton email pour recevoir l’accès en avant-première.",
-      heroTitle: "Ouverture prochaine",
-      heroText: "Aucun compte n’est nécessaire pour rejoindre la liste Premium.",
-      firstBenefit: "✔ Historique complet de tes revenus",
+        "Tu vois l’essentiel. Premium t’aide à anticiper.",
+      heroTitle: "Alertes et priorités",
+      heroText:
+        "Garde une vue claire sur ce qui compte vraiment avant les échéances importantes.",
+      firstBenefit: "✔ Alertes email avant échéance",
     };
   }, [premiumModalSource]);
+  const premiumModalPrimaryCtaLabel = useMemo(() => {
+    const normalizedSource = String(premiumModalSource || "unknown");
+
+    switch (normalizedSource) {
+      case "tva_exceeded":
+        return "Voir mes options Premium";
+      case "declaration_urgent":
+        return "Activer Premium";
+      case "multiple_priorities":
+        return "Débloquer toutes les priorités";
+      case "early_access_ending":
+        return "Garder l’accès complet";
+      case "post_early_access":
+        return "Retrouver Premium";
+      default:
+        return "Recevoir l’accès en avant-première";
+    }
+  }, [premiumModalSource]);
+  const premiumModalBenefits = useMemo(
+    () =>
+      [
+        premiumModalContent.firstBenefit,
+        "✔ Alertes email avant échéance",
+        "✔ Export PDF / CSV illimité",
+        "✔ Suivi TVA + ACRE + CFE intelligent",
+        "✔ Smart Priorités complètes",
+        "✔ Alertes intelligentes par email",
+        "✔ Priorités et rappels avancés",
+      ].filter((benefit, index, benefits) => benefit && benefits.indexOf(benefit) === index),
+    [premiumModalContent.firstBenefit],
+  );
   const revenueSectionTotal = useMemo(
     () =>
       filteredRevenues.reduce((sum, item) => sum + Number(item.amount || 0), 0),
@@ -5503,8 +6051,48 @@ useEffect
     openPremiumModal(premiumContextualCTA?.source || "dashboard_top");
   }, [billingUiState, openAuthModal, openPremiumModal, premiumContextualCTA?.source]);
   useEffect(() => {
+    if (billingUiState === "guest" || billingUiState === "premium_active") {
+      return;
+    }
+
+    if (premiumTriggerContext?.triggerType && sessionTriggerKey) {
+      console.info("[premium-trigger] detected", premiumTriggerContext);
+
+      try {
+        if (sessionStorage.getItem(sessionTriggerKey)) {
+          return;
+        }
+      } catch {
+        // ignore sessionStorage parsing issues
+      }
+
+      trackEvent("premium_modal_open", {
+        triggerType: premiumTriggerContext.triggerType,
+        priorityLevel: premiumTriggerContext.priorityLevel,
+      });
+      console.info("[premium-analytics]", {
+        event: "premium_modal_open",
+        triggerType: premiumTriggerContext.triggerType,
+        priorityLevel: premiumTriggerContext.priorityLevel,
+      });
+      openPremiumModal(premiumTriggerContext.triggerType);
+
+      try {
+        sessionStorage.setItem(
+          sessionTriggerKey,
+          JSON.stringify({
+            trigger: premiumTriggerContext.triggerType,
+            at: Date.now(),
+          }),
+        );
+      } catch {
+        // ignore sessionStorage write issues
+      }
+
+      return;
+    }
+
     if (!premiumTrigger) return;
-    if (billingUiState === "guest") return;
 
     const storageKey = "microassist_premium_trigger_last";
     const cooldownMs = 24 * 60 * 60 * 1000;
@@ -5538,7 +6126,13 @@ useEffect
     } catch {
       // ignore storage write issues
     }
-  }, [billingUiState, openPremiumModal, premiumTrigger]);
+  }, [
+    billingUiState,
+    openPremiumModal,
+    premiumTrigger,
+    premiumTriggerContext,
+    sessionTriggerKey,
+  ]);
   useEffect(() => {
     if (!user?.id || !user?.email) return;
     if (billingUiState !== "trial_active") return;
@@ -5776,6 +6370,306 @@ useEffect
     billingUiState,
     sendTrialEndingEmail,
     subscriptionLikeState?.trialEndsAt,
+    user?.email,
+    user?.id,
+  ]);
+  useEffect(() => {
+    const nextDeclarationDate = computed?.deadlineDate;
+
+    if (!user?.id || !user?.email) return;
+    if (accessProfile?.features?.declaration_email_j7 !== true) {
+      console.info(
+        "[email-gating] declaration_j7 skipped: no premium-like access",
+      );
+      return;
+    }
+    if (
+      !(nextDeclarationDate instanceof Date) ||
+      Number.isNaN(nextDeclarationDate.getTime())
+    ) {
+      return;
+    }
+    if (!shouldSendDeclarationReminderJ7(nextDeclarationDate)) return;
+    const eventType = "declaration_j7";
+
+    if (wasEmailEventHandledRecently(eventType, user.id)) {
+      console.info("[declaration-email-j7] skipped", {
+        eventType,
+        reason: "recently_handled",
+        userId: user.id,
+      });
+      return;
+    }
+
+    const emailPayload = buildDeclarationReminderEmailPayloadJ7({
+      email: user.email,
+      deadlineDate: nextDeclarationDate,
+    });
+    const requestBody = {
+      userId: user.id,
+      email: user.email,
+      eventType,
+      subject: emailPayload.subject,
+      text: emailPayload.text,
+      html: emailPayload.html,
+      declarationDate: nextDeclarationDate,
+    };
+
+    console.info("[declaration-email-j7] start", {
+      eventType,
+      userId: user.id,
+      email: user.email,
+      declarationDate: nextDeclarationDate,
+    });
+
+    let cancelled = false;
+
+    const run = async () => {
+      try {
+        const result = await sendTrialEndingEmail(requestBody);
+
+        if (cancelled) return;
+
+        if (result?.ok === true && result?.skipped === true) {
+          console.info("[declaration-email-j7] skipped", result);
+          markEmailEventHandled(eventType, user.id, {
+            declarationDate: nextDeclarationDate.toISOString(),
+          });
+          return;
+        }
+
+        if (result?.ok === true && result?.success === true) {
+          console.info("[declaration-email-j7] success", result);
+          markEmailEventHandled(eventType, user.id, {
+            declarationDate: nextDeclarationDate.toISOString(),
+          });
+          return;
+        }
+
+        console.warn("[declaration-email-j7] error", result);
+      } catch (error) {
+        if (cancelled) return;
+        console.warn("[declaration-email-j7] error", error);
+      }
+    };
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    accessProfile?.features?.declaration_email_j7,
+    computed?.deadlineDate,
+    sendTrialEndingEmail,
+    user?.email,
+    user?.id,
+  ]);
+  useEffect(() => {
+    const nextDeclarationDate = computed?.deadlineDate;
+
+    if (!user?.id || !user?.email) return;
+    if (accessProfile?.features?.declaration_email_j2 !== true) {
+      console.info(
+        "[email-gating] declaration_j2 skipped: no premium-like access",
+      );
+      return;
+    }
+    if (
+      !(nextDeclarationDate instanceof Date) ||
+      Number.isNaN(nextDeclarationDate.getTime())
+    ) {
+      return;
+    }
+    if (!shouldSendDeclarationReminderJ2(nextDeclarationDate)) return;
+    const eventType = "declaration_j2";
+
+    if (wasEmailEventHandledRecently(eventType, user.id)) {
+      console.info("[declaration-email-j2] skipped", {
+        eventType,
+        reason: "recently_handled",
+        userId: user.id,
+      });
+      return;
+    }
+
+    const emailPayload = buildDeclarationReminderEmailPayloadJ2({
+      email: user.email,
+      deadlineDate: nextDeclarationDate,
+    });
+    const requestBody = {
+      userId: user.id,
+      email: user.email,
+      eventType,
+      subject: emailPayload.subject,
+      text: emailPayload.text,
+      html: emailPayload.html,
+      declarationDate: nextDeclarationDate,
+    };
+
+    console.info("[declaration-email-j2] start", {
+      eventType,
+      userId: user.id,
+      email: user.email,
+      declarationDate: nextDeclarationDate,
+    });
+
+    let cancelled = false;
+
+    const run = async () => {
+      try {
+        const result = await sendTrialEndingEmail(requestBody);
+
+        if (cancelled) return;
+
+      if (result?.ok === true && result?.skipped === true) {
+        console.info("[declaration-email-j2] skipped", result);
+        markEmailEventHandled(eventType, user.id, {
+          declarationDate: nextDeclarationDate.toISOString(),
+        });
+        return;
+      }
+
+      if (result?.ok === true && result?.success === true) {
+        console.info("[declaration-email-j2] success", result);
+        markEmailEventHandled(eventType, user.id, {
+          declarationDate: nextDeclarationDate.toISOString(),
+        });
+        return;
+      }
+
+        console.warn("[declaration-email-j2] error", result);
+      } catch (error) {
+        if (cancelled) return;
+        console.warn("[declaration-email-j2] error", error);
+      }
+    };
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    accessProfile?.features?.declaration_email_j2,
+    computed?.deadlineDate,
+    sendTrialEndingEmail,
+    user?.email,
+    user?.id,
+  ]);
+  useEffect(() => {
+    if (!user?.id || !user?.email) return;
+    if (accessProfile?.features?.smart_priority_email !== true) {
+      console.info(
+        "[email-gating] smart_priority_high skipped: no premium-like access",
+      );
+      return;
+    }
+    if (!Array.isArray(smartPriorities) || smartPriorities.length === 0) return;
+
+    const firstVisiblePriority = smartPriorities[0] || null;
+    const topHighPriority = getTopHighSmartPriority(smartPriorities);
+
+    if (firstVisiblePriority?.level !== "high" || !topHighPriority) {
+      return;
+    }
+
+    const eventType = "smart_priority_high";
+    const priorityTitle = topHighPriority?.title || "";
+    const priorityMessage = topHighPriority?.message || "";
+
+    if (wasEmailEventHandledRecently(eventType, user.id)) {
+      try {
+        const raw = localStorage.getItem(
+          getEmailEventStorageKey(eventType, user.id),
+        );
+
+        if (raw) {
+          const parsed = JSON.parse(raw);
+
+          if (
+            parsed?.priorityTitle === priorityTitle &&
+            parsed?.priorityMessage === priorityMessage
+          ) {
+            console.info("[smart-priority-email] skipped", {
+              eventType,
+              reason: "recently_handled_same_priority",
+              userId: user.id,
+              priorityTitle,
+            });
+            return;
+          }
+        }
+      } catch {
+        // ignore localStorage parsing issues for smart priority dedupe
+      }
+    }
+
+    const emailPayload = buildSmartPriorityEmailPayload({
+      email: user.email,
+      priority: topHighPriority,
+    });
+    const requestBody = {
+      userId: user.id,
+      email: user.email,
+      eventType,
+      subject: emailPayload.subject,
+      text: emailPayload.text,
+      html: emailPayload.html,
+      priorityTitle,
+      priorityMessage,
+    };
+
+    console.info("[smart-priority-email] start", {
+      eventType,
+      userId: user.id,
+      email: user.email,
+      priorityTitle,
+      priorityMessage,
+    });
+
+    let cancelled = false;
+
+    const run = async () => {
+      try {
+        const result = await sendTrialEndingEmail(requestBody);
+
+        if (cancelled) return;
+
+        if (result?.ok === true && result?.skipped === true) {
+          console.info("[smart-priority-email] skipped", result);
+          markEmailEventHandled(eventType, user.id, {
+            priorityTitle,
+            priorityMessage,
+          });
+          return;
+        }
+
+        if (result?.ok === true && result?.success === true) {
+          console.info("[smart-priority-email] success", result);
+          markEmailEventHandled(eventType, user.id, {
+            priorityTitle,
+            priorityMessage,
+          });
+          return;
+        }
+
+        console.warn("[smart-priority-email] error", result);
+      } catch (error) {
+        if (cancelled) return;
+        console.warn("[smart-priority-email] error", error);
+      }
+    };
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    accessProfile?.features?.smart_priority_email,
+    sendTrialEndingEmail,
+    smartPriorities,
     user?.email,
     user?.id,
   ]);
@@ -6201,18 +7095,19 @@ useEffect(() => {
 
     if (isRecoveryFlow) return;
 
-    if (pricingDeepLinkPendingRef.current) {
-      goToView("pricing", { push: false, focus: false });
-      pricingDeepLinkPendingRef.current = false;
+    if (deepLinkViewPendingRef.current) {
+      const deepLinkView = deepLinkViewPendingRef.current;
+      goToView(deepLinkView, { push: false, focus: false });
+      deepLinkViewPendingRef.current = null;
       window.history.replaceState(
         {
           ...(window.history.state || {}),
-          appView: "pricing",
+          appView: deepLinkView,
         },
         "",
         window.location.pathname,
       );
-      console.log("[deep-link] pricing opened from query param");
+      console.log(`[deep-link] ${deepLinkView} opened from query param`);
       return;
     }
 
@@ -7673,6 +8568,13 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
     premiumModalSource ||
     (billingUiState === "trial_expired" ? "premium_after_trial" : "pricing_modal");
 
+  trackEvent("premium_modal_cta_click", {
+    triggerType: source,
+  });
+  console.info("[premium-analytics]", {
+    event: "premium_modal_cta_click",
+    triggerType: source,
+  });
   track("signup_cta_clicked", { source });
   await joinPremiumWaitlist({
     email: premiumWaitlistEmail,
@@ -8034,13 +8936,22 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
   Tarifs
 </button>
 
-              <button
-                type="button"
+              <a
                 className="navLink"
-                onClick={() => goToLandingSection("contact")}
+                href={FEEDBACK_FORM_URL}
+                target="_blank"
+                rel="noreferrer"
               >
                 Contact
-              </button>
+              </a>
+              <a
+                className="navLink"
+                href={FEEDBACK_FORM_URL}
+                target="_blank"
+                rel="noreferrer"
+              >
+                ❓ Signaler un problème
+              </a>
             </nav>
 
             {isLocalhostQa && (
@@ -8121,7 +9032,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
     )}
   </div>
 )}
-        {successToast && (
+        {successToast && !showPricingModal && (
   <div
     className="floatingStatusNotice floatingStatusNoticeSuccess"
     role="status"
@@ -9200,6 +10111,109 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
           ) : appView === "dashboard" ? (
 
             <section ref={fiscalRef} className="card">
+              {isFounder && (
+                <div
+                  style={{
+                    marginBottom: 16,
+                    padding: "12px 14px",
+                    borderRadius: 14,
+                    background: "linear-gradient(180deg, #ecfeff 0%, #f0fdf4 100%)",
+                    border: "1px solid #99f6e4",
+                    color: "#0f766e",
+                    fontSize: 14,
+                    fontWeight: 600,
+                    boxShadow: "0 8px 18px rgba(20, 184, 166, 0.08)",
+                  }}
+                >
+                  🎁 Offre fondateur — 3 mois Premium offerts
+                </div>
+              )}
+              {!isPremiumUser && isGuest ? (
+                <div className="discoveryBanner">
+                  <div className="discoveryBannerTitle">
+                    Crée ton compte pour activer ton essai Premium
+                  </div>
+                  <div className="discoveryBannerText">
+                    Tu vois l’essentiel. Crée ton compte pour retrouver ton
+                    espace. Premium te prévient avant les échéances importantes
+                    et t’aide à agir plus tôt.
+                  </div>
+                  <div className="discoveryBannerActions">
+                    <button
+                      className="btn btnActionSecondary btnSmall"
+                      type="button"
+                      onClick={() => openAuthModal("signup")}
+                    >
+                      Créer mon compte
+                    </button>
+                  </div>
+                </div>
+              ) : !isPremiumUser && isEarlyAccessEndingToday ? (
+                <div className="discoveryBanner">
+                  <div className="discoveryBannerTitle">
+                    ⏳ Ton mode découverte se termine aujourd’hui
+                  </div>
+                  <div className="discoveryBannerText">
+                    Ensuite, tu verras l’essentiel. Premium te prévient avant
+                    les échéances importantes et t’aide à agir plus tôt :
+                  </div>
+                  <ul className="discoveryBannerList">
+                    <li>Smart priorités avancées</li>
+                    <li>alertes intelligentes</li>
+                    <li>rappels automatiques</li>
+                  </ul>
+                  <div className="discoveryBannerActions">
+                    <button
+                      className="btn btnActionSecondary btnSmall"
+                      type="button"
+                      onClick={() => openPremiumModal("early_access_end")}
+                    >
+                      Voir Premium
+                    </button>
+                  </div>
+                </div>
+              ) : !isPremiumUser && isEarlyFullAccess ? (
+                <div className="discoveryBanner">
+                  <div className="discoveryBannerTitle">
+                    ✨ Mode découverte activé
+                  </div>
+                  <div className="discoveryBannerText">
+                    Pendant cette période découverte, tu vois aussi ce que
+                    Premium ajoute pour t’aider à agir plus tôt.
+                  </div>
+                  <div className="dashboardHelperText" style={{ marginTop: 8 }}>
+                    Découvre tes priorités dès maintenant.
+                  </div>
+                  <div className="discoveryBannerActions">
+                    <button
+                      className="btn btnActionSecondary btnSmall"
+                      type="button"
+                      onClick={handleOpenSmartPriorities}
+                    >
+                      Voir mes priorités
+                    </button>
+                  </div>
+                </div>
+              ) : !isPremiumUser && isPostEarlyAccessTrial ? (
+                <div className="discoveryBanner">
+                  <div className="discoveryBannerTitle">
+                    🔒 Certaines fonctionnalités sont maintenant en Premium
+                  </div>
+                  <div className="discoveryBannerText">
+                    Tu vois l’essentiel. Premium te prévient avant les
+                    échéances importantes et t’aide à agir plus tôt.
+                  </div>
+                  <div className="discoveryBannerActions">
+                    <button
+                      className="btn btnActionSecondary btnSmall"
+                      type="button"
+                      onClick={() => openPremiumModal("early_access_end")}
+                    >
+                      Activer Premium
+                    </button>
+                  </div>
+                </div>
+              ) : null}
               {shouldShowDashboardTopNudge && (
                 <div
                   style={{
@@ -9859,12 +10873,72 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 </div>
               </div>
 
-              <div className={smartTipsZoneClass}>
+              <div ref={smartPrioritiesRef} className={smartTipsZoneClass}>
               <div className="smartTips" style={{ marginTop: 0 }}>
                 <div className="dashboardSectionHeader">
                   <div className="dashboardSectionHeaderMain">
                     <h3 className="dashboardSectionTitle">Smart Priorités</h3>
                   </div>
+                </div>
+                <div className="smartPrioritiesEngine">
+                  {smartPriorities.length === 0 && (
+                    <p className="muted">Aucune priorité détectée.</p>
+                  )}
+
+                  {visibleSmartPriorities.map((item, index) => (
+                    <div
+                      key={`${item.title}-${index}`}
+                      className={`priorityCard ${item.level}`}
+                    >
+                      <div className="priorityTitle">{item.title}</div>
+                      <div className="priorityMessage">{item.message}</div>
+
+                      {item.action && (
+                        <button
+                          className="btn btnPrimary btnSmall"
+                          type="button"
+                          onClick={() => {
+                            if (item.actionKey) {
+                              handleSmartAlertAction(item.actionKey);
+                            }
+                          }}
+                        >
+                          {item.action}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+
+                  {hasLockedSmartPriorities && (
+                    <div className="priorityLockCard">
+                      <div className="priorityTitle">
+                        🔒 Priorités automatiques réservées à Premium
+                      </div>
+                      <div className="priorityMessage">
+                        En gratuit, tu vois l’essentiel. Premium te prévient
+                        avant les échéances importantes et t’aide à agir plus
+                        tôt.
+                      </div>
+                      <ul className="priorityLockList">
+                        <li>alertes email automatiques</li>
+                        <li>priorités complètes</li>
+                        <li>anticipation des risques</li>
+                      </ul>
+                      <button
+                        className="btn btnActionSecondary btnSmall"
+                        type="button"
+                        onClick={() => openPremiumModal("smart_priorities_lock")}
+                      >
+                        Activer Premium
+                      </button>
+                    </div>
+                  )}
+                  {!hasPremiumLikeAccess && smartPriorities.length > 0 && (
+                    <p className="muted">
+                      En gratuit, tu vois l’essentiel. Premium te prévient avant
+                      les échéances importantes et t’aide à agir plus tôt.
+                    </p>
+                  )}
                 </div>
                 <div className="smartTipsList">
                   {smartAlerts.map((alert) => (
@@ -11003,6 +12077,17 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 )}
               </div>
 
+              <div className="dashboardFooterLinks">
+                <a
+                  href={FEEDBACK_FORM_URL}
+                  className="dashboardProblemLink"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  🐛 Signaler un problème
+                </a>
+              </div>
+
               {dashboardFloatingAction && (
                 <>
                   <div className="dashboardMobileActionSpacer" aria-hidden="true" />
@@ -11307,8 +12392,10 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
               <span style={{ color: "#e2e8f0", fontSize: "14px" }}>|</span>
 
               <a
-                href="mailto:support@microassist.fr"
+                href={FEEDBACK_FORM_URL}
                 className="footerLink"
+                target="_blank"
+                rel="noreferrer"
                 style={{
                   color: "#6b7280",
                   textDecoration: "none",
@@ -11754,12 +12841,9 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
         lineHeight: 1.7,
       }}
     >
-      <li>{premiumModalContent.firstBenefit}</li>
-      <li>✔ Alertes SMS urgentes avant échéance</li>
-      <li>✔ Export PDF / CSV illimité</li>
-      <li>✔ Suivi TVA + ACRE + CFE intelligent</li>
-      <li>✔ Recommandations personnalisées selon ton profil</li>
-      <li>✔ Accès prioritaire aux nouvelles fonctionnalités</li>
+      {premiumModalBenefits.map((benefit) => (
+        <li key={benefit}>{benefit}</li>
+      ))}
     </ul>
   </div>
 
@@ -11779,8 +12863,21 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
 >
   {isJoiningPremiumWaitlist
     ? "Inscription en cours..."
-    : "Recevoir l’accès en avant-première"}
+    : premiumModalPrimaryCtaLabel}
 </button>
+
+  <p
+    style={{
+      flexBasis: "100%",
+      fontSize: 12,
+      color: "#475569",
+      textAlign: "center",
+      margin: "-2px 0 0",
+      lineHeight: 1.5,
+    }}
+  >
+    Accès complet bientôt disponible
+  </p>
 
     <button
       className="btn btnGhost"
@@ -11794,6 +12891,19 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
       Continuer en gratuit
     </button>
   </div>
+
+  <p
+    style={{
+      fontSize: 12,
+      color: "#475569",
+      textAlign: "center",
+      marginTop: 10,
+      marginBottom: 0,
+      lineHeight: 1.5,
+    }}
+  >
+    Tu seras prévenue dès que l’accès Premium complet sera disponible.
+  </p>
 
   <p
     style={{
