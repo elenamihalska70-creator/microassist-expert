@@ -1,10 +1,10 @@
-import React from "react";
 import { ACCESS_MATRIX } from "../config/accessMatrix.js";
 
 export default function PricingPage({
   onClose,
   onSelectPlan,
   onTryWithoutAccount,
+  onOpenFutureAdvanced,
 }) {
   const freeFeatures = ACCESS_MATRIX.registered_free.features;
   const premiumFeatures = ACCESS_MATRIX.premium_active.features;
@@ -112,7 +112,7 @@ export default function PricingPage({
           <div className="price">
             5€ <span>/mois</span>
           </div>
-          <div className="annualPrice">Paiement bientôt disponible</div>
+          <div className="annualPrice">Paiement en cours d’ouverture</div>
 
           <p className="pricingCardIntro">
             Microassist te prévient avant les échéances importantes et t’aide à agir plus tôt.
@@ -155,7 +155,7 @@ export default function PricingPage({
             onClick={() => onSelectPlan?.("premium")}
             type="button"
           >
-            Être informé du lancement Premium
+            Découvrir Premium
           </button>
 
           <div className="guarantee">
@@ -177,7 +177,30 @@ export default function PricingPage({
             Cet accès découverte dépend de ton onboarding, pas de la formule
             gratuite ou Premium.
           </p>
+          <p>
+            Microassist évolue en 3 niveaux d’accompagnement : d’abord
+            comprendre, ensuite anticiper, puis automatiser.
+          </p>
         </div>
+      </div>
+
+      <div className="pricingIntroNotice" style={{ marginTop: 18 }}>
+        <div className="pricingIntroNoticeText">
+          <h2>Offre avancée à venir</h2>
+          <p>SMS, automatisation et fonctionnalités plus avancées.</p>
+          <p>
+            Cette offre restera distincte du Premium actuel et sera proposée
+            progressivement.
+          </p>
+        </div>
+
+        <button
+          className="btn btnGhost"
+          onClick={() => onOpenFutureAdvanced?.()}
+          type="button"
+        >
+          Découvrir les fonctionnalités à venir
+        </button>
       </div>
 
       {/* Comparatif visuel */}

@@ -358,6 +358,31 @@ function track(eventName, params = {}) {
   }
 }
 
+function appendAnalyticsEntry({
+  entry,
+  storageKey,
+  logPrefix,
+  globalLogKey = null,
+}) {
+  if (typeof window !== "undefined") {
+    if (globalLogKey) {
+      window[globalLogKey] = window[globalLogKey] || [];
+      window[globalLogKey].push(entry);
+    }
+
+    try {
+      const raw = window.localStorage?.getItem(storageKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      const next = Array.isArray(parsed) ? [...parsed, entry] : [entry];
+      window.localStorage?.setItem(storageKey, JSON.stringify(next));
+    } catch {
+      // Ignore localStorage failures for client-side analytics.
+    }
+  }
+
+  console.log(logPrefix, entry);
+}
+
 function debugLog(...args) {
   if (import.meta.env.DEV) {
     console.info(...args);
@@ -1111,35 +1136,102 @@ function buildSmartPriorityEmailPayload({ email, priority }) {
 }
 
 function normalizePremiumTrackingSource(source = "unknown") {
-  const normalized = String(source || "unknown").toLowerCase();
-
-  if (normalized.includes("export")) return "exports";
-  if (normalized.includes("tva")) return "tva";
-  if (normalized.includes("history") || normalized.includes("revenue")) {
-    return "revenues";
-  }
-  if (normalized.includes("acre")) return "acre";
-  if (normalized.includes("invoice") || normalized.includes("unpaid")) {
-    return "invoices";
-  }
-
-  return "default";
+  return normalizePremiumTriggerType(source);
 }
 
 function normalizePremiumConversionSource(source = "unknown") {
   const normalized = String(source || "unknown").toLowerCase();
 
-  if (normalized.includes("export")) return "exports";
-  if (normalized.includes("tva")) return "TVA";
   if (normalized.includes("score")) return "score";
   if (normalized.includes("reminder") || normalized.includes("sms")) {
     return "reminders";
   }
+
+  return normalizePremiumTriggerType(source);
+}
+
+function getOfferTypeFromTriggerType(triggerType = "unknown") {
+  return normalizePremiumTriggerType(triggerType) === "future_advanced_features"
+    ? "future_advanced"
+    : "current_premium";
+}
+
+function normalizePremiumTriggerType(source = "unknown") {
+  const normalized = String(source || "unknown").toLowerCase();
+
+  if (
+    normalized === "future_advanced_features" ||
+    normalized.includes("sms_premium") ||
+    normalized.includes("sms_future")
+  ) {
+    return "future_advanced_features";
+  }
+
+  if (
+    normalized === "tva_exceeded" ||
+    normalized.includes("premium_tva_context")
+  ) {
+    return normalized === "tva_exceeded" ? "tva_exceeded" : "tva_context";
+  }
+
+  if (normalized === "declaration_urgent") {
+    return "declaration_urgent";
+  }
+
+  if (
+    normalized === "multiple_priorities" ||
+    normalized.includes("smart_priorities_lock")
+  ) {
+    return normalized.includes("smart_priorities_lock")
+      ? "smart_priorities_lock"
+      : "multiple_priorities";
+  }
+
+  if (
+    normalized === "early_access_ending" ||
+    normalized.includes("early_access_end")
+  ) {
+    return "early_access_ending";
+  }
+
+  if (
+    normalized === "post_early_access" ||
+    normalized.includes("premium_after_trial") ||
+    normalized.includes("dashboard_next_step_trial") ||
+    normalized.includes("dashboard_recommendation_premium")
+  ) {
+    return "post_early_access";
+  }
+
+  if (normalized.includes("exports_limit") || normalized.includes("export")) {
+    return "exports_limit";
+  }
+
+  if (normalized.includes("premium_history_context")) {
+    return "history_context";
+  }
+
+  if (normalized.includes("premium_acre_context") || normalized.includes("acre")) {
+    return "acre_context";
+  }
+
+  if (
+    normalized.includes("premium_unpaid_context") ||
+    normalized.includes("invoice") ||
+    normalized.includes("unpaid")
+  ) {
+    return "unpaid_context";
+  }
+
   if (normalized.includes("dashboard_top")) {
     return "dashboard_banner";
   }
 
-  return "dashboard_banner";
+  if (normalized.includes("pricing_page")) {
+    return "pricing_page";
+  }
+
+  return "default";
 }
 
 function trackPremiumEvent(source = "unknown", action = "modal_open") {
@@ -1149,19 +1241,11 @@ function trackPremiumEvent(source = "unknown", action = "modal_open") {
     timestamp: new Date().toISOString(),
   };
 
-  try {
-    if (typeof window !== "undefined") {
-      const storageKey = "premium_conversion_events";
-      const raw = window.localStorage?.getItem(storageKey);
-      const parsed = raw ? JSON.parse(raw) : [];
-      const next = Array.isArray(parsed) ? [...parsed, entry] : [entry];
-      window.localStorage?.setItem(storageKey, JSON.stringify(next));
-    }
-  } catch {
-    // Ignore localStorage failures for MVP analytics.
-  }
-
-  console.log("[microassist:premium]", entry);
+  appendAnalyticsEntry({
+    entry,
+    storageKey: "premium_conversion_events",
+    logPrefix: "[microassist:premium]",
+  });
 }
 
 function trackEvent(name, payload = {}) {
@@ -1171,22 +1255,12 @@ function trackEvent(name, payload = {}) {
     ...payload,
   };
 
-  if (typeof window !== "undefined") {
-    window.__microassistEventLog = window.__microassistEventLog || [];
-    window.__microassistEventLog.push(entry);
-
-    try {
-      const storageKey = "microassist_analytics_events";
-      const raw = window.localStorage?.getItem(storageKey);
-      const parsed = raw ? JSON.parse(raw) : [];
-      const next = Array.isArray(parsed) ? [...parsed, entry] : [entry];
-      window.localStorage?.setItem(storageKey, JSON.stringify(next));
-    } catch {
-      // Ignore localStorage failures and keep console/in-memory logging only.
-    }
-  }
-
-  console.log("[microassist:event]", entry);
+  appendAnalyticsEntry({
+    entry,
+    storageKey: "microassist_analytics_events",
+    logPrefix: "[microassist:event]",
+    globalLogKey: "__microassistEventLog",
+  });
 }
 
 function normalizeDateValue(value) {
@@ -2140,6 +2214,7 @@ useEffect(() => {
     }
   });
   const [showPricingModal, setShowPricingModal] = useState(false);
+  const [showFutureAdvancedModal, setShowFutureAdvancedModal] = useState(false);
   const [monthlyExportUsage, setMonthlyExportUsage] = useState(EMPTY_EXPORT_USAGE);
   const [isExportingCsv, setIsExportingCsv] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
@@ -5809,7 +5884,7 @@ useEffect
     }
   }, [billingUiState, isQaPremium, trialDaysLeft, trialEndsAtLabel]);
   const premiumModalContent = useMemo(() => {
-    const normalizedSource = String(premiumModalSource || "unknown");
+    const normalizedSource = normalizePremiumTriggerType(premiumModalSource);
 
     if (normalizedSource === "tva_exceeded") {
       return {
@@ -5847,6 +5922,18 @@ useEffect
       };
     }
 
+    if (normalizedSource === "smart_priorities_lock") {
+      return {
+        title: "Débloque toutes les priorités",
+        intro:
+          "Tu vois l’essentiel. Premium te donne une vision plus complète pour mieux anticiper et éviter les oublis.",
+        heroTitle: "Priorités complètes",
+        heroText:
+          "Vois toutes tes priorités et avance avec une lecture plus proactive de ton espace fiscal.",
+        firstBenefit: "✔ Smart Priorités complètes",
+      };
+    }
+
     if (normalizedSource === "early_access_ending") {
       return {
         title: "Ton accès complet se termine aujourd’hui",
@@ -5871,7 +5958,7 @@ useEffect
       };
     }
 
-    if (normalizedSource.includes("export")) {
+    if (normalizedSource === "exports_limit") {
       return {
         title: "Premium pour exporter sans limite",
         intro:
@@ -5883,7 +5970,7 @@ useEffect
       };
     }
 
-    if (normalizedSource.includes("tva")) {
+    if (normalizedSource === "tva_context") {
       return {
         title: "Premium pour anticiper la TVA",
         intro:
@@ -5895,7 +5982,7 @@ useEffect
       };
     }
 
-    if (normalizedSource.includes("history") || normalizedSource.includes("revenue")) {
+    if (normalizedSource === "history_context") {
       return {
         title: "Premium pour piloter ton historique",
         intro:
@@ -5907,7 +5994,7 @@ useEffect
       };
     }
 
-    if (normalizedSource.includes("acre")) {
+    if (normalizedSource === "acre_context") {
       return {
         title: "Premium pour anticiper la fin ACRE",
         intro:
@@ -5919,7 +6006,7 @@ useEffect
       };
     }
 
-    if (normalizedSource.includes("invoice") || normalizedSource.includes("unpaid")) {
+    if (normalizedSource === "unpaid_context") {
       return {
         title: "Premium pour suivre les factures en attente",
         intro:
@@ -5942,7 +6029,7 @@ useEffect
     };
   }, [premiumModalSource]);
   const premiumModalPrimaryCtaLabel = useMemo(() => {
-    const normalizedSource = String(premiumModalSource || "unknown");
+    const normalizedSource = normalizePremiumTriggerType(premiumModalSource);
 
     switch (normalizedSource) {
       case "tva_exceeded":
@@ -5950,13 +6037,14 @@ useEffect
       case "declaration_urgent":
         return "Activer Premium";
       case "multiple_priorities":
+      case "smart_priorities_lock":
         return "Débloquer toutes les priorités";
       case "early_access_ending":
         return "Garder l’accès complet";
       case "post_early_access":
         return "Retrouver Premium";
       default:
-        return "Recevoir l’accès en avant-première";
+        return "Découvrir Premium";
     }
   }, [premiumModalSource]);
   const premiumModalBenefits = useMemo(
@@ -7213,7 +7301,10 @@ useEffect(() => {
 function handleReminderToggle(key) {
   setReminderPrefs((prev) => {
     if (key === "sms" && !hasSmsPremiumAccess) {
-      handleOpenSaveModal("sms_premium");
+      setShowReminderModal(false);
+      setTimeout(() => {
+        handleOpenSaveModal("sms_premium");
+      }, 40);
       return {
         ...prev,
         sms: false,
@@ -8398,13 +8489,21 @@ async function handleExportPDFWithLimit() {
 
 async function handleOpenSaveModal(source = "unknown", options = {}) {
   const { inlineStatusOnly = false } = options;
-  const trackingSource = normalizePremiumTrackingSource(source);
+  const triggerType = normalizePremiumTriggerType(source);
+  const trackingSource = normalizePremiumTrackingSource(triggerType);
   trackEvent("premium_cta_click", { source: trackingSource });
-  trackPremiumEvent(source, "modal_open");
-  track("pricing_modal_opened", { source });
-  setPremiumModalSource(source);
+  trackPremiumEvent(triggerType, "modal_open");
+  track("pricing_modal_opened", { source: triggerType });
+  setPremiumModalSource(triggerType);
   setPremiumWaitlistEmail(user?.email?.trim().toLowerCase() ?? "");
   setPremiumWaitlistError("");
+
+  if (triggerType === "future_advanced_features") {
+    trackEvent("premium_modal_open", { source: trackingSource });
+    setShowPricingModal(false);
+    setShowFutureAdvancedModal(true);
+    return;
+  }
 
   if (user?.email?.trim()) {
     await joinPremiumWaitlist({
@@ -8421,31 +8520,96 @@ async function handleOpenSaveModal(source = "unknown", options = {}) {
 }
 
 const closePremiumModal = useCallback((sourceOverride) => {
-  const source = normalizePremiumTrackingSource(
+  const triggerType = normalizePremiumTriggerType(
     sourceOverride || premiumModalSource || "unknown",
   );
+  const source = normalizePremiumTrackingSource(triggerType);
   trackEvent("premium_modal_close", { source });
-  trackPremiumEvent(sourceOverride || premiumModalSource || "unknown", "dismiss");
+  trackPremiumEvent(triggerType, "dismiss");
   setShowPricingModal(false);
 }, [premiumModalSource]);
 
+const closeFutureAdvancedModal = useCallback((sourceOverride) => {
+  const triggerType = normalizePremiumTriggerType(
+    sourceOverride || premiumModalSource || "future_advanced_features",
+  );
+  const source = normalizePremiumTrackingSource(triggerType);
+  trackEvent("premium_modal_close", { source });
+  trackPremiumEvent(triggerType, "dismiss");
+  setShowFutureAdvancedModal(false);
+}, [premiumModalSource]);
+
 function openPremiumModal(source = "unknown") {
-  const trackingSource = normalizePremiumTrackingSource(source);
+  const triggerType = normalizePremiumTriggerType(source);
+  const trackingSource = normalizePremiumTrackingSource(triggerType);
   trackEvent("premium_cta_click", { source: trackingSource });
-  trackPremiumEvent(source, "modal_open");
-  track("pricing_modal_opened", { source });
+  trackPremiumEvent(triggerType, "modal_open");
+  track("pricing_modal_opened", { source: triggerType });
   trackEvent("premium_modal_open", { source: trackingSource });
-  setPremiumModalSource(source);
+  setPremiumModalSource(triggerType);
   setPremiumWaitlistEmail(user?.email?.trim().toLowerCase() ?? "");
   setPremiumWaitlistError("");
+  if (triggerType === "future_advanced_features") {
+    setShowPricingModal(false);
+    setShowFutureAdvancedModal(true);
+    return;
+  }
   setShowPricingModal(true);
 }
+
+const saveOfferInterest = useCallback(
+  async ({
+    email,
+    userId,
+    offerType,
+    source,
+    phone = null,
+    smsConsent = false,
+  }) => {
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+
+    if (!normalizedEmail || !offerType) {
+      return {
+        data: null,
+        error: new Error("missing_offer_interest_fields"),
+      };
+    }
+
+    const normalizedPhone = String(phone || "").trim() || null;
+    const normalizedSmsConsent = Boolean(smsConsent);
+    const payload = {
+      email: normalizedEmail,
+      user_id: userId || null,
+      offer_type: offerType,
+      source: normalizePremiumTriggerType(source),
+      status: "new",
+      phone: normalizedPhone,
+      phone_verified: false,
+      sms_consent: normalizedSmsConsent,
+      sms_consent_at: normalizedSmsConsent ? new Date().toISOString() : null,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .from("offer_interest")
+      .upsert(payload, {
+        onConflict: "email,offer_type",
+      })
+      .select("id, email, offer_type, source, status")
+      .maybeSingle();
+
+    return { data, error };
+  },
+  [],
+);
 
 
 const joinPremiumWaitlist = useCallback(
   async ({ email, source, isAuthenticatedEmail = false, inlineStatusOnly = false }) => {
     const normalizedEmail = email.trim().toLowerCase();
-    const trackingSource = normalizePremiumTrackingSource(source);
+    const triggerType = normalizePremiumTriggerType(source);
+    const trackingSource = normalizePremiumTrackingSource(triggerType);
+    const offerType = getOfferTypeFromTriggerType(triggerType);
 
     if (!normalizedEmail) {
       setPremiumWaitlistError("Merci d’indiquer ton email.");
@@ -8472,10 +8636,62 @@ const joinPremiumWaitlist = useCallback(
       setIsJoiningPremiumWaitlist(true);
       setPremiumWaitlistError("");
 
+      const {
+        data: offerInterestData,
+        error: offerInterestError,
+      } = await saveOfferInterest({
+        email: normalizedEmail,
+        userId: user?.id ?? null,
+        offerType,
+        source: triggerType,
+      });
+
+      if (offerInterestError) {
+        console.error("Offer interest save error:", offerInterestError.message);
+        if (offerType === "future_advanced") {
+          showSaveNotice(
+            "Merci 🙌 Nous te tiendrons informé(e) dès que cette offre sera disponible.",
+            5000,
+          );
+        } else {
+          showSaveNotice("Impossible de rejoindre la liste Premium.", 4000);
+        }
+        trackEvent("premium_waitlist_submit", {
+          source: trackingSource,
+          success: false,
+          reason: "offer_interest_error",
+        });
+        return false;
+      }
+
+      if (offerType === "future_advanced") {
+        trackEvent("premium_waitlist_submit", {
+          source: trackingSource,
+          success: true,
+          status: offerInterestData?.status || "new",
+        });
+        trackPremiumEvent(triggerType, "waitlist_submit");
+        setPremiumWaitlistJoined(true);
+        setPremiumWaitlistEmail("");
+        setPremiumWaitlistError("");
+        if (showFutureAdvancedModal) {
+          closeFutureAdvancedModal(triggerType);
+        }
+        if (!inlineStatusOnly) {
+          showSaveNotice(
+            isAuthenticatedEmail
+              ? "Ton email connecté a bien été ajouté à cette offre avancée."
+              : "✨ Tu seras informée quand cette offre avancée sera disponible.",
+            8000,
+          );
+        }
+        return true;
+      }
+
       const { data, error } = await supabase.rpc("join_premium_waitlist", {
         p_email: normalizedEmail,
         p_user_id: user?.id ?? null,
-        p_source: source,
+        p_source: triggerType,
       });
 
       if (error) {
@@ -8502,10 +8718,10 @@ const joinPremiumWaitlist = useCallback(
         success: true,
         status: status || "submitted",
       });
-      trackPremiumEvent(source, "waitlist_submit");
+      trackPremiumEvent(triggerType, "waitlist_submit");
 
       if (showPricingModal) {
-        closePremiumModal(source);
+        closePremiumModal(triggerType);
       } else {
         setShowPricingModal(false);
       }
@@ -8559,26 +8775,36 @@ const joinPremiumWaitlist = useCallback(
       setIsJoiningPremiumWaitlist(false);
     }
   },
-  [closePremiumModal, persistPremiumStatus, showPricingModal, showSaveNotice, user],
+  [
+    closeFutureAdvancedModal,
+    closePremiumModal,
+    persistPremiumStatus,
+    saveOfferInterest,
+    showFutureAdvancedModal,
+    showPricingModal,
+    showSaveNotice,
+    user,
+  ],
 );
 
 const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
-  const source =
+  const triggerType = normalizePremiumTriggerType(
     sourceOverride ||
-    premiumModalSource ||
-    (billingUiState === "trial_expired" ? "premium_after_trial" : "pricing_modal");
+      premiumModalSource ||
+      (billingUiState === "trial_expired" ? "premium_after_trial" : "pricing_modal"),
+  );
 
   trackEvent("premium_modal_cta_click", {
-    triggerType: source,
+    triggerType,
   });
   console.info("[premium-analytics]", {
     event: "premium_modal_cta_click",
-    triggerType: source,
+    triggerType,
   });
-  track("signup_cta_clicked", { source });
+  track("signup_cta_clicked", { source: triggerType });
   await joinPremiumWaitlist({
     email: premiumWaitlistEmail,
-    source,
+    source: triggerType,
   });
 }, [
   billingUiState,
@@ -9256,7 +9482,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                     type="button"
                     onClick={() => handleOpenSaveModal("pricing_access_block")}
                   >
-                    Être informé du lancement Premium
+                    Découvrir Premium
                   </button>
                 </div>
               </div>
@@ -9363,7 +9589,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
           {!focusMode && appView === "landing" && visibleSections.roadmap && (
             <section id="prochainement" className="card">
               <div className="sectionHead">
-                <h2>Pour qui & bientôt</h2>
+                <h2>Fonctionnalités à venir</h2>
                 <button
                   className="iconBtn"
                   type="button"
@@ -9374,19 +9600,73 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 </button>
               </div>
 
-              <h3 style={{ marginTop: 12 }}>✅ Pour qui ?</h3>
-              <ul className="targetList">
-                <li>Tu lances ta micro-entreprise.</li>
-                <li>Tu veux savoir quoi mettre de côté et quand déclarer.</li>
-                <li>Tu cherches un outil simple, pas un logiciel comptable complet.</li>
+              <h3 style={{ marginTop: 12 }}>✅ Microassist aujourd’hui</h3>
+              <p className="assistantIntro" style={{ marginTop: 12 }}>
+                Microassist t’aide déjà à mieux comprendre et anticiper tes obligations.
+              </p>
+              <ul className="roadmaplist">
+                <li>✔ Estimation des charges</li>
+                <li>✔ Alertes email avant échéance</li>
+                <li>✔ Suivi TVA, ACRE et CFE</li>
+                <li>✔ Smart Priorités pour savoir quoi faire en premier</li>
+                <li>✔ Export PDF / CSV</li>
               </ul>
 
-              <h3 style={{ marginTop: 12 }}>🚧 Bientôt</h3>
+              <p className="assistantIntro" style={{ marginTop: 16 }}>
+                Microassist évolue en 3 niveaux d’accompagnement : d’abord comprendre,
+                ensuite anticiper, puis automatiser.
+              </p>
+
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginTop: 6,
+                  marginBottom: 6,
+                  padding: "6px 10px",
+                  borderRadius: 999,
+                  background: "#fff7ed",
+                  color: "#9a3412",
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                ✨ En préparation
+              </div>
+
+              <h3 style={{ marginTop: 12 }}>🚧 Offre avancée à venir</h3>
+              <p className="assistantIntro" style={{ marginTop: 12 }}>
+                Microassist prépare un niveau d’accompagnement plus avancé pour aller plus loin.
+              </p>
               <ul className="roadmaplist">
-                <li>📅 Rappels plus utiles avant chaque échéance</li>
-                <li>📄 Exports et rapports plus complets</li>
-                <li>🧠 Conseils plus précis selon ton activité</li>
+                <li>✔ Rappels SMS urgents</li>
+                <li>✔ Aide à l’automatisation des déclarations</li>
+                <li>✔ Documents générés automatiquement</li>
+                <li>✔ Suivi plus précis de ton activité</li>
               </ul>
+
+              <button
+                className="btn btnGhost"
+                type="button"
+                onClick={() => openPremiumModal("future_advanced_features")}
+              >
+                Être informée de cette offre
+              </button>
+
+              <h3 style={{ marginTop: 18 }}>Pourquoi ces fonctionnalités arrivent plus tard</h3>
+              <p className="assistantIntro" style={{ marginTop: 12 }}>
+                Certaines fonctionnalités demandent plus de validation et de sécurité.
+              </p>
+              <ul className="roadmaplist">
+                <li>la fiabilité des calculs</li>
+                <li>la protection des données</li>
+                <li>une expérience simple et claire</li>
+              </ul>
+
+              <p className="assistantIntro" style={{ marginTop: 16 }}>
+                Tu seras informée dès que ces fonctionnalités seront disponibles.
+              </p>
             </section>
           )}
 
@@ -10094,6 +10374,9 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
             <PricingPage
               onClose={() => goToView("landing", { focus: false })}
               onTryWithoutAccount={() => goToView("landing", { focus: false })}
+              onOpenFutureAdvanced={() =>
+                openPremiumModal("future_advanced_features")
+              }
               onSelectPlan={(plan) => {
                 if (plan === "free") {
                   openAuthModal("signup");
@@ -10884,6 +11167,19 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                   {smartPriorities.length === 0 && (
                     <p className="muted">Aucune priorité détectée.</p>
                   )}
+
+                  <button
+                    type="button"
+                    className="btn btnGhost btnSmall"
+                    onClick={() => openPremiumModal("future_advanced_features")}
+                    style={{
+                      alignSelf: "flex-start",
+                      marginBottom: 12,
+                      paddingInline: 12,
+                    }}
+                  >
+                    ✨ Bientôt — SMS & automatisation
+                  </button>
 
                   {visibleSmartPriorities.map((item, index) => (
                     <div
@@ -12702,27 +12998,6 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
           </div>
         )}
 
- 
-                {/* 
-          Ancienne version du modal Premium orientée paiement direct.
-          Conservée comme base pour future version annuelle
-          ou plans avancés (Pilotage / Finance Pro).
-
-          🎁 Ce qui reste gratuit
-          ✅ Calcul des charges URSSAF
-          ✅ ACRE intégrée (réduction 50%)
-          ✅ Alerte TVA et seuils
-          ✅ Suivi des revenus et dépenses
-          ✅ 3 premières factures par mois
-
-          ✨ Premium : 5€/mois ou 49€/an
-          ✅ Factures illimitées
-          ✅ Export PDF de ton rapport fiscal
-          ✅ Rappels email avant chaque échéance
-          ✅ Historique illimité
-          ✅ Support prioritaire
-        */}
-
         {/* Modal Enregistrement / Offre 5€ */}
         {showPricingModal && (
           <div
@@ -12876,7 +13151,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
       lineHeight: 1.5,
     }}
   >
-    Accès complet bientôt disponible
+    Le paiement sera disponible très bientôt.
   </p>
 
     <button
@@ -12902,7 +13177,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
       lineHeight: 1.5,
     }}
   >
-    Tu seras prévenue dès que l’accès Premium complet sera disponible.
+    Tu peux déjà découvrir Premium et laisser ton email pour la suite.
   </p>
 
   <p
@@ -12917,6 +13192,173 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
     Aucun paiement maintenant • email d’information uniquement
   </p>
 </div>
+            </div>
+          </div>
+        )}
+
+        {showFutureAdvancedModal && (
+          <div
+            className="modalOverlay"
+            onClick={() => closeFutureAdvancedModal("future_advanced_features")}
+          >
+            <div
+              className="modalCard"
+              style={{ maxWidth: "520px" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="sectionHead">
+                <h3>Fonction avancée à venir</h3>
+                <button
+                  className="iconBtn"
+                  onClick={() => closeFutureAdvancedModal("future_advanced_features")}
+                  type="button"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div style={{ marginTop: 20 }}>
+                <p style={{ fontSize: 14, lineHeight: 1.6, marginTop: 0, marginBottom: 0 }}>
+                  Les alertes SMS feront partie d’une offre plus avancée.
+                </p>
+
+                <div
+                  style={{
+                    background:
+                      "linear-gradient(135deg, rgba(14,165,233,0.12), rgba(99,102,241,0.08))",
+                    padding: 18,
+                    borderRadius: 12,
+                    marginTop: 16,
+                    marginBottom: 20,
+                    border: "1px solid rgba(14,165,233,0.18)",
+                  }}
+                >
+                  <div
+                    style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.2, marginBottom: 6 }}
+                  >
+                    SMS et automatisation
+                  </div>
+                  <p style={{ fontSize: 14, lineHeight: 1.6, margin: 0 }}>
+                    Microassist prépare des fonctionnalités plus avancées pour aller plus
+                    loin dans l’accompagnement.
+                  </p>
+                </div>
+
+                <div style={{ display: "grid", gap: 8, marginBottom: 20 }}>
+                  <label
+                    htmlFor="future-advanced-email"
+                    style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}
+                  >
+                    Ton email
+                  </label>
+                  <input
+                    id="future-advanced-email"
+                    type="email"
+                    value={premiumWaitlistEmail}
+                    onChange={(e) => {
+                      setPremiumWaitlistEmail(e.target.value);
+                      if (premiumWaitlistError) {
+                        setPremiumWaitlistError("");
+                      }
+                    }}
+                    placeholder="prenom@email.com"
+                    autoComplete="email"
+                    disabled={isJoiningPremiumWaitlist}
+                    style={{
+                      width: "100%",
+                      padding: "12px 14px",
+                      borderRadius: 12,
+                      border: premiumWaitlistError
+                        ? "1px solid #fca5a5"
+                        : "1px solid #d1d5db",
+                      fontSize: 14,
+                    }}
+                  />
+                  <div style={{ fontSize: 12, color: "#64748b", lineHeight: 1.5 }}>
+                    Laisse ton email pour être prévenu(e) dès que ces fonctionnalités
+                    seront disponibles.
+                  </div>
+                  {premiumWaitlistError && (
+                    <div style={{ fontSize: 12, color: "#b91c1c" }}>
+                      {premiumWaitlistError}
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  style={{
+                    background: "#eff6ff",
+                    padding: 16,
+                    borderRadius: 12,
+                    marginBottom: 20,
+                  }}
+                >
+                  <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>
+                    Cette offre inclura
+                  </div>
+
+                  <ul
+                    style={{
+                      margin: 0,
+                      paddingLeft: 20,
+                      fontSize: 13,
+                      lineHeight: 1.7,
+                    }}
+                  >
+                    <li>✔ Rappels SMS urgents</li>
+                    <li>✔ Aide à l’automatisation des déclarations</li>
+                    <li>✔ Documents générés automatiquement</li>
+                    <li>✔ Suivi plus avancé de ton activité</li>
+                  </ul>
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 12,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <button
+                    className="btn btnPrimary"
+                    type="button"
+                    onClick={() =>
+                      joinPremiumWaitlist({
+                        email: premiumWaitlistEmail,
+                        source: "future_advanced_features",
+                      })
+                    }
+                    disabled={isJoiningPremiumWaitlist}
+                    style={{ flex: 1 }}
+                  >
+                    {isJoiningPremiumWaitlist
+                      ? "Inscription en cours..."
+                      : "Être informée de cette offre"}
+                  </button>
+
+                  <button
+                    className="btn btnGhost"
+                    type="button"
+                    onClick={() => closeFutureAdvancedModal("future_advanced_features")}
+                    style={{ flex: 1 }}
+                  >
+                    Plus tard
+                  </button>
+                </div>
+
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: "#475569",
+                    textAlign: "center",
+                    marginTop: 10,
+                    marginBottom: 0,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  Tu seras informée quand ces fonctionnalités seront disponibles.
+                </p>
+              </div>
             </div>
           </div>
         )}
@@ -13199,7 +13641,7 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
               checked={reminderPrefs.sms}
               onChange={() => handleReminderToggle("sms")}
             />
-            <span>SMS urgent (premium)</span>
+            <span>SMS urgent (offre avancée à venir)</span>
           </label>
         </div>
 
