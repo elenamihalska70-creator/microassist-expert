@@ -91,10 +91,17 @@ export default function PricingPage({
             <li>
               {freeFeatures.export_pdf ? "✅" : "❌"} Export PDF
             </li>
+            <li>✅ Export CSV</li>
+            <li>✅ Factures illimitées</li>
             <li>❌ Alertes email automatiques</li>
             <li>❌ Alertes intelligentes prioritaires</li>
             <li>✅ Tu vois l’essentiel de ton suivi</li>
           </ul>
+
+          <p className="muted" style={{ marginTop: 14, marginBottom: 0 }}>
+            Tu peux commencer gratuitement.
+            Passe à Premium quand ton activité grandit.
+          </p>
 
           <button
             className="btn btnSecondary"
@@ -121,6 +128,10 @@ export default function PricingPage({
           <ul>
             <li>✅ Tout le compte gratuit</li>
             <li>
+              {premiumFeatures.declaration_email_j7 ? "✅" : "❌"} Alertes email avant échéance
+              {" "}({premiumFeatures.declaration_email_j7 ? "J-7" : "—"} / {premiumFeatures.declaration_email_j2 ? "J-2" : "—"})
+            </li>
+            <li>
               {premiumSmartPrioritiesCount === "toutes" ? "✅" : "⚠"} Smart
               Priorités complètes
             </li>
@@ -128,14 +139,7 @@ export default function PricingPage({
               {premiumFeatures.export_pdf ? "✅" : "❌"} Export PDF
             </li>
             <li>✅ Export CSV</li>
-            <li>
-              {premiumFeatures.declaration_email_j7 ? "✅" : "❌"} Email rappel
-              J-7
-            </li>
-            <li>
-              {premiumFeatures.declaration_email_j2 ? "✅" : "❌"} Email rappel
-              J-2
-            </li>
+            <li>✅ Factures illimitées + suivi fiscal</li>
             <li>
               {premiumFeatures.smart_priority_email ? "✅" : "❌"} Alertes
               intelligentes par email
@@ -150,12 +154,17 @@ export default function PricingPage({
             </li>
           </ul>
 
+          <p className="muted" style={{ marginTop: 14, marginBottom: 0 }}>
+            Premium t’évite les oublis et les pénalités.
+            Tu sais quoi payer et quand agir.
+          </p>
+
           <button
             className="btn btnPrimary"
             onClick={() => onSelectPlan?.("premium")}
             type="button"
           >
-            Découvrir Premium
+            Anticiper mes échéances
           </button>
 
           <div className="guarantee">
@@ -252,6 +261,18 @@ export default function PricingPage({
             <div>Export PDF</div>
             <div>{formatFeatureValue(freeFeatures.export_pdf)}</div>
             <div>{formatFeatureValue(premiumFeatures.export_pdf)}</div>
+          </div>
+
+          <div className="pricingCompareRow">
+            <div>Export CSV</div>
+            <div>✅</div>
+            <div>✅</div>
+          </div>
+
+          <div className="pricingCompareRow">
+            <div>Factures</div>
+            <div>illimitées</div>
+            <div>illimitées + suivi fiscal</div>
           </div>
 
           <div className="pricingCompareRow">

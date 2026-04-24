@@ -8,9 +8,9 @@ beta_founder: {
 },
 
   free: {
-    revenues: 5,
-    invoicesPerMonth: 5,
-    pdfExportsPerMonth: 2,
+    revenues: 30,
+    invoicesPerMonth: Infinity,
+    pdfExportsPerMonth: 0,
     historyDays: 60,
   },
 

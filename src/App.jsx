@@ -1518,6 +1518,55 @@ function buildSmartPriorities(computed) {
   return priorities;
 }
 
+function getEstimatedRate(activityType) {
+  if (isMixedActivityValue(activityType)) {
+    return 0.18;
+  }
+
+  switch (activityType) {
+    case "vente":
+      return 0.123;
+    case "services":
+      return 0.22;
+    default:
+      return 0.22;
+  }
+}
+
+function isMixedActivityValue(activityType = "") {
+  const normalized = String(activityType || "").trim().toLowerCase();
+  return normalized === "mixte" || normalized === "mix" || normalized === "mixed";
+}
+
+function normalizeActivityTypeForCalculations(activityType = "") {
+  return isMixedActivityValue(activityType) ? "mixte" : activityType;
+}
+
+function getRevenueContributionRate(revenue, activityType, fallbackRate = null) {
+  const baseFallbackRate = getEstimatedRate(activityType);
+  const adjustmentFactor =
+    typeof fallbackRate === "number" && baseFallbackRate > 0
+      ? fallbackRate / baseFallbackRate
+      : 1;
+  const revenueCategory = String(revenue?.revenue_category || "").toLowerCase();
+
+  if (revenueCategory === "vente") {
+    return 0.123 * adjustmentFactor;
+  }
+
+  if (revenueCategory === "service") {
+    return 0.22 * adjustmentFactor;
+  }
+
+  return baseFallbackRate * adjustmentFactor;
+}
+
+function getRevenueCategoryLabel(revenueCategory = "") {
+  if (revenueCategory === "vente") return "Vente (BIC)";
+  if (revenueCategory === "service") return "Service (BNC / prestations)";
+  return "";
+}
+
 function sanitizeFiscalAnswers(sourceAnswers = {}) {
   const nextAnswers = { ...sourceAnswers };
   const normalizedBusinessStartDate = normalizeDateValue(
@@ -2274,6 +2323,7 @@ useEffect(() => {
   const [revenueForm, setRevenueForm] = useState({
     amount: "",
     date: new Date().toISOString().slice(0, 10),
+    revenue_category: "",
     client: "",
     invoice: "",
     note: "",
@@ -2656,6 +2706,10 @@ const handleRecoveryComplete = useCallback(() => {
   const currentPlanLimits = hasPremiumAccess
     ? PRICING_LIMITS.essential || PRICING_LIMITS.free
     : PRICING_LIMITS.free;
+  const canExportCsv =
+    accessProfile?.features?.export_csv === true;
+  const canExportPdf =
+    isQaPremium || accessProfile?.features?.export_pdf === true;
   const hasSmsPremiumAccess =
     effectivePlan === "premium";
   const usedExports = monthlyExportUsage.total;
@@ -2671,29 +2725,19 @@ const handleRecoveryComplete = useCallback(() => {
 
     switch (billingUiState) {
       case "trial_active":
-        return hasPremiumLikeAccess
+        return canExportPdf
           ? "PDF + CSV illimités • historique complet"
-          : remainingExports <= 0
-            ? "Essai actif • Passe à Premium pour continuer les exports"
-            : `Essai actif • ${remainingExports} export${remainingExports > 1 ? "s" : ""} gratuit${remainingExports > 1 ? "s" : ""} restant${remainingExports > 1 ? "s" : ""}`;
+          : "CSV inclus • PDF disponible avec Premium";
       case "premium_active":
         return "PDF + CSV illimités • historique complet";
       case "trial_expired":
-        return "Limite atteinte • Réactive Premium pour continuer";
+        return "CSV inclus • PDF disponible avec Premium";
       case "guest":
       case "registered_free":
       default:
-        if (remainingExports <= 0) {
-          return "Limite atteinte • Passe Premium pour continuer";
-        }
-
-        if (remainingExports === 1) {
-          return "Dernier export gratuit ce mois-ci";
-        }
-
-        return `Il te reste ${remainingExports} exports gratuits ce mois-ci`;
+        return "CSV inclus • PDF disponible avec Premium";
     }
-  }, [billingUiState, isQaPremium, remainingExports]);
+  }, [billingUiState, canExportPdf, isQaPremium]);
   const premiumExportBadge = useMemo(() => {
     if (isQaPremium) {
       return "🧪 Premium QA";
@@ -2830,6 +2874,7 @@ const refreshSubscriptionRecord = useCallback(async () => {
         id: item.id,
         amount: Number(item.amount || 0),
         date: item.revenue_date,
+        revenue_category: item.revenue_category || "",
         client: item.client || "",
         invoice: item.invoice || "",
         note: item.note || "",
@@ -4189,7 +4234,37 @@ useEffect(() => {
     }, 0);
   }, [revenues]);
 
+  const mixedRevenueBreakdown = useMemo(() => {
+    if (!isMixedActivityValue(dashboardAnswers?.activity_type)) {
+      return null;
+    }
+
+    const venteTotal = revenues.reduce((sum, item) => {
+      return item?.revenue_category === "vente"
+        ? sum + Number(item.amount || 0)
+        : sum;
+    }, 0);
+    const serviceTotal = revenues.reduce((sum, item) => {
+      return item?.revenue_category === "service"
+        ? sum + Number(item.amount || 0)
+        : sum;
+    }, 0);
+
+    if (venteTotal <= 0 && serviceTotal <= 0) {
+      return null;
+    }
+
+    return {
+      venteTotal,
+      serviceTotal,
+    };
+  }, [dashboardAnswers?.activity_type, revenues]);
+
   const computed = useMemo(() => {
+    const normalizedActivityType = normalizeActivityTypeForCalculations(
+      dashboardAnswers?.activity_type,
+    );
+
     if (!hasProfileCore) {
       return {
         nextDeclarationLabel: "Profil à compléter",
@@ -4260,6 +4335,7 @@ useEffect(() => {
 
       return computeObligations({
         ...dashboardAnswers,
+        activity_type: normalizedActivityType,
         ca_month: currentMonthTotal,
         ca_ytd: caYtd,
         months_with_data: monthsWithData,
@@ -4364,29 +4440,20 @@ useEffect(() => {
     return Number(String(revenueForm.amount || "").replace(",", "."));
   }, [revenueForm.amount]);
 
-  // ==================== FONCTIONS DE TAUX ====================
-  function getEstimatedRate(activityType) {
-    switch (activityType) {
-      case "vente":
-        return 0.123; // 12.3% pour la vente
-      case "services":
-        return 0.22; // 22% pour les services
-      case "mixte":
-        return 0.18; // 18% pour les activités mixtes
-      default:
-        return 0.22; // Taux par défaut
-    }
-  }
-
   const previewCharges = useMemo(() => {
     if (!Number.isFinite(revenueAmount) || revenueAmount <= 0) return 0;
-    if (computed?.rate) {
-      return Math.round(revenueAmount * computed.rate);
-    }
-    return Math.round(
-      revenueAmount * getEstimatedRate(dashboardAnswers.activity_type),
+    const effectiveRate = getRevenueContributionRate(
+      { revenue_category: revenueForm.revenue_category },
+      dashboardAnswers.activity_type,
+      computed?.rate,
     );
-  }, [revenueAmount, computed?.rate, dashboardAnswers.activity_type]);
+    return Math.round(revenueAmount * effectiveRate);
+  }, [
+    revenueAmount,
+    revenueForm.revenue_category,
+    computed?.rate,
+    dashboardAnswers.activity_type,
+  ]);
 
   const previewAvailable = useMemo(() => {
     if (!Number.isFinite(revenueAmount) || revenueAmount <= 0) return 0;
@@ -4394,11 +4461,13 @@ useEffect(() => {
   }, [revenueAmount, previewCharges]);
 
   const previewRateLabel = useMemo(() => {
-    if (computed?.rate) {
-      return `${Math.round(computed.rate * 1000) / 10} %`;
-    }
-    return `${Math.round(getEstimatedRate(dashboardAnswers.activity_type) * 1000) / 10} %`;
-  }, [computed?.rate, dashboardAnswers.activity_type]);
+    const effectiveRate = getRevenueContributionRate(
+      { revenue_category: revenueForm.revenue_category },
+      dashboardAnswers.activity_type,
+      computed?.rate,
+    );
+    return `${Math.round(effectiveRate * 1000) / 10} %`;
+  }, [revenueForm.revenue_category, computed?.rate, dashboardAnswers.activity_type]);
 
   const previewAdvice = useMemo(() => {
     if (!Number.isFinite(revenueAmount) || revenueAmount <= 0) return "";
@@ -5924,13 +5993,13 @@ useEffect
 
     if (normalizedSource === "smart_priorities_lock") {
       return {
-        title: "Débloque toutes les priorités",
+        title: "Ne laisse pas une échéance te surprendre",
         intro:
-          "Tu vois l’essentiel. Premium te donne une vision plus complète pour mieux anticiper et éviter les oublis.",
-        heroTitle: "Priorités complètes",
+          "Premium te montre toutes les priorités importantes et t’envoie des alertes avant les échéances.",
+        heroTitle: "Priorités complètes + alertes",
         heroText:
-          "Vois toutes tes priorités et avance avec une lecture plus proactive de ton espace fiscal.",
-        firstBenefit: "✔ Smart Priorités complètes",
+          "Tu sais quoi faire, quand agir, et ce qu’il ne faut pas oublier.",
+        firstBenefit: "✔ Toutes les Smart Priorités",
       };
     }
 
@@ -6038,7 +6107,7 @@ useEffect
         return "Activer Premium";
       case "multiple_priorities":
       case "smart_priorities_lock":
-        return "Débloquer toutes les priorités";
+        return "Activer les alertes Premium";
       case "early_access_ending":
         return "Garder l’accès complet";
       case "post_early_access":
@@ -7345,6 +7414,7 @@ function handleReminderToggle(key) {
     setRevenueForm({
       amount: "",
       date: new Date().toISOString().slice(0, 10),
+      revenue_category: "",
       client: "",
       invoice: "",
       note: "",
@@ -7353,7 +7423,8 @@ function handleReminderToggle(key) {
   }
 
 function handleOpenRevenuePopup() {
-  if (!guardPremiumAccess("revenue_limit", "revenue_limit")) {
+  if (accessProfile?.features?.revenue_tracking !== true) {
+    alert("Le suivi des revenus n’est pas disponible pour ce profil.");
     return;
   }
 
@@ -7386,6 +7457,10 @@ function openReminderManager(source = "default") {
   // ==================== ФУНКЦИИ УДАЛЕНИЯ И СБРОСА ====================
   const handleDeleteRevenue = useCallback(
     async (id) => {
+      if (!window.confirm("Supprimer ce revenu ?")) {
+        return;
+      }
+
       if (!user) {
         const nextRevenues = revenues.filter((item) => item.id !== id);
         setRevenues(nextRevenues);
@@ -7768,6 +7843,10 @@ useEffect(() => {
       user_id: user.id,
       amount: Number(revenue.amount),
       revenue_date: revenue.date,
+      revenue_category:
+        revenue.revenue_category && revenue.revenue_category !== ""
+          ? revenue.revenue_category
+          : null,
       client: revenue.client || null,
       invoice: revenue.invoice || null,
       note: revenue.note || null,
@@ -7793,15 +7872,27 @@ useEffect(() => {
     const shouldTriggerProfileOnboarding =
       wasFirstRevenue && !isFiscalProfileComplete;
     const amount = Number(String(revenueForm.amount).replace(",", "."));
+    const isMixedActivity = isMixedActivityValue(dashboardAnswers.activity_type);
 
     if (!Number.isFinite(amount) || amount <= 0) {
       alert("Merci d’indiquer un montant valide.");
       return;
     }
 
+    if (isMixedActivity && !revenueForm.revenue_category) {
+      alert(
+        "Pour une activité mixte, choisis si ce revenu vient d’une vente ou d’un service.",
+      );
+      return;
+    }
+
     const entry = {
       amount,
       date: revenueForm.date || new Date().toISOString().slice(0, 10),
+      revenue_category:
+        isMixedActivity
+          ? revenueForm.revenue_category || ""
+          : "",
       client: revenueForm.client.trim(),
       invoice: revenueForm.invoice.trim(),
       note: revenueForm.note.trim(),
@@ -7822,8 +7913,11 @@ useEffect(() => {
     });
     showSuccessToast("✅ Revenu ajouté. Tes projections sont à jour.", 4000);
 
-    const rate =
-      computed?.rate || getEstimatedRate(dashboardAnswers.activity_type);
+    const rate = getRevenueContributionRate(
+      entry,
+      dashboardAnswers.activity_type,
+      computed?.rate,
+    );
     const charges = Math.round(amount * rate);
     const disponible = Math.max(0, amount - charges);
 
@@ -7849,13 +7943,25 @@ useEffect(() => {
   }
 
   async function handleSaveRevenue() {
+    const isMixedActivity = isMixedActivityValue(dashboardAnswers.activity_type);
+
     if (!user) {
       const isFirstRevenue = revenues.length === 0;
+      if (isMixedActivity && !revenueForm.revenue_category) {
+        alert(
+          "Pour une activité mixte, choisis si ce revenu vient d’une vente ou d’un service.",
+        );
+        return;
+      }
       // Сохраняем в localStorage для неавторизованных
       const newRevenue = {
         id: Date.now(),
         amount: revenueAmount,
         date: revenueForm.date,
+        revenue_category:
+          isMixedActivity
+            ? revenueForm.revenue_category || ""
+            : "",
         client: revenueForm.client,
         invoice: revenueForm.invoice,
         note: revenueForm.note,
@@ -7904,14 +8010,9 @@ useEffect(() => {
   }
 
 function handleExportCSV() {
-  const currentUsage = syncMonthlyExportUsage();
-  const currentRemainingExports = hasPremiumAccess
-    ? Infinity
-    : Math.max(0, FREE_EXPORTS_PER_MONTH - currentUsage.total);
-
   if (filteredRevenues.length === 0 || isExportingCsv) return;
-  if (!hasPremiumAccess && currentRemainingExports <= 0) {
-    handleExportLimitHit(currentUsage);
+  if (!canExportCsv) {
+    openPremiumModal("exports_limit");
     return;
   }
 
@@ -7949,7 +8050,6 @@ function handleExportCSV() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    incrementMonthlyExportUsage("csv");
     trackEvent("export_csv", {
       source: "revenues",
       totalRevenues: filteredRevenues.length,
@@ -8305,14 +8405,11 @@ const handleExportPDF = useCallback(async () => {
 
 async function handleExportPDFWithLimit() {
   const currentUsage = syncMonthlyExportUsage();
-  const currentRemainingExports = hasPremiumAccess
-    ? Infinity
-    : Math.max(0, FREE_EXPORTS_PER_MONTH - currentUsage.total);
 
   if (isExportingPdf) {
     return;
   }
-  if (!hasPremiumAccess && currentRemainingExports <= 0) {
+  if (!canExportPdf) {
     handleExportLimitHit(currentUsage);
     return;
   }
@@ -11150,11 +11247,35 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                     {revenueStats.lastRevenue.toLocaleString("fr-FR")} €
                   </div>
                 </div>
-                <div className="miniStatCard">
-                  <div className="miniStatLabel">Entrées</div>
-                  <div className="miniStatValue">{revenueStats.count}</div>
-                </div>
+              <div className="miniStatCard">
+                <div className="miniStatLabel">Entrées</div>
+                <div className="miniStatValue">{revenueStats.count}</div>
               </div>
+            </div>
+
+              {mixedRevenueBreakdown && (
+                <div
+                  style={{
+                    display: "grid",
+                    gap: 10,
+                    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                    marginTop: 16,
+                  }}
+                >
+                  <div className="miniStatCard">
+                    <div className="miniStatLabel">Revenus vente (BIC)</div>
+                    <div className="miniStatValue">
+                      {mixedRevenueBreakdown.venteTotal.toLocaleString("fr-FR")} €
+                    </div>
+                  </div>
+                  <div className="miniStatCard">
+                    <div className="miniStatLabel">Revenus services (BNC / prestations)</div>
+                    <div className="miniStatValue">
+                      {mixedRevenueBreakdown.serviceTotal.toLocaleString("fr-FR")} €
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div ref={smartPrioritiesRef} className={smartTipsZoneClass}>
               <div className="smartTips" style={{ marginTop: 0 }}>
@@ -11164,6 +11285,38 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                   </div>
                 </div>
                 <div className="smartPrioritiesEngine">
+                  {hasPremiumLikeAccess ? (
+                    <div className="priorityLockCard" style={{ marginBottom: 14 }}>
+                      <div className="priorityTitle">Plan d’action complet</div>
+                      <div className="priorityMessage">
+                        Premium t’aide à anticiper tes échéances, tes charges et les
+                        signaux importants avant qu’ils deviennent urgents.
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="priorityLockCard" style={{ marginBottom: 14 }}>
+                      <div className="priorityTitle">
+                        Tu vois ta priorité la plus urgente
+                      </div>
+                      <div className="priorityMessage">
+                        En gratuit, Microassist te montre l’essentiel. Premium t’aide
+                        à voir toutes les actions à anticiper avant les échéances.
+                      </div>
+                      <div className="dashboardHelperText" style={{ marginTop: 8 }}>
+                        Sans alerte automatique, tu peux oublier une déclaration
+                        importante.
+                      </div>
+                      <button
+                        className="btn btnActionSecondary btnSmall"
+                        type="button"
+                        onClick={() => openPremiumModal("smart_priorities_lock")}
+                        style={{ marginTop: 12 }}
+                      >
+                        Activer les alertes Premium
+                      </button>
+                    </div>
+                  )}
+
                   {smartPriorities.length === 0 && (
                     <p className="muted">Aucune priorité détectée.</p>
                   )}
@@ -11208,32 +11361,20 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                   {hasLockedSmartPriorities && (
                     <div className="priorityLockCard">
                       <div className="priorityTitle">
-                        🔒 Priorités automatiques réservées à Premium
+                        Autres signaux détectés
                       </div>
                       <div className="priorityMessage">
-                        En gratuit, tu vois l’essentiel. Premium te prévient
-                        avant les échéances importantes et t’aide à agir plus
-                        tôt.
+                        Premium peut t’aider à suivre les autres points
+                        importants avant qu’ils deviennent urgents.
                       </div>
-                      <ul className="priorityLockList">
-                        <li>alertes email automatiques</li>
-                        <li>priorités complètes</li>
-                        <li>anticipation des risques</li>
-                      </ul>
                       <button
                         className="btn btnActionSecondary btnSmall"
                         type="button"
                         onClick={() => openPremiumModal("smart_priorities_lock")}
                       >
-                        Activer Premium
+                        Voir toutes les priorités
                       </button>
                     </div>
-                  )}
-                  {!hasPremiumLikeAccess && smartPriorities.length > 0 && (
-                    <p className="muted">
-                      En gratuit, tu vois l’essentiel. Premium te prévient avant
-                      les échéances importantes et t’aide à agir plus tôt.
-                    </p>
                   )}
                 </div>
                 <div className="smartTipsList">
@@ -12081,6 +12222,12 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                         </div>
                       </div>
                       <div className="revenueMeta">
+                        {item.revenue_category && (
+                          <div>
+                            <strong>Type :</strong>{" "}
+                            {getRevenueCategoryLabel(item.revenue_category)}
+                          </div>
+                        )}
                         {item.client && (
                           <div>
                             <strong>Client :</strong> {item.client}
@@ -12506,6 +12653,30 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                   />
                 </label>
               </div>
+
+              {isMixedActivityValue(dashboardAnswers.activity_type) && (
+                <div style={{ marginTop: 12 }}>
+                  <label className="field">
+                    <span>Type de revenu</span>
+                    <select
+                      required
+                      value={revenueForm.revenue_category}
+                      onChange={(e) =>
+                        handleRevenueFieldChange("revenue_category", e.target.value)
+                      }
+                    >
+                      <option value="">Choisir une catégorie</option>
+                      <option value="vente">Vente (BIC)</option>
+                      <option value="service">Service (BNC / prestations)</option>
+                    </select>
+                  </label>
+                  <p className="muted" style={{ marginTop: 8, marginBottom: 0 }}>
+                    Pour une activité mixte, indique si ce revenu vient d’une vente
+                    (BIC) ou d’un service (BNC / prestation) afin d’obtenir une
+                    estimation plus précise.
+                  </p>
+                </div>
+              )}
 
               <button
                 className="btn btnGhost btnSmall"
