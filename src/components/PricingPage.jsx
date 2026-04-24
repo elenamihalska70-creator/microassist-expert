@@ -46,7 +46,7 @@ export default function PricingPage({
             Découvre Microassist immédiatement, sans créer de compte.
           </p>
           <p>
-          Tes données restent uniquement sur cet appareil.
+          Sans compte, tes données restent sur cet appareil. Elles peuvent être perdues.
           </p>
         </div>
 
@@ -70,7 +70,7 @@ export default function PricingPage({
           </div>
 
           <p className="pricingCardIntro">
-            Tu vois l’essentiel. Crée un compte pour retrouver ton espace.
+            Tu suis ton activité et tu consultes l’essentiel.
           </p>
 
           <ul>
@@ -88,14 +88,12 @@ export default function PricingPage({
                 ? `${freeSmartPrioritiesCount} Smart Priorité visible`
                 : "Smart Priorités avancées"}
             </li>
-            <li>
-              {freeFeatures.export_pdf ? "✅" : "❌"} Export PDF
-            </li>
+            <li>✅ Export PDF</li>
             <li>✅ Export CSV</li>
             <li>✅ Factures illimitées</li>
             <li>❌ Alertes email automatiques</li>
             <li>❌ Alertes intelligentes prioritaires</li>
-            <li>✅ Tu vois l’essentiel de ton suivi</li>
+            <li>✅ Tu consultes l’essentiel de ton suivi</li>
           </ul>
 
           <p className="muted" style={{ marginTop: 14, marginBottom: 0 }}>
@@ -122,7 +120,7 @@ export default function PricingPage({
           <div className="annualPrice">Paiement en cours d’ouverture</div>
 
           <p className="pricingCardIntro">
-            Microassist te prévient avant les échéances importantes et t’aide à agir plus tôt.
+            Microassist te prévient automatiquement avant les échéances importantes.
           </p>
 
           <ul>
@@ -135,9 +133,7 @@ export default function PricingPage({
               {premiumSmartPrioritiesCount === "toutes" ? "✅" : "⚠"} Smart
               Priorités complètes
             </li>
-            <li>
-              {premiumFeatures.export_pdf ? "✅" : "❌"} Export PDF
-            </li>
+            <li>✅ Export PDF + suivi avancé</li>
             <li>✅ Export CSV</li>
             <li>✅ Factures illimitées + suivi fiscal</li>
             <li>
@@ -155,8 +151,8 @@ export default function PricingPage({
           </ul>
 
           <p className="muted" style={{ marginTop: 14, marginBottom: 0 }}>
-            Premium t’évite les oublis et les pénalités.
-            Tu sais quoi payer et quand agir.
+            Premium te prévient automatiquement avant les échéances importantes
+            pour éviter les oublis.
           </p>
 
           <button
@@ -259,8 +255,8 @@ export default function PricingPage({
 
           <div className="pricingCompareRow">
             <div>Export PDF</div>
-            <div>{formatFeatureValue(freeFeatures.export_pdf)}</div>
-            <div>{formatFeatureValue(premiumFeatures.export_pdf)}</div>
+            <div>oui</div>
+            <div>oui</div>
           </div>
 
           <div className="pricingCompareRow">
@@ -333,8 +329,8 @@ export default function PricingPage({
         <details>
           <summary>Que se passe-t-il si je reste en gratuit ?</summary>
           <p>
-            Tu vois l’essentiel. Premium te prévient avant les échéances
-            importantes et t’aide à agir plus tôt.
+            Tu suis ton activité et tu consultes l’essentiel. Premium te
+            prévient automatiquement avant les échéances importantes.
           </p>
         </details>
       </div>

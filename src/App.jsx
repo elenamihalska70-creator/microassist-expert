@@ -2725,17 +2725,15 @@ const handleRecoveryComplete = useCallback(() => {
 
     switch (billingUiState) {
       case "trial_active":
-        return canExportPdf
-          ? "PDF + CSV illimités • historique complet"
-          : "CSV inclus • PDF disponible avec Premium";
+        return "PDF + CSV inclus • historique complet";
       case "premium_active":
         return "PDF + CSV illimités • historique complet";
       case "trial_expired":
-        return "CSV inclus • PDF disponible avec Premium";
+        return "PDF + CSV inclus";
       case "guest":
       case "registered_free":
       default:
-        return "CSV inclus • PDF disponible avec Premium";
+        return "PDF + CSV inclus";
     }
   }, [billingUiState, canExportPdf, isQaPremium]);
   const premiumExportBadge = useMemo(() => {
@@ -4403,7 +4401,7 @@ useEffect(() => {
       : "Bonjour 👋";
   const trustBadgeLabel = user
     ? "🔒 Profil, revenus et historique sécurisés dans ton espace"
-    : "🖥️ Mode local actif : tes données restent sur cet appareil";
+    : "🖥️ Sans compte, tes données restent sur cet appareil. Elles peuvent être perdues.";
   const connectedAccountLabel = user?.email?.trim() || "";
   const fiscalProfilePageMode = isFiscalProfileComplete
     ? assistantEditMode
@@ -5915,8 +5913,8 @@ useEffect
       case "guest":
         return {
           line1: "✨ Crée ton compte",
-          line2: "Commence gratuitement. Crée un compte pour retrouver ton espace.",
-          line3: "Passe à Premium si tu veux aller plus loin.",
+          line2: "Teste Microassist localement, sans créer de compte.",
+          line3: "Sans compte, tes données restent sur cet appareil. Elles peuvent être perdues.",
           cta: "Créer mon compte",
         };
       case "trial_active":
@@ -5931,8 +5929,10 @@ useEffect
       case "trial_expired":
         return {
           line1: "🔓 Essai Premium expiré",
-          line2: "Ton compte gratuit te permet toujours de retrouver ton espace.",
-          line3: "Passe à Premium pour continuer sans limite.",
+          line2:
+            "Ton espace reste disponible gratuitement : revenus, factures, exports et suivi de base.",
+          line3:
+            "Premium te permet de recevoir les alertes automatiques et de voir toutes tes Smart Priorités.",
           cta: "Activer Premium • 5 €/mois",
         };
       case "premium_active":
@@ -5946,8 +5946,10 @@ useEffect
       default:
         return {
           line1: "⭐ Premium disponible",
-          line2: "Commence gratuitement. Ton compte te permet de retrouver ton espace.",
-          line3: "Passe à Premium si tu veux aller plus loin.",
+          line2:
+            "Ton espace reste disponible gratuitement : revenus, factures, exports et suivi de base.",
+          line3:
+            "Premium te permet de recevoir les alertes automatiques et de voir toutes tes Smart Priorités.",
           cta: "Voir Premium",
         };
     }
@@ -6019,11 +6021,11 @@ useEffect
       return {
         title: "Retrouve toutes les fonctionnalités",
         intro:
-          "Tu vois l’essentiel, mais Premium te prévient avant les échéances importantes et t’aide à agir plus tôt.",
+          "Premium te prévient automatiquement avant les échéances importantes pour éviter les oublis.",
         heroTitle: "Premium pour anticiper",
         heroText:
-          "Retrouve les alertes automatiques, les priorités complètes et les exports avancés.",
-        firstBenefit: "✔ Alertes automatiques et priorités complètes",
+          "Retrouve les alertes automatiques, les priorités complètes et un accompagnement plus proactif.",
+        firstBenefit: "✔ Alertes automatiques et Smart Priorités complètes",
       };
     }
 
@@ -6090,7 +6092,7 @@ useEffect
     return {
       title: "Premium pour anticiper",
       intro:
-        "Tu vois l’essentiel. Premium t’aide à anticiper.",
+        "Premium te prévient automatiquement avant les échéances importantes pour éviter les oublis.",
       heroTitle: "Alertes et priorités",
       heroText:
         "Garde une vue claire sur ce qui compte vraiment avant les échéances importantes.",
@@ -6121,7 +6123,7 @@ useEffect
       [
         premiumModalContent.firstBenefit,
         "✔ Alertes email avant échéance",
-        "✔ Export PDF / CSV illimité",
+        "✔ Accompagnement proactif avant les échéances",
         "✔ Suivi TVA + ACRE + CFE intelligent",
         "✔ Smart Priorités complètes",
         "✔ Alertes intelligentes par email",
@@ -8404,13 +8406,7 @@ const handleExportPDF = useCallback(async () => {
 ]);
 
 async function handleExportPDFWithLimit() {
-  const currentUsage = syncMonthlyExportUsage();
-
   if (isExportingPdf) {
-    return;
-  }
-  if (!canExportPdf) {
-    handleExportLimitHit(currentUsage);
     return;
   }
 
@@ -10514,9 +10510,12 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                     Crée ton compte pour activer ton essai Premium
                   </div>
                   <div className="discoveryBannerText">
-                    Tu vois l’essentiel. Crée ton compte pour retrouver ton
-                    espace. Premium te prévient avant les échéances importantes
-                    et t’aide à agir plus tôt.
+                    Sans compte, tes données restent sur cet appareil. Elles
+                    peuvent être perdues.
+                  </div>
+                  <div className="dashboardHelperText" style={{ marginTop: 8 }}>
+                    Crée un compte gratuit pour retrouver ton espace et garder
+                    ton suivi dans le temps.
                   </div>
                   <div className="discoveryBannerActions">
                     <button
@@ -10580,8 +10579,12 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                     🔒 Certaines fonctionnalités sont maintenant en Premium
                   </div>
                   <div className="discoveryBannerText">
-                    Tu vois l’essentiel. Premium te prévient avant les
-                    échéances importantes et t’aide à agir plus tôt.
+                    Ton espace reste disponible gratuitement : revenus,
+                    factures, exports et suivi de base.
+                  </div>
+                  <div className="dashboardHelperText" style={{ marginTop: 8 }}>
+                    Premium te permet de recevoir les alertes automatiques et
+                    de voir toutes tes Smart Priorités.
                   </div>
                   <div className="discoveryBannerActions">
                     <button
@@ -11299,8 +11302,9 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                         Tu vois ta priorité la plus urgente
                       </div>
                       <div className="priorityMessage">
-                        En gratuit, Microassist te montre l’essentiel. Premium t’aide
-                        à voir toutes les actions à anticiper avant les échéances.
+                        En gratuit, tu peux consulter l’essentiel quand tu te
+                        connectes. Premium te prévient automatiquement avant les
+                        échéances importantes.
                       </div>
                       <div className="dashboardHelperText" style={{ marginTop: 8 }}>
                         Sans alerte automatique, tu peux oublier une déclaration
