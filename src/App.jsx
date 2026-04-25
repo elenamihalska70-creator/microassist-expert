@@ -20,6 +20,7 @@ import InvoiceGenerator from "./components/InvoiceGenerator.jsx";
 import { PRICING_LIMITS } from "./config/pricing.js";
 import { ACCESS_MATRIX, getAccessProfile } from "./config/accessMatrix.js";
 import PricingPage from "./components/PricingPage.jsx";
+import ExpertDashboard from "./components/ExpertDashboard";
 // Добавьте после других констант:
 const LS_KEY = "microassist_v1";
 const LS_VERSION = 1;
@@ -2253,6 +2254,7 @@ useEffect(() => {
   const [showCGU, setShowCGU] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showInvoiceGenerator, setShowInvoiceGenerator] = useState(false);
+  const [mode, setMode] = useState("user");
   
   const [invoices, setInvoices] = useState([]);
   const [guestInvoices, setGuestInvoices] = useState(() => {
@@ -9296,6 +9298,41 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
               </button>
             )}
 
+            <div className="modeSwitch">
+              <div
+                className={`modeStatusBadge ${
+                  mode === "expert"
+                    ? "modeStatusBadge--expert"
+                    : "modeStatusBadge--user"
+                }`}
+                aria-live="polite"
+              >
+                {mode === "expert"
+                  ? "Mode expert actif"
+                  : "Mode entrepreneur actif"}
+              </div>
+              <button
+                type="button"
+                className={`btn btnGhost btnSmall modeSwitchButton ${
+                  mode === "user" ? "modeSwitchButton--active" : ""
+                }`}
+                onClick={() => setMode("user")}
+                aria-pressed={mode === "user"}
+              >
+                Entrepreneur
+              </button>
+              <button
+                type="button"
+                className={`btn btnGhost btnSmall modeSwitchButton ${
+                  mode === "expert" ? "modeSwitchButton--active" : ""
+                }`}
+                onClick={() => setMode("expert")}
+                aria-pressed={mode === "expert"}
+              >
+                Expert
+              </button>
+            </div>
+
             {user && (
               <button
                 type="button"
@@ -9394,6 +9431,10 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
     </button>
   </div>
 )}
+        {mode === "expert" ? (
+          <ExpertDashboard />
+        ) : (
+          <>
           {appView === "landing" && (
             <section id="home" ref={heroRef} className="card hero heroSaaS">
               <div className="heroGrid">
@@ -12604,8 +12645,10 @@ const handlePremiumWaitlistCTA = useCallback(async (sourceOverride) => {
                 </p>
               </div>
             </section>
-          )}
+)}
 
+          </>
+        )}
         </main>
 
         {showAddRevenue && (
