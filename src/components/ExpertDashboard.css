@@ -152,11 +152,345 @@
   font-size: 13px;
   color: #64748b;
   margin-bottom: 8px;
+  font-weight: 800;
 }
 
 .expertKpiCard strong {
   font-size: 28px;
   color: #0f172a;
+}
+
+.expertOverviewGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: 16px;
+}
+
+.expertOverviewCard {
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+}
+
+.expertOverviewCard--full {
+  grid-column: 1 / -1;
+}
+
+.expertOverviewHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.expertOverviewHeader h3 {
+  margin: 0;
+  font-size: 20px;
+  color: #0f172a;
+}
+
+.expertOverviewCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.expertPriorityBoard {
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+}
+
+.expertPriorityBoard li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 13px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.expertPriorityBoard strong {
+  display: block;
+  color: #0f172a;
+  margin-bottom: 4px;
+}
+
+.expertPriorityBoard p,
+.expertOverviewEmpty {
+  margin: 0;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.expertAlertSummary {
+  display: grid;
+  gap: 10px;
+}
+
+.expertAlertSummaryItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  padding: 13px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.expertAlertSummaryItem span {
+  color: #475569;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.expertAlertSummaryItem strong {
+  color: #0f172a;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.expertAlertSummaryItem p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.expertKpis--compact {
+  margin-bottom: 0;
+}
+
+.expertAlertGroups {
+  display: grid;
+  gap: 16px;
+}
+
+.expertAlertGroup {
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+}
+
+.expertAlertGroupHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.expertAlertGroupHeader h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 19px;
+}
+
+.expertAlertGroupHeader p {
+  margin: 5px 0 0;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.expertAlertList {
+  display: grid;
+  gap: 10px;
+}
+
+.expertAlertItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.expertAlertItemMain {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.expertAlertItem h4 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 16px;
+}
+
+.expertAlertItem p {
+  margin: 5px 0 0;
+  color: #475569;
+  line-height: 1.45;
+}
+
+.expertAlertEmpty {
+  padding: 14px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 14px;
+  background: #f8fafc;
+  color: #64748b;
+  font-weight: 700;
+}
+
+.expertNotesWorkspace {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.expertNotesClientList,
+.expertNotesPanel {
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+}
+
+.expertNotesClientList {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.expertNotesClientButton {
+  appearance: none;
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: transparent;
+  color: #0f172a;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease;
+}
+
+.expertNotesClientButton:hover {
+  border-color: #dbe4ee;
+  background: #f8fafc;
+}
+
+.expertNotesClientButton--active {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.expertNotesClientButtonTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.expertNotesClientButtonTop strong {
+  min-width: 0;
+  color: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.expertNotesClientButtonTop .expertBadge {
+  flex: 0 0 auto;
+  min-height: 24px;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.expertNotesClientButton small {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.expertNotesPanel {
+  padding: 18px;
+}
+
+.expertNotesPanelHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.expertNotesPanelHeader h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 22px;
+}
+
+.expertNotesTimeline {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.expertNoteEntry {
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.expertNoteEntry time,
+.expertNoteDate {
+  display: block;
+  margin-bottom: 6px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.expertNoteEntry p {
+  margin: 0;
+  color: #334155;
+  line-height: 1.55;
+}
+
+.expertInlineNoteForm {
+  display: grid;
+  gap: 10px;
+  padding-top: 16px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.expertInlineNoteForm label {
+  color: #475569;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .expertDashboard__grid {
@@ -332,6 +666,8 @@
 }
 
 .expertCard {
+  display: flex;
+  flex-direction: column;
   padding: 18px;
   border-radius: 16px;
   border: 1px solid #e2e8f0;
@@ -361,6 +697,7 @@
 .expertCard__body {
   display: grid;
   gap: 12px;
+  flex: 1;
 }
 
 .expertCard__body span,
@@ -377,10 +714,20 @@
 }
 
 .expertCard__actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
-  flex-wrap: wrap;
   margin-top: 16px;
+  align-items: stretch;
+}
+
+.expertCard__actions .btn {
+  width: 100%;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
 }
 
 .expertDetailActions {
@@ -390,37 +737,47 @@
 }
 
 .expertDangerButton {
-  border-color: #fecaca;
+  border-color: transparent;
   color: #b91c1c;
-  background: #fff;
+  background: #fff7f7;
+  box-shadow: none;
 }
 
 .expertDangerButton:hover {
   background: #fff1f2;
   border-color: #fda4af;
+  box-shadow: none;
 }
 
 .expertBadge {
-  padding: 6px 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 6px 11px;
   border-radius: 999px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 800;
   white-space: nowrap;
+  border: 1px solid transparent;
 }
 
 .expertBadge--ok {
   background: #dcfce7;
+  border-color: #86efac;
   color: #166534;
 }
 
 .expertBadge--late {
   background: #fee2e2;
+  border-color: #fca5a5;
   color: #991b1b;
 }
 
 .expertBadge--tva_risk,
 .expertBadge--alert {
   background: #fef3c7;
+  border-color: #fcd34d;
   color: #92400e;
 }
 
@@ -540,4 +897,33 @@
 
 .expertHistoryText {
   color: #475569;
+}
+
+@media (max-width: 900px) {
+  .expertOverviewGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .expertNotesWorkspace {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .expertDashboard {
+    padding: 16px;
+  }
+
+  .expertCard__actions {
+    grid-template-columns: 1fr;
+  }
+
+  .expertAlertItem,
+  .expertAlertItemMain {
+    display: grid;
+  }
+
+  .expertPriorityBoard li {
+    display: grid;
+  }
 }

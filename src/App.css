@@ -16,16 +16,58 @@ body {
 
 .appShell {
   min-height: 100vh;
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  column-gap: 28px;
   background:
-    radial-gradient(circle at top left, rgba(37, 99, 235, 0.1), transparent 30%),
+    radial-gradient(circle at top left, rgba(37, 99, 235, 0.08), transparent 28%),
     linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
   color: #0f172a;
 }
 
-.appContainer {
-  width: min(1180px, calc(100% - 32px));
-  margin: 0 auto;
-  padding: 32px 0 56px;
+.appSidebar {
+  position: sticky;
+  top: 0;
+  box-sizing: border-box;
+  width: 300px;
+  max-width: 300px;
+  min-height: 100vh;
+  padding: 24px 20px;
+  border-right: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(18px);
+  box-shadow: 18px 0 44px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+}
+
+.appSidebarBrand {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 8px 22px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  min-width: 0;
+}
+
+.appLogoMark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border-radius: 12px;
+  background: #0f172a;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.appWorkspace {
+  min-width: 0;
+  width: min(1240px, calc(100% - 32px));
+  margin: 0 auto 0 0;
+  padding: 28px 0 56px;
 }
 
 .appHeader {
@@ -33,57 +75,101 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  margin-bottom: 28px;
-  padding: 20px 22px;
+  margin-bottom: 24px;
+  padding: 18px 20px;
   border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 18px;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.06);
   backdrop-filter: blur(14px);
 }
 
 .appBrandBlock {
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.appSidebar .appBrandBlock h1 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 17px;
+  line-height: 1.12;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.appSidebar .appBrandBlock h1 span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .appHeader h1 {
   margin: 0;
   color: #0f172a;
-  font-size: 28px;
+  font-size: 18px;
   line-height: 1.15;
+  font-weight: 800;
+}
+
+.appHeader h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 24px;
+  line-height: 1.2;
   font-weight: 800;
 }
 
 .appSubtitle {
   margin: 0 0 6px;
   color: #64748b;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
+}
+
+.appEyebrow,
+.appHeaderMeta,
+.appPlaceholderLabel {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
+.appHeaderMeta {
+  padding: 7px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+  background: rgba(248, 250, 252, 0.9);
+  white-space: nowrap;
+}
+
 .appNav {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  flex-wrap: wrap;
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
 }
 
 .appNavPill {
-  display: inline-flex;
+  appearance: none;
+  display: flex;
   align-items: center;
-  justify-content: center;
-  min-height: 38px;
-  padding: 0 15px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  border-radius: 999px;
-  background: #ffffff;
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 42px;
+  padding: 0 13px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
   color: #334155;
   font-size: 14px;
   font-weight: 700;
-  text-decoration: none;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+  font-family: inherit;
+  cursor: pointer;
   transition:
     background 0.18s ease,
     border-color 0.18s ease,
@@ -93,10 +179,9 @@ body {
 }
 
 .appNavPill:hover {
-  border-color: rgba(37, 99, 235, 0.32);
-  color: #1d4ed8;
-  transform: translateY(-1px);
-  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+  border-color: rgba(148, 163, 184, 0.24);
+  background: rgba(248, 250, 252, 0.9);
+  color: #0f172a;
 }
 
 .appNavPill:focus-visible {
@@ -105,18 +190,106 @@ body {
 }
 
 .appNavPillActive {
-  border-color: rgba(37, 99, 235, 0.24);
-  background: #2563eb;
-  color: #ffffff;
+  border-color: rgba(37, 99, 235, 0.18);
+  background: #eff6ff;
+  color: #1d4ed8;
+  box-shadow: inset 3px 0 0 #2563eb;
 }
 
 .appNavPillActive:hover {
-  color: #ffffff;
-  background: #1d4ed8;
+  color: #1d4ed8;
+  background: #dbeafe;
 }
 
 .appMain {
-  padding: 6px 0 0;
+  padding: 0;
+}
+
+.appPlaceholderCard {
+  min-height: 260px;
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  padding: 32px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.06);
+}
+
+.appPlaceholderCard h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 24px;
+  line-height: 1.25;
+}
+
+@media (max-width: 860px) {
+  .appShell {
+    display: block;
+  }
+
+  .appSidebar {
+    position: static;
+    width: auto;
+    max-width: none;
+    min-height: auto;
+    padding: 16px;
+    border-right: 0;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+    overflow: visible;
+  }
+
+  .appSidebarBrand {
+    align-items: center;
+    padding: 0 0 14px;
+  }
+
+  .appNav {
+    display: flex;
+    gap: 8px;
+    margin-top: 14px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .appNavPill {
+    width: auto;
+    flex: 0 0 auto;
+    justify-content: center;
+    border-color: rgba(148, 163, 184, 0.2);
+    background: rgba(255, 255, 255, 0.7);
+    border-radius: 999px;
+    padding: 0 14px;
+  }
+
+  .appNavPillActive {
+    box-shadow: none;
+  }
+
+  .appWorkspace {
+    width: min(100% - 28px, 1240px);
+    padding: 18px 0 40px;
+  }
+
+  .appHeader {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+}
+
+@media (max-width: 520px) {
+  .appHeader h2,
+  .appPlaceholderCard h3 {
+    font-size: 21px;
+  }
+
+  .appPlaceholderCard {
+    min-height: 220px;
+    padding: 22px;
+    border-radius: 16px;
+  }
 }
 
 .page {

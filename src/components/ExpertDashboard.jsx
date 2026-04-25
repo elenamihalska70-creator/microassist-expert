@@ -116,7 +116,38 @@ function getSuggestedStatus(revenueInput, nextActionInput) {
   return "ok";
 }
 
-export default function ExpertDashboard() {
+function normalizeNoteEntry(note) {
+  if (note && typeof note === "object") {
+    return {
+      date: note.date || null,
+      text: note.text || "",
+    };
+  }
+
+  return {
+    date: null,
+    text: String(note || ""),
+  };
+}
+
+function getClientNoteEntries(client) {
+  if (!client) return [];
+
+  if (Array.isArray(client.notesList) && client.notesList.length > 0) {
+    return client.notesList.map(normalizeNoteEntry).filter((note) => note.text);
+  }
+
+  return client.notes
+    ? [
+        {
+          date: null,
+          text: client.notes,
+        },
+      ]
+    : [];
+}
+
+export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
   const [clients, setClients] = useState(() => {
     try {
       const raw = localStorage.getItem(EXPERT_CLIENTS_STORAGE_KEY);
@@ -153,6 +184,9 @@ export default function ExpertDashboard() {
   const [noteClientId, setNoteClientId] = useState(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [noteError, setNoteError] = useState("");
+  const [notesClientId, setNotesClientId] = useState(null);
+  const [inlineNoteDraft, setInlineNoteDraft] = useState("");
+  const [inlineNoteError, setInlineNoteError] = useState("");
   const [newClientForm, setNewClientForm] = useState({
     name: "",
     activity: "",
@@ -179,14 +213,19 @@ export default function ExpertDashboard() {
     return clientHistory.filter((event) => event.clientId === selectedClient.id);
   }, [clientHistory, selectedClient]);
   const selectedClientNotes = useMemo(() => {
-    if (!selectedClient) return [];
-
-    if (Array.isArray(selectedClient.notesList) && selectedClient.notesList.length > 0) {
-      return selectedClient.notesList;
+    return getClientNoteEntries(selectedClient);
+  }, [selectedClient]);
+  const notesClient = useMemo(() => {
+    if (notesClientId) {
+      return clients.find((client) => client.id === notesClientId) || clients[0] || null;
     }
 
-    return selectedClient.notes ? [selectedClient.notes] : [];
-  }, [selectedClient]);
+    return clients[0] || null;
+  }, [clients, notesClientId]);
+  const notesClientEntries = useMemo(
+    () => getClientNoteEntries(notesClient),
+    [notesClient],
+  );
 
   const kpis = useMemo(() => {
     const clientsSuivis = clients.length;
@@ -203,6 +242,72 @@ export default function ExpertDashboard() {
 
     return { clientsSuivis, enRetard, risqueTva, actionsCetteSemaine };
   }, [clients]);
+  const urgentClients = useMemo(
+    () =>
+      clients.filter((client) =>
+        ["late", "tva_risk", "alert"].includes(client.status),
+      ),
+    [clients],
+  );
+  const dailyPriorities = useMemo(() => {
+    const priorityClients = urgentClients.length > 0 ? urgentClients : clients;
+
+    return priorityClients.slice(0, 4).map((client) => ({
+      id: client.id,
+      clientName: client.name,
+      status: client.status,
+      action: client.nextAction,
+    }));
+  }, [clients, urgentClients]);
+  const globalAlerts = useMemo(
+    () => [
+      {
+        label: "Dossiers en retard",
+        value: kpis.enRetard,
+        helper:
+          kpis.enRetard > 0
+            ? "Déclarations ou relances à régulariser"
+            : "Aucun retard identifié",
+      },
+      {
+        label: "Risques TVA",
+        value: kpis.risqueTva,
+        helper:
+          kpis.risqueTva > 0
+            ? "Seuils à contrôler sur les prochains dossiers"
+            : "Aucun seuil critique détecté",
+      },
+      {
+        label: "Alertes cabinet",
+        value: clients.filter((client) => client.status === "alert").length,
+        helper: "Points de vigilance à suivre cette semaine",
+      },
+    ],
+    [clients, kpis.enRetard, kpis.risqueTva],
+  );
+  const alertGroups = useMemo(
+    () => [
+      {
+        key: "late",
+        title: "Déclarations en retard",
+        description: "Dossiers à régulariser rapidement.",
+        clients: clients.filter((client) => client.status === "late"),
+      },
+      {
+        key: "tva_risk",
+        title: "Risques TVA",
+        description: "Clients proches ou au-dessus des seuils de vigilance.",
+        clients: clients.filter((client) => client.status === "tva_risk"),
+      },
+      {
+        key: "alert",
+        title: "Autres vigilances",
+        description: "Points à contrôler avant la prochaine échéance.",
+        clients: clients.filter((client) => client.status === "alert"),
+      },
+    ],
+    [clients],
+  );
 
   const visibleClients = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -379,11 +484,11 @@ export default function ExpertDashboard() {
       return;
     }
 
-    const nextNotesList = Array.isArray(noteClient.notesList)
-      ? [trimmedNote, ...noteClient.notesList]
-      : noteClient.notes
-        ? [trimmedNote, noteClient.notes]
-        : [trimmedNote];
+    const nextNoteEntry = {
+      date: new Date().toISOString(),
+      text: trimmedNote,
+    };
+    const nextNotesList = [nextNoteEntry, ...getClientNoteEntries(noteClient)];
 
     setClients((currentClients) =>
       currentClients.map((client) =>
@@ -413,6 +518,51 @@ export default function ExpertDashboard() {
     closeNoteModal();
   }
 
+  function handleAddInlineNote() {
+    if (!notesClient) return;
+
+    const trimmedNote = inlineNoteDraft.trim();
+
+    if (!trimmedNote) {
+      setInlineNoteError("La note expert ne peut pas être vide.");
+      return;
+    }
+
+    const nextNoteEntry = {
+      date: new Date().toISOString(),
+      text: trimmedNote,
+    };
+    const nextNotesList = [nextNoteEntry, ...getClientNoteEntries(notesClient)];
+
+    setClients((currentClients) =>
+      currentClients.map((client) =>
+        client.id === notesClient.id
+          ? {
+              ...client,
+              notes: trimmedNote,
+              notesList: nextNotesList,
+            }
+          : client,
+      ),
+    );
+
+    setClientHistory((currentHistory) => [
+      {
+        clientId: notesClient.id,
+        type: "note",
+        label: "Note ajoutée",
+        detail:
+          trimmedNote.length > 60 ? `${trimmedNote.slice(0, 60)}…` : trimmedNote,
+        date: new Date(),
+      },
+      ...currentHistory,
+    ]);
+
+    setInlineNoteDraft("");
+    setInlineNoteError("");
+    setSuccessMessage(`Note ajoutée pour ${notesClient.name}.`);
+  }
+
   function handleDeleteClient(client) {
     if (!client) return;
 
@@ -432,6 +582,331 @@ export default function ExpertDashboard() {
     setNoteClientId((currentId) => (currentId === client.id ? null : currentId));
     setSelectedClientId((currentId) => (currentId === client.id ? null : currentId));
     setSuccessMessage(`Client supprimé : ${client.name}`);
+  }
+
+  function handleOpenClientFromAlert(client) {
+    setSelectedClientId(client.id);
+    onOpenClient?.(client);
+  }
+
+  if (view === "dashboard") {
+    return (
+      <section className="expertDashboard">
+        <div className="expertBanner">
+          Microassist Expert aide les professionnels à suivre plusieurs
+          micro-entrepreneurs, repérer les risques et éviter les oublis côté
+          client.
+          <div className="expertBannerHint">
+            Mode prototype : les données expert sont enregistrées localement
+            dans ce navigateur.
+          </div>
+        </div>
+
+        <div className="expertDashboard__header">
+          <div>
+            <p className="expertDashboard__eyebrow">Vue cabinet</p>
+            <h2>Tableau de bord</h2>
+            <p className="expertDashboard__subtitle">
+              Synthèse des priorités, risques et signaux de la semaine.
+            </p>
+          </div>
+        </div>
+
+        <div className="expertOverviewGrid">
+          <section className="expertOverviewCard expertOverviewCard--wide">
+            <div className="expertOverviewHeader">
+              <div>
+                <p className="expertDashboard__eyebrow">Priorités du jour</p>
+                <h3>Actions urgentes</h3>
+              </div>
+              <span className="expertOverviewCount">
+                {dailyPriorities.length}
+              </span>
+            </div>
+
+            {dailyPriorities.length > 0 ? (
+              <ul className="expertPriorityBoard">
+                {dailyPriorities.map((priority) => (
+                  <li key={`priority-${priority.id}`}>
+                    <span
+                      className={`expertBadge expertBadge--${priority.status}`}
+                    >
+                      {getStatusLabel(priority.status)}
+                    </span>
+                    <div>
+                      <strong>{priority.clientName}</strong>
+                      <p>{priority.action}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="expertOverviewEmpty">
+                Aucune priorité urgente pour le moment.
+              </p>
+            )}
+          </section>
+
+          <section className="expertOverviewCard">
+            <div className="expertOverviewHeader">
+              <div>
+                <p className="expertDashboard__eyebrow">Alertes globales</p>
+                <h3>Risques</h3>
+              </div>
+            </div>
+
+            <div className="expertAlertSummary">
+              {globalAlerts.map((alert) => (
+                <div className="expertAlertSummaryItem" key={alert.label}>
+                  <span>{alert.label}</span>
+                  <strong>{alert.value}</strong>
+                  <p>{alert.helper}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="expertOverviewCard expertOverviewCard--full">
+            <div className="expertOverviewHeader">
+              <div>
+                <p className="expertDashboard__eyebrow">Activité de la semaine</p>
+                <h3>Résumé KPI</h3>
+              </div>
+            </div>
+
+            <div className="expertKpis expertKpis--compact">
+              <div className="expertKpiCard">
+                <span>Clients suivis</span>
+                <strong>{kpis.clientsSuivis}</strong>
+              </div>
+              <div className="expertKpiCard">
+                <span>Actions cette semaine</span>
+                <strong>{kpis.actionsCetteSemaine}</strong>
+              </div>
+              <div className="expertKpiCard">
+                <span>Dossiers stables</span>
+                <strong>
+                  {clients.filter((client) => client.status === "ok").length}
+                </strong>
+              </div>
+              <div className="expertKpiCard">
+                <span>Notes enregistrées</span>
+                <strong>
+                  {clients.reduce((total, client) => {
+                    if (Array.isArray(client.notesList)) {
+                      return total + client.notesList.length;
+                    }
+
+                    return total + (client.notes ? 1 : 0);
+                  }, 0)}
+                </strong>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+    );
+  }
+
+  if (view === "alertes") {
+    return (
+      <section className="expertDashboard">
+        <div className="expertDashboard__header">
+          <div>
+            <p className="expertDashboard__eyebrow">Risk monitoring</p>
+            <h2>Alertes cabinet</h2>
+            <p className="expertDashboard__subtitle">
+              Risques et actions à traiter en priorité
+            </p>
+          </div>
+        </div>
+
+        <div className="expertAlertGroups">
+          {alertGroups.map((group) => (
+            <section className="expertAlertGroup" key={group.key}>
+              <div className="expertAlertGroupHeader">
+                <div>
+                  <h3>{group.title}</h3>
+                  <p>{group.description}</p>
+                </div>
+                <span className="expertOverviewCount">
+                  {group.clients.length}
+                </span>
+              </div>
+
+              {group.clients.length > 0 ? (
+                <div className="expertAlertList">
+                  {group.clients.map((client) => (
+                    <article className="expertAlertItem" key={client.id}>
+                      <div className="expertAlertItemMain">
+                        <div>
+                          <h4>{client.name}</h4>
+                          <p>{client.nextAction}</p>
+                        </div>
+                        <span
+                          className={`expertBadge expertBadge--${client.status}`}
+                        >
+                          {getStatusLabel(client.status)}
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="btn btnPrimary btnSmall"
+                        onClick={() => handleOpenClientFromAlert(client)}
+                      >
+                        Voir fiche
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="expertAlertEmpty">
+                  Aucun dossier dans ce groupe.
+                </div>
+              )}
+            </section>
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  if (view === "notes") {
+    return (
+      <section className="expertDashboard">
+        <div className="expertDashboard__header">
+          <div>
+            <p className="expertDashboard__eyebrow">Historique cabinet</p>
+            <h2>Notes clients</h2>
+            <p className="expertDashboard__subtitle">
+              Suivi et historique des échanges
+            </p>
+          </div>
+        </div>
+
+        <div className="expertNotesWorkspace">
+          <aside className="expertNotesClientList" aria-label="Clients">
+            {clients.map((client) => (
+              <button
+                type="button"
+                key={client.id}
+                className={`expertNotesClientButton${
+                  notesClient?.id === client.id
+                    ? " expertNotesClientButton--active"
+                    : ""
+                }`}
+                onClick={() => {
+                  setNotesClientId(client.id);
+                  setInlineNoteDraft("");
+                  setInlineNoteError("");
+                }}
+              >
+                <span className="expertNotesClientButtonTop">
+                  <strong>{client.name}</strong>
+                  <span className={`expertBadge expertBadge--${client.status}`}>
+                    {getStatusLabel(client.status)}
+                  </span>
+                </span>
+                <small>{client.activity}</small>
+                <small>{getClientNoteEntries(client).length} note(s)</small>
+              </button>
+            ))}
+          </aside>
+
+          <section className="expertNotesPanel">
+            {notesClient ? (
+              <>
+                <div className="expertNotesPanelHeader">
+                  <div>
+                    <p className="expertDashboard__eyebrow">Client sélectionné</p>
+                    <h3>{notesClient.name}</h3>
+                  </div>
+                  <span className={`expertBadge expertBadge--${notesClient.status}`}>
+                    {getStatusLabel(notesClient.status)}
+                  </span>
+                </div>
+
+                <div className="expertNotesTimeline">
+                  {notesClientEntries.length > 0 ? (
+                    notesClientEntries.map((note, index) => (
+                      <article
+                        className="expertNoteEntry"
+                        key={`${notesClient.id}-inline-note-${index}`}
+                      >
+                        <time>
+                          {note.date
+                            ? new Date(note.date).toLocaleDateString("fr-FR", {
+                                day: "numeric",
+                                month: "long",
+                                year: "numeric",
+                              })
+                            : "Note existante"}
+                        </time>
+                        <p>{note.text}</p>
+                      </article>
+                    ))
+                  ) : (
+                    <div className="expertAlertEmpty">
+                      Aucune note pour ce client.
+                    </div>
+                  )}
+                </div>
+
+                <div className="expertInlineNoteForm">
+                  <label htmlFor="expert-inline-note">Nouvelle note</label>
+                  <textarea
+                    id="expert-inline-note"
+                    className="expertModalTextarea"
+                    value={inlineNoteDraft}
+                    onChange={(event) => {
+                      setInlineNoteDraft(event.target.value);
+                      if (inlineNoteError) {
+                        setInlineNoteError("");
+                      }
+                    }}
+                    rows={5}
+                    placeholder="Ex : Appelé le client, relance URSSAF prévue, attente de réponse..."
+                  />
+                  {inlineNoteError && (
+                    <div className="expertModalError" role="alert">
+                      {inlineNoteError}
+                    </div>
+                  )}
+                  <div className="expertModalActions">
+                    <button
+                      type="button"
+                      className="btn btnPrimary btnSmall"
+                      onClick={handleAddInlineNote}
+                    >
+                      Ajouter note
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="expertAlertEmpty">
+                Aucun client disponible pour ajouter une note.
+              </div>
+            )}
+          </section>
+        </div>
+
+        {successMessage && (
+          <div className="expertToast" role="status" aria-live="polite">
+            <span>{successMessage}</span>
+            <button
+              type="button"
+              className="expertToastClose"
+              onClick={() => setSuccessMessage("")}
+              aria-label="Fermer le message"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+      </section>
+    );
   }
 
   if (selectedClient) {
@@ -502,7 +977,18 @@ export default function ExpertDashboard() {
               {selectedClientNotes.length > 0 ? (
                 <ul className="expertNotesList">
                   {selectedClientNotes.map((note, index) => (
-                    <li key={`${selectedClient.id}-note-${index}`}>{note}</li>
+                    <li key={`${selectedClient.id}-note-${index}`}>
+                      <span className="expertNoteDate">
+                        {note.date
+                          ? new Date(note.date).toLocaleDateString("fr-FR", {
+                              day: "numeric",
+                              month: "long",
+                              year: "numeric",
+                            })
+                          : "Note existante"}
+                      </span>
+                      {note.text}
+                    </li>
                   ))}
                 </ul>
               ) : (
@@ -567,7 +1053,7 @@ export default function ExpertDashboard() {
           <p className="expertDashboard__eyebrow">Mode expert</p>
           <h2>Portefeuille clients</h2>
           <p className="expertDashboard__subtitle">
-            Vue rapide des dossiers à suivre en priorité.
+            Suivi des dossiers micro-entrepreneurs
           </p>
         </div>
         <button
@@ -585,15 +1071,15 @@ export default function ExpertDashboard() {
           <strong>{kpis.clientsSuivis}</strong>
         </div>
         <div className="expertKpiCard">
-          <span>En retard</span>
+          <span>Dossiers en retard</span>
           <strong>{kpis.enRetard}</strong>
         </div>
         <div className="expertKpiCard">
-          <span>Risque TVA</span>
+          <span>Risques TVA</span>
           <strong>{kpis.risqueTva}</strong>
         </div>
         <div className="expertKpiCard">
-          <span>Actions cette semaine</span>
+          <span>Actions à traiter</span>
           <strong>{kpis.actionsCetteSemaine}</strong>
         </div>
       </div>
