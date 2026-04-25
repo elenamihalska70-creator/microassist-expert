@@ -12,6 +12,12 @@
   line-height: 1.5;
 }
 
+.expertBannerHint {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #64748b;
+}
+
 .expertDashboard__header {
   margin-bottom: 20px;
   display: flex;
@@ -219,6 +225,34 @@
   color: #475569;
 }
 
+.expertModalHelperRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.expertModalHelperText {
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.expertModalHelperAction {
+  border: none;
+  background: transparent;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
+
+.expertModalHelperAction:hover {
+  text-decoration: underline;
+}
+
 .expertModalSelect,
 .expertModalInput,
 .expertModalTextarea {
@@ -347,6 +381,23 @@
   gap: 8px;
   flex-wrap: wrap;
   margin-top: 16px;
+}
+
+.expertDetailActions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.expertDangerButton {
+  border-color: #fecaca;
+  color: #b91c1c;
+  background: #fff;
+}
+
+.expertDangerButton:hover {
+  background: #fff1f2;
+  border-color: #fda4af;
 }
 
 .expertBadge {
