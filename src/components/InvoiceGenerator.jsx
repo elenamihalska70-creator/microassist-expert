@@ -86,6 +86,10 @@ export default function InvoiceGenerator({
   }
 
 async function generateInvoiceNumber() {
+    if (!supabase || !user?.id) {
+      return generateGuestInvoiceNumber();
+    }
+
     const year = new Date().getFullYear();
     const prefix = `FAC-${year}-`;
 
@@ -181,7 +185,7 @@ async function generateInvoiceNumber() {
     setSaving(true);
 
     try {
-      const isGuest = !user?.id;
+      const isGuest = !user?.id || !supabase;
       const number = isGuest
         ? generateGuestInvoiceNumber()
         : await generateInvoiceNumber();

@@ -14,6 +14,14 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     let mounted = true;
 
+    if (!supabase) {
+      setSession(null);
+      setLoading(false);
+      return () => {
+        mounted = false;
+      };
+    }
+
     async function initAuth() {
       const { data, error } = await supabase.auth.getSession();
 

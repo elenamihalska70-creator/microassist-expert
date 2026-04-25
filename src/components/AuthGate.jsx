@@ -111,6 +111,10 @@ export default function AuthGate({
   }, [onSuccess]);
 
   useEffect(() => {
+    if (!supabase) {
+      return undefined;
+    }
+
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
@@ -276,6 +280,12 @@ export default function AuthGate({
   async function handleSubmit(event) {
     event.preventDefault();
 
+    if (!supabase) {
+      setNotice("");
+      setError("L’authentification est désactivée en mode local.");
+      return;
+    }
+
     if (submitting || (mode === "signup" && signupCompleted)) {
       return;
     }
@@ -395,6 +405,12 @@ export default function AuthGate({
   }
 
   async function handleForgotPassword() {
+    if (!supabase) {
+      setNotice("");
+      setError("L’authentification est désactivée en mode local.");
+      return;
+    }
+
     if (submitting) {
       return;
     }
@@ -437,6 +453,12 @@ export default function AuthGate({
   }
 
   async function handleResendConfirmation() {
+    if (!supabase) {
+      setNotice("");
+      setError("L’authentification est désactivée en mode local.");
+      return;
+    }
+
     const cleanEmail = email.trim().toLowerCase();
 
     if (!cleanEmail || resendingConfirmation) {
