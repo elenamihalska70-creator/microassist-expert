@@ -224,6 +224,123 @@ body {
   line-height: 1.25;
 }
 
+.settingsPage {
+  display: grid;
+  gap: 18px;
+}
+
+.settingsHeader {
+  padding: 20px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.06);
+}
+
+.settingsHeader h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 26px;
+  line-height: 1.2;
+}
+
+.settingsHeader p:last-child {
+  margin: 8px 0 0;
+  color: #64748b;
+}
+
+.settingsGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.settingsCard {
+  padding: 20px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.06);
+}
+
+.settingsCard h3 {
+  margin: 0 0 16px;
+  color: #0f172a;
+  font-size: 19px;
+}
+
+.settingsForm {
+  display: grid;
+  gap: 14px;
+}
+
+.settingsForm label {
+  display: grid;
+  gap: 7px;
+}
+
+.settingsForm span {
+  color: #475569;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.settingsForm input,
+.settingsForm select {
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid #dbe4ee;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #0f172a;
+  font: inherit;
+  outline: none;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.settingsForm input:focus,
+.settingsForm select:focus {
+  border-color: #7dd3fc;
+  box-shadow: 0 0 0 4px rgba(125, 211, 252, 0.18);
+  background: #f8fdff;
+}
+
+.settingsActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
+.settingsSaved {
+  color: #166534;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.settingsStatusCard ul {
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+}
+
+.settingsStatusCard li {
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
+  color: #334155;
+  font-weight: 800;
+}
+
 @media (max-width: 860px) {
   .appShell {
     display: block;
@@ -276,6 +393,10 @@ body {
     align-items: flex-start;
     flex-direction: column;
     gap: 12px;
+  }
+
+  .settingsGrid {
+    grid-template-columns: 1fr;
   }
 }
 
