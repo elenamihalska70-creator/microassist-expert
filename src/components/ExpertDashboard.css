@@ -14,6 +14,11 @@
 
 .expertDashboard__header {
   margin-bottom: 20px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .expertDashboard__eyebrow {
@@ -162,6 +167,136 @@
   color: #64748b;
 }
 
+.expertModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.36);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 80;
+}
+
+.expertModalCard {
+  width: min(560px, 100%);
+  border-radius: 18px;
+  border: 1px solid #dbe4ee;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.2);
+  padding: 20px;
+}
+
+.expertModalHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.expertModalHeader h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: #0f172a;
+}
+
+.expertModalSubtitle {
+  margin: 6px 0 0;
+  color: #64748b;
+  font-size: 0.95rem;
+}
+
+.expertModalField {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.expertModalField label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.expertModalSelect,
+.expertModalInput,
+.expertModalTextarea {
+  width: 100%;
+  border: 1px solid #dbe4ee;
+  border-radius: 12px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 14px;
+  padding: 12px 14px;
+  outline: none;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.expertModalInput:focus,
+.expertModalSelect:focus,
+.expertModalTextarea:focus {
+  border-color: #7dd3fc;
+  box-shadow: 0 0 0 4px rgba(125, 211, 252, 0.18);
+  background: #f8fdff;
+}
+
+.expertModalTextarea {
+  resize: vertical;
+  min-height: 120px;
+  line-height: 1.5;
+}
+
+.expertModalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.expertModalError {
+  margin: -2px 0 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #fecaca;
+  background: #fff1f2;
+  color: #be123c;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.expertToast {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 85;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(360px, calc(100vw - 24px));
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+  box-shadow: 0 16px 36px rgba(22, 101, 52, 0.14);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.expertToastClose {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 2px 4px;
+}
+
 .expertCard {
   padding: 18px;
   border-radius: 16px;
@@ -306,4 +441,52 @@
 
 .expertPriorityList li + li {
   margin-top: 8px;
+}
+
+.expertNotesList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.expertNotesList li {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  color: #334155;
+  line-height: 1.5;
+}
+
+.expertHistoryEmpty {
+  margin: 0;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.expertHistoryList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.expertHistoryList li {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 14px;
+  color: #334155;
+}
+
+.expertHistoryDate {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.expertHistoryText {
+  color: #475569;
 }
