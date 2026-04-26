@@ -1,116 +1,243 @@
 import { useEffect, useMemo, useState } from "react";
 import "./ExpertDashboard.css";
 
-const EXPERT_CLIENTS_STORAGE_KEY = "microassist_expert_clients";
-const EXPERT_HISTORY_STORAGE_KEY = "microassist_expert_history";
+export const EXPERT_CLIENTS_STORAGE_KEY = "microassist_expert_clients";
+export const EXPERT_HISTORY_STORAGE_KEY = "microassist_expert_history";
 
 const FILTERS = [
   { key: "all", label: "Tous" },
   { key: "late", label: "En retard" },
-  { key: "tva_risk", label: "Risque TVA" },
-  { key: "alert", label: "Alertes" },
+  { key: "tva", label: "Risque TVA" },
+  { key: "warning", label: "Alertes" },
   { key: "ok", label: "OK" },
 ];
 
-const mockClients = [
+export const seedClients = [
   {
-    id: 1,
+    id: "seed-1",
     name: "Sophie Martin",
-    activity: "Prestation de services",
-    revenue: "4 850 €",
+    activity: "Consulting",
+    revenue: 4850,
     status: "ok",
     nextAction: "Déclaration URSSAF le 30 avril",
-    notes: "Cliente autonome, peu de relances nécessaires.",
+    notes: [
+      {
+        date: "2026-04-22T09:30:00.000Z",
+        text: "Cliente autonome, peu de relances nécessaires.",
+      },
+    ],
+    updatedAt: "2026-04-22T09:30:00.000Z",
     priorities: [
       "Vérifier la prochaine échéance URSSAF",
       "Préparer le suivi mensuel",
     ],
   },
   {
-    id: 2,
+    id: "seed-2",
     name: "Lucas Bernard",
-    activity: "Vente en ligne",
-    revenue: "12 400 €",
-    status: "tva_risk",
+    activity: "E-commerce",
+    revenue: 12400,
+    status: "tva",
     nextAction: "Vérifier le seuil TVA",
-    notes: "CA en hausse, surveiller le passage de seuil.",
+    notes: [
+      {
+        date: "2026-04-21T14:10:00.000Z",
+        text: "CA en hausse, surveiller le passage de seuil.",
+      },
+    ],
+    updatedAt: "2026-04-21T14:10:00.000Z",
     priorities: [
       "Contrôler le seuil TVA",
       "Préparer un point client sur la facturation",
     ],
   },
   {
-    id: 3,
+    id: "seed-3",
     name: "Emma Petit",
-    activity: "Consulting",
-    revenue: "2 100 €",
+    activity: "Formation",
+    revenue: 2100,
     status: "late",
     nextAction: "Déclaration en retard à régulariser",
-    notes: "Besoin d’un rappel rapide cette semaine.",
+    notes: [
+      {
+        date: "2026-04-20T08:45:00.000Z",
+        text: "Besoin d’un rappel rapide cette semaine.",
+      },
+    ],
+    updatedAt: "2026-04-20T08:45:00.000Z",
     priorities: [
       "Régulariser la déclaration",
       "Envoyer un rappel client",
     ],
   },
   {
-    id: 4,
+    id: "seed-4",
     name: "Nina Robert",
     activity: "Graphisme",
-    revenue: "6 320 €",
+    revenue: 6320,
     status: "ok",
     nextAction: "Préparer l’échéance CFE",
-    notes: "RAS, dossier stable.",
+    notes: [
+      {
+        date: "2026-04-18T16:00:00.000Z",
+        text: "RAS, dossier stable.",
+      },
+    ],
+    updatedAt: "2026-04-18T16:00:00.000Z",
     priorities: [
       "Préparer l’échéance CFE",
       "Vérifier les charges estimées",
     ],
   },
   {
-    id: 5,
+    id: "seed-5",
     name: "Thomas Garcia",
     activity: "Activité mixte",
-    revenue: "8 970 €",
-    status: "alert",
+    revenue: 8970,
+    status: "warning",
     nextAction: "Contrôler les charges estimées",
-    notes: "Activité mixte, points de vigilance sur le suivi.",
+    notes: [
+      {
+        date: "2026-04-17T10:15:00.000Z",
+        text: "Activité mixte, points de vigilance sur le suivi.",
+      },
+    ],
+    updatedAt: "2026-04-17T10:15:00.000Z",
     priorities: [
       "Vérifier la ventilation vente / service",
       "Contrôler les charges estimées",
     ],
   },
+  {
+    id: "seed-6",
+    name: "Camille Moreau",
+    activity: "Coaching",
+    revenue: 3650,
+    status: "ok",
+    nextAction: "Planifier le point mensuel",
+    notes: [],
+    updatedAt: "2026-04-16T13:20:00.000Z",
+    priorities: [
+      "Planifier le point mensuel",
+      "Vérifier les derniers encaissements",
+    ],
+  },
+  {
+    id: "seed-7",
+    name: "Yanis Lefevre",
+    activity: "Développement web",
+    revenue: 10950,
+    status: "tva",
+    nextAction: "Préparer un audit TVA avant nouvelle facture",
+    notes: [
+      {
+        date: "2026-04-15T11:00:00.000Z",
+        text: "Plusieurs missions signées ce mois-ci, seuils à surveiller.",
+      },
+    ],
+    updatedAt: "2026-04-15T11:00:00.000Z",
+    priorities: [
+      "Contrôler le seuil TVA",
+      "Revoir les mentions de facturation",
+    ],
+  },
 ];
 
+function getStatusGroup(status) {
+  if (status === "tva_risk") return "tva";
+  if (status === "alert") return "warning";
+  return status || "ok";
+}
+
 function getStatusLabel(status) {
-  switch (status) {
+  switch (getStatusGroup(status)) {
     case "late":
       return "En retard";
-    case "tva_risk":
+    case "tva":
       return "Risque TVA";
-    case "alert":
+    case "warning":
       return "Alerte";
     default:
       return "OK";
   }
 }
 
-function getSuggestedStatus(revenueInput, nextActionInput) {
-  const normalizedRevenue = String(revenueInput || "")
+function parseRevenueValue(revenue) {
+  if (typeof revenue === "number") return revenue;
+
+  const normalizedRevenue = String(revenue || "")
     .trim()
     .replace(/\s/g, "")
+    .replace("€", "")
     .replace(",", ".");
   const revenueValue = Number(normalizedRevenue);
+
+  return Number.isNaN(revenueValue) ? 0 : revenueValue;
+}
+
+function getClientRisk(client) {
+  const revenueValue = parseRevenueValue(client?.revenue);
+  const nextAction = String(client?.nextAction || "").toLowerCase();
+
+  if (nextAction.includes("retard") || nextAction.includes("régulariser")) {
+    return {
+      status: "late",
+      label: "En retard",
+      priorityLevel: 1,
+      recommendedAction: "Régulariser le dossier et relancer le client.",
+    };
+  }
+
+  if (revenueValue >= 12000 || nextAction.includes("tva")) {
+    return {
+      status: "tva",
+      label: "Risque TVA",
+      priorityLevel: 2,
+      recommendedAction: "Vérifier les seuils TVA et préparer la facturation.",
+    };
+  }
+
+  if (
+    nextAction.includes("charges") ||
+    nextAction.includes("cfe") ||
+    nextAction.includes("vérifier") ||
+    nextAction.includes("contrôler")
+  ) {
+    return {
+      status: "warning",
+      label: "Alerte",
+      priorityLevel: 3,
+      recommendedAction: "Contrôler le point de vigilance avant échéance.",
+    };
+  }
+
+  return {
+    status: "ok",
+    label: "OK",
+    priorityLevel: 4,
+    recommendedAction: "Continuer le suivi régulier du dossier.",
+  };
+}
+
+function getSuggestedStatus(revenueInput, nextActionInput) {
+  const revenueValue = parseRevenueValue(revenueInput);
   const nextAction = String(nextActionInput || "").toLowerCase();
 
   if (nextAction.includes("retard")) {
     return "late";
   }
 
-  if (!Number.isNaN(revenueValue) && revenueValue >= 10000) {
-    return "tva_risk";
+  if (revenueValue >= 12000 || nextAction.includes("tva")) {
+    return "tva";
   }
 
-  if (!Number.isNaN(revenueValue) && revenueValue >= 7000) {
-    return "alert";
+  if (
+    nextAction.includes("charges") ||
+    nextAction.includes("cfe") ||
+    nextAction.includes("vérifier") ||
+    nextAction.includes("contrôler")
+  ) {
+    return "warning";
   }
 
   return "ok";
@@ -137,23 +264,28 @@ function getClientNoteEntries(client) {
     return client.notesList.map(normalizeNoteEntry).filter((note) => note.text);
   }
 
-  return client.notes
-    ? [
-        {
-          date: null,
-          text: client.notes,
-        },
-      ]
-    : [];
+  if (Array.isArray(client.notes)) {
+    return client.notes.map(normalizeNoteEntry).filter((note) => note.text);
+  }
+
+  return client.notes ? [{ date: null, text: client.notes }] : [];
+}
+
+function formatRevenue(revenue) {
+  if (typeof revenue === "number") {
+    return `${revenue.toLocaleString("fr-FR")} €`;
+  }
+
+  return revenue || "—";
 }
 
 export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
   const [clients, setClients] = useState(() => {
     try {
       const raw = localStorage.getItem(EXPERT_CLIENTS_STORAGE_KEY);
-      return raw ? JSON.parse(raw) : mockClients;
+      return raw ? JSON.parse(raw) : [];
     } catch {
-      return mockClients;
+      return [];
     }
   });
   const [selectedClientId, setSelectedClientId] = useState(null);
@@ -229,15 +361,14 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
 
   const kpis = useMemo(() => {
     const clientsSuivis = clients.length;
-    const enRetard = clients.filter((client) => client.status === "late").length;
+    const enRetard = clients.filter(
+      (client) => getClientRisk(client).status === "late",
+    ).length;
     const risqueTva = clients.filter(
-      (client) => client.status === "tva_risk",
+      (client) => getClientRisk(client).status === "tva",
     ).length;
     const actionsCetteSemaine = clients.filter(
-      (client) =>
-        client.status === "late" ||
-        client.status === "tva_risk" ||
-        client.status === "alert",
+      (client) => ["late", "tva", "warning"].includes(getClientRisk(client).status),
     ).length;
 
     return { clientsSuivis, enRetard, risqueTva, actionsCetteSemaine };
@@ -245,19 +376,30 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
   const urgentClients = useMemo(
     () =>
       clients.filter((client) =>
-        ["late", "tva_risk", "alert"].includes(client.status),
+        ["late", "tva", "warning"].includes(getClientRisk(client).status),
       ),
     [clients],
   );
   const dailyPriorities = useMemo(() => {
     const priorityClients = urgentClients.length > 0 ? urgentClients : clients;
 
-    return priorityClients.slice(0, 4).map((client) => ({
-      id: client.id,
-      clientName: client.name,
-      status: client.status,
-      action: client.nextAction,
-    }));
+    return [...priorityClients]
+      .sort(
+        (firstClient, secondClient) =>
+          getClientRisk(firstClient).priorityLevel -
+          getClientRisk(secondClient).priorityLevel,
+      )
+      .slice(0, 4)
+      .map((client) => {
+        const risk = getClientRisk(client);
+
+        return {
+          id: client.id,
+          clientName: client.name,
+          risk,
+          action: client.nextAction,
+        };
+      });
   }, [clients, urgentClients]);
   const globalAlerts = useMemo(
     () => [
@@ -279,7 +421,9 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
       },
       {
         label: "Alertes cabinet",
-        value: clients.filter((client) => client.status === "alert").length,
+        value: clients.filter(
+          (client) => getClientRisk(client).status === "warning",
+        ).length,
         helper: "Points de vigilance à suivre cette semaine",
       },
     ],
@@ -291,19 +435,21 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
         key: "late",
         title: "Déclarations en retard",
         description: "Dossiers à régulariser rapidement.",
-        clients: clients.filter((client) => client.status === "late"),
+        clients: clients.filter((client) => getClientRisk(client).status === "late"),
       },
       {
-        key: "tva_risk",
+        key: "tva",
         title: "Risques TVA",
         description: "Clients proches ou au-dessus des seuils de vigilance.",
-        clients: clients.filter((client) => client.status === "tva_risk"),
+        clients: clients.filter(
+          (client) => getClientRisk(client).status === "tva",
+        ),
       },
       {
-        key: "alert",
+        key: "warning",
         title: "Autres vigilances",
         description: "Points à contrôler avant la prochaine échéance.",
-        clients: clients.filter((client) => client.status === "alert"),
+        clients: clients.filter((client) => getClientRisk(client).status === "warning"),
       },
     ],
     [clients],
@@ -314,7 +460,9 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
 
     return clients.filter((client) => {
       const matchesFilter =
-        activeFilter === "all" ? true : client.status === activeFilter;
+        activeFilter === "all"
+          ? true
+          : getClientRisk(client).status === activeFilter;
       const matchesSearch = normalizedQuery
         ? client.name.toLowerCase().includes(normalizedQuery)
         : true;
@@ -589,6 +737,158 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
     onOpenClient?.(client);
   }
 
+  function renderEmptyState({
+    text = "Ajoutez votre premier client pour activer le suivi, les alertes et les notes.",
+  } = {}) {
+    return (
+      <div className="expertEmptyState expertEmptyState--primary">
+        <h3>Aucun client pour le moment</h3>
+        <p>{text}</p>
+        <button
+          type="button"
+          className="btn btnPrimary btnSmall"
+          onClick={openAddClientModal}
+        >
+          + Ajouter client
+        </button>
+      </div>
+    );
+  }
+
+  function renderAddClientModal() {
+    if (!showAddClientModal) {
+      return null;
+    }
+
+    return (
+      <div className="expertModalOverlay" role="presentation">
+        <div
+          className="expertModalCard"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="expert-add-client-title"
+        >
+          <div className="expertModalHeader">
+            <div>
+              <h3 id="expert-add-client-title">Ajouter un client</h3>
+            </div>
+            <button
+              type="button"
+              className="btn btnGhost btnSmall"
+              onClick={closeAddClientModal}
+            >
+              Fermer
+            </button>
+          </div>
+
+          <div className="expertModalField">
+            <label htmlFor="expert-client-name">Nom du client</label>
+            <input
+              id="expert-client-name"
+              type="text"
+              className="expertModalInput"
+              value={newClientForm.name}
+              onChange={(event) =>
+                handleNewClientChange("name", event.target.value)
+              }
+            />
+          </div>
+
+          <div className="expertModalField">
+            <label htmlFor="expert-client-activity">Activité</label>
+            <input
+              id="expert-client-activity"
+              type="text"
+              className="expertModalInput"
+              value={newClientForm.activity}
+              onChange={(event) =>
+                handleNewClientChange("activity", event.target.value)
+              }
+            />
+          </div>
+
+          <div className="expertModalField">
+            <label htmlFor="expert-client-revenue">Chiffre d’affaires</label>
+            <input
+              id="expert-client-revenue"
+              type="text"
+              className="expertModalInput"
+              value={newClientForm.revenue}
+              onChange={(event) =>
+                handleNewClientChange("revenue", event.target.value)
+              }
+            />
+          </div>
+
+          <div className="expertModalField">
+            <label htmlFor="expert-client-next-action">Prochaine action</label>
+            <input
+              id="expert-client-next-action"
+              type="text"
+              className="expertModalInput"
+              value={newClientForm.nextAction}
+              onChange={(event) =>
+                handleNewClientChange("nextAction", event.target.value)
+              }
+            />
+          </div>
+
+          <div className="expertModalField">
+            <label htmlFor="expert-client-status">Statut</label>
+            <select
+              id="expert-client-status"
+              className="expertModalSelect"
+              value={newClientForm.status}
+              onChange={(event) =>
+                handleNewClientChange("status", event.target.value)
+              }
+            >
+              <option value="ok">OK</option>
+              <option value="late">En retard</option>
+              <option value="tva">Risque TVA</option>
+              <option value="warning">Alerte</option>
+            </select>
+            <div className="expertModalHelperRow">
+              <span className="expertModalHelperText">
+                Statut suggéré : {getStatusLabel(suggestedStatus)}
+              </span>
+              <button
+                type="button"
+                className="expertModalHelperAction"
+                onClick={() => handleNewClientChange("status", suggestedStatus)}
+              >
+                Appliquer le statut suggéré
+              </button>
+            </div>
+          </div>
+
+          {addClientError && (
+            <div className="expertModalError" role="alert">
+              {addClientError}
+            </div>
+          )}
+
+          <div className="expertModalActions">
+            <button
+              type="button"
+              className="btn btnGhost btnSmall"
+              onClick={closeAddClientModal}
+            >
+              Annuler
+            </button>
+            <button
+              type="button"
+              className="btn btnPrimary btnSmall"
+              onClick={handleAddClient}
+            >
+              Ajouter
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (view === "dashboard") {
     return (
       <section className="expertDashboard">
@@ -612,6 +912,12 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
           </div>
         </div>
 
+        {clients.length === 0 ? (
+          <>
+            {renderEmptyState()}
+            {renderAddClientModal()}
+          </>
+        ) : (
         <div className="expertOverviewGrid">
           <section className="expertOverviewCard expertOverviewCard--wide">
             <div className="expertOverviewHeader">
@@ -629,13 +935,18 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
                 {dailyPriorities.map((priority) => (
                   <li key={`priority-${priority.id}`}>
                     <span
-                      className={`expertBadge expertBadge--${priority.status}`}
+                      className={`expertBadge expertBadge--${priority.risk.status}`}
                     >
-                      {getStatusLabel(priority.status)}
+                      {priority.risk.label}
                     </span>
                     <div>
                       <strong>{priority.clientName}</strong>
                       <p>{priority.action}</p>
+                      {priority.risk.recommendedAction && (
+                        <p className="expertRecommendedAction">
+                          {priority.risk.recommendedAction}
+                        </p>
+                      )}
                     </div>
                   </li>
                 ))}
@@ -686,7 +997,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
               <div className="expertKpiCard">
                 <span>Dossiers stables</span>
                 <strong>
-                  {clients.filter((client) => client.status === "ok").length}
+                  {clients.filter((client) => getClientRisk(client).status === "ok").length}
                 </strong>
               </div>
               <div className="expertKpiCard">
@@ -704,6 +1015,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
             </div>
           </section>
         </div>
+        )}
       </section>
     );
   }
@@ -721,6 +1033,14 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
           </div>
         </div>
 
+        {clients.length === 0 ? (
+          <>
+            {renderEmptyState({
+              text: "Aucun risque à traiter pour le moment, car aucun client n’a encore été ajouté.",
+            })}
+            {renderAddClientModal()}
+          </>
+        ) : (
         <div className="expertAlertGroups">
           {alertGroups.map((group) => (
             <section className="expertAlertGroup" key={group.key}>
@@ -742,11 +1062,14 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
                         <div>
                           <h4>{client.name}</h4>
                           <p>{client.nextAction}</p>
+                          <p className="expertRecommendedAction">
+                            {getClientRisk(client).recommendedAction}
+                          </p>
                         </div>
                         <span
-                          className={`expertBadge expertBadge--${client.status}`}
+                          className={`expertBadge expertBadge--${getClientRisk(client).status}`}
                         >
-                          {getStatusLabel(client.status)}
+                          {getClientRisk(client).label}
                         </span>
                       </div>
 
@@ -768,6 +1091,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
             </section>
           ))}
         </div>
+        )}
       </section>
     );
   }
@@ -785,6 +1109,14 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
           </div>
         </div>
 
+        {clients.length === 0 ? (
+          <>
+            {renderEmptyState({
+              text: "Ajoutez ou sélectionnez un client pour commencer à centraliser les notes.",
+            })}
+            {renderAddClientModal()}
+          </>
+        ) : (
         <div className="expertNotesWorkspace">
           <aside className="expertNotesClientList" aria-label="Clients">
             {clients.map((client) => (
@@ -804,8 +1136,8 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
               >
                 <span className="expertNotesClientButtonTop">
                   <strong>{client.name}</strong>
-                  <span className={`expertBadge expertBadge--${client.status}`}>
-                    {getStatusLabel(client.status)}
+                  <span className={`expertBadge expertBadge--${getClientRisk(client).status}`}>
+                    {getClientRisk(client).label}
                   </span>
                 </span>
                 <small>{client.activity}</small>
@@ -822,8 +1154,8 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
                     <p className="expertDashboard__eyebrow">Client sélectionné</p>
                     <h3>{notesClient.name}</h3>
                   </div>
-                  <span className={`expertBadge expertBadge--${notesClient.status}`}>
-                    {getStatusLabel(notesClient.status)}
+                  <span className={`expertBadge expertBadge--${getClientRisk(notesClient).status}`}>
+                    {getClientRisk(notesClient).label}
                   </span>
                 </div>
 
@@ -891,6 +1223,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
             )}
           </section>
         </div>
+        )}
 
         {successMessage && (
           <div className="expertToast" role="status" aria-live="polite">
@@ -947,9 +1280,9 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
                 <h2>{selectedClient.name}</h2>
               </div>
               <span
-                className={`expertBadge expertBadge--${selectedClient.status}`}
+                className={`expertBadge expertBadge--${getClientRisk(selectedClient).status}`}
               >
-                {getStatusLabel(selectedClient.status)}
+                {getClientRisk(selectedClient).label}
               </span>
             </div>
 
@@ -960,7 +1293,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
               </div>
               <div className="expertInfoBlock">
                 <span>Chiffre d’affaires</span>
-                <strong>{selectedClient.revenue}</strong>
+                <strong>{formatRevenue(selectedClient.revenue)}</strong>
               </div>
               <div className="expertInfoBlock">
                 <span>Prochaine action</span>
@@ -968,7 +1301,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
               </div>
               <div className="expertInfoBlock">
                 <span>Statut</span>
-                <strong>{getStatusLabel(selectedClient.status)}</strong>
+                <strong>{getClientRisk(selectedClient).label}</strong>
               </div>
             </div>
 
@@ -1065,6 +1398,13 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
         </button>
       </div>
 
+      {clients.length === 0 ? (
+        <>
+          {renderEmptyState()}
+          {renderAddClientModal()}
+        </>
+      ) : (
+      <>
       <div className="expertKpis">
         <div className="expertKpiCard">
           <span>Clients suivis</span>
@@ -1122,22 +1462,22 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
         {visibleClients.map((client) => (
           <article
             key={client.id}
-            className={`expertCard expertCard--${client.status}`}
+            className={`expertCard expertCard--${getClientRisk(client).status}`}
           >
             <div className="expertCard__top">
               <div>
                 <h3>{client.name}</h3>
                 <p>{client.activity}</p>
               </div>
-              <span className={`expertBadge expertBadge--${client.status}`}>
-                {getStatusLabel(client.status)}
+              <span className={`expertBadge expertBadge--${getClientRisk(client).status}`}>
+                {getClientRisk(client).label}
               </span>
             </div>
 
             <div className="expertCard__body">
               <div>
                 <span>Chiffre d’affaires</span>
-                <strong>{client.revenue}</strong>
+                <strong>{formatRevenue(client.revenue)}</strong>
               </div>
               <div>
                 <span>Prochaine action</span>
@@ -1182,6 +1522,8 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
           <div className="expertEmptyState">Aucun dossier pour cette recherche.</div>
         )}
       </div>
+      </>
+      )}
 
       {successMessage && (
         <div className="expertToast" role="status" aria-live="polite">
@@ -1266,7 +1608,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
         </div>
       )}
 
-      {showAddClientModal && (
+      {clients.length > 0 && showAddClientModal && (
         <div className="expertModalOverlay" role="presentation">
           <div
             className="expertModalCard"
@@ -1351,8 +1693,8 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
               >
                 <option value="ok">OK</option>
                 <option value="late">En retard</option>
-                <option value="tva_risk">Risque TVA</option>
-                <option value="alert">Alerte</option>
+                <option value="tva">Risque TVA</option>
+                <option value="warning">Alerte</option>
               </select>
               <div className="expertModalHelperRow">
                 <span className="expertModalHelperText">

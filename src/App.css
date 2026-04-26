@@ -341,6 +341,27 @@ body {
   font-weight: 800;
 }
 
+.settingsTestCard {
+  grid-column: 1 / -1;
+}
+
+.settingsTestCard p {
+  margin: 0;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.settingsDangerButton {
+  border-color: #fecaca;
+  color: #b91c1c;
+  background: #fff7f7;
+}
+
+.settingsDangerButton:hover {
+  background: #fff1f2;
+  border-color: #fda4af;
+}
+
 @media (max-width: 860px) {
   .appShell {
     display: block;

@@ -507,6 +507,34 @@
   color: #64748b;
 }
 
+.expertEmptyState--primary {
+  min-height: 280px;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 36px 24px;
+  border-style: solid;
+  background:
+    linear-gradient(180deg, rgba(248, 250, 252, 0.9), #ffffff),
+    #ffffff;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.06);
+  text-align: center;
+}
+
+.expertEmptyState--primary h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 22px;
+}
+
+.expertEmptyState--primary p {
+  max-width: 520px;
+  margin: 0;
+  color: #64748b;
+  line-height: 1.55;
+}
+
 .expertModalOverlay {
   position: fixed;
   inset: 0;
@@ -774,8 +802,8 @@
   color: #991b1b;
 }
 
-.expertBadge--tva_risk,
-.expertBadge--alert {
+.expertBadge--tva,
+.expertBadge--warning {
   background: #fef3c7;
   border-color: #fcd34d;
   color: #92400e;
@@ -785,9 +813,16 @@
   border-color: #fecaca;
 }
 
-.expertCard--tva_risk,
-.expertCard--alert {
+.expertCard--tva,
+.expertCard--warning {
   border-color: #fde68a;
+}
+
+.expertRecommendedAction {
+  margin-top: 6px !important;
+  color: #1d4ed8 !important;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .expertDetail {
