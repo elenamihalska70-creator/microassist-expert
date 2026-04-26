@@ -886,6 +886,141 @@
   margin-top: 8px;
 }
 
+.expertActionPlan {
+  display: grid;
+  gap: 12px;
+}
+
+.expertActionPlanGroup {
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+}
+
+.expertActionPlanGroup--today {
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
+.expertActionPlanGroup--thisWeek {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.expertActionPlanHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.expertActionPlanHeader h4 {
+  margin: 0;
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.expertActionPlanBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.expertActionPlanGroup--today .expertActionPlanBadge {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.expertActionPlanGroup--thisWeek .expertActionPlanBadge {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.expertActionPlan ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #334155;
+}
+
+.expertActionPlan li + li {
+  margin-top: 7px;
+}
+
+.expertSchedule {
+  display: grid;
+  gap: 16px;
+}
+
+.expertScheduleGroup {
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+}
+
+.expertScheduleGroup--today {
+  border-color: #fecaca;
+}
+
+.expertScheduleGroup--thisWeek {
+  border-color: #fde68a;
+}
+
+.expertScheduleHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.expertScheduleHeader h3 {
+  margin: 0;
+  color: #0f172a;
+}
+
+.expertScheduleHeader p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.expertScheduleList {
+  display: grid;
+  gap: 10px;
+}
+
+.expertScheduleItem {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.expertScheduleItem h4 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 15px;
+}
+
+.expertScheduleItem p {
+  margin: 4px 0 0;
+  color: #334155;
+}
+
 .expertNotesList {
   list-style: none;
   padding: 0;
@@ -954,7 +1089,8 @@
   }
 
   .expertAlertItem,
-  .expertAlertItemMain {
+  .expertAlertItemMain,
+  .expertScheduleItem {
     display: grid;
   }
 

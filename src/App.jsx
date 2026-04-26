@@ -7,6 +7,7 @@ const CABINET_SETTINGS_STORAGE_KEY = "microassist_expert_cabinet_settings";
 const sections = [
   { id: "dashboard", label: "Dashboard" },
   { id: "clients", label: "Clients" },
+  { id: "echeancier", label: "Échéancier" },
   { id: "alertes", label: "Alertes" },
   { id: "notes", label: "Notes" },
   { id: "parametres", label: "Paramètres" },
@@ -94,7 +95,7 @@ function App() {
         </header>
 
         <main className="appMain">
-          {["dashboard", "clients", "alertes", "notes"].includes(activeSection) ? (
+          {["dashboard", "clients", "echeancier", "alertes", "notes"].includes(activeSection) ? (
             <ExpertDashboard
               view={activeSection}
               onOpenClient={() => setActiveSection("clients")}

@@ -428,6 +428,94 @@ function getClientNextAction(client) {
     : client?.nextAction || STATUS_DEFAULT_ACTIONS[risk.status];
 }
 
+function getClientActionPlan(client) {
+  const plan = {
+    today: [],
+    thisWeek: [],
+    later: [],
+  };
+  const risk = getClientRisk(client);
+  const revenueValue = parseRevenueValue(client?.revenue);
+  const hasTvaRisk =
+    revenueValue >= 10000 && (client?.tva || "Inconnue") !== "Applicable";
+
+  if (risk.status === "late") {
+    plan.today.push("Déclaration en retard à régulariser immédiatement");
+    plan.today.push("Contacter le client pour régularisation");
+  }
+
+  if (hasTvaRisk) {
+    plan.thisWeek.push("Vérifier le seuil TVA");
+    plan.thisWeek.push("Informer le client du changement de régime");
+  }
+
+  if (client?.acre === "Oui") {
+    plan.later.push("Vérifier la fin de la période ACRE");
+    plan.later.push("Anticiper évolution des charges");
+  }
+
+  if (risk.status === "ok" && plan.today.length === 0 && plan.thisWeek.length === 0) {
+    plan.later.push("Suivi normal du dossier");
+    plan.later.push("Préparer prochaine déclaration");
+  }
+
+  if (
+    plan.today.length === 0 &&
+    plan.thisWeek.length === 0 &&
+    plan.later.length === 0
+  ) {
+    plan.thisWeek.push("Vérifier les informations du dossier");
+  }
+
+  return {
+    today: [...new Set(plan.today)],
+    thisWeek: [...new Set(plan.thisWeek)],
+    later: [...new Set(plan.later)],
+  };
+}
+
+function getCabinetSchedule(clients) {
+  return clients.reduce(
+    (schedule, client) => {
+      const plan = getClientActionPlan(client);
+
+      plan.today.forEach((action) => {
+        schedule.today.push({
+          clientId: client.id,
+          clientName: client.name,
+          action,
+          priority: "today",
+        });
+      });
+
+      plan.thisWeek.forEach((action) => {
+        schedule.thisWeek.push({
+          clientId: client.id,
+          clientName: client.name,
+          action,
+          priority: "week",
+        });
+      });
+
+      plan.later.forEach((action) => {
+        schedule.later.push({
+          clientId: client.id,
+          clientName: client.name,
+          action,
+          priority: "later",
+        });
+      });
+
+      return schedule;
+    },
+    {
+      today: [],
+      thisWeek: [],
+      later: [],
+    },
+  );
+}
+
 function normalizeNoteEntry(note) {
   if (note && typeof note === "object") {
     return {
@@ -654,6 +742,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
     ],
     [clients],
   );
+  const cabinetSchedule = useMemo(() => getCabinetSchedule(clients), [clients]);
 
   const visibleClients = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -944,6 +1033,15 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
   }
 
   function handleOpenClientFromAlert(client) {
+    setSelectedClientId(client.id);
+    onOpenClient?.(client);
+  }
+
+  function handleOpenClientFromSchedule(item) {
+    const client = clients.find((currentClient) => currentClient.id === item.clientId);
+
+    if (!client) return;
+
     setSelectedClientId(client.id);
     onOpenClient?.(client);
   }
@@ -1353,6 +1451,101 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
     );
   }
 
+  if (view === "echeancier") {
+    const scheduleSections = [
+      {
+        key: "today",
+        title: "Aujourd’hui",
+        badge: "Urgent",
+        items: cabinetSchedule.today,
+      },
+      {
+        key: "thisWeek",
+        title: "Cette semaine",
+        badge: "Cette semaine",
+        items: cabinetSchedule.thisWeek,
+      },
+      {
+        key: "later",
+        title: "Plus tard",
+        badge: "Plus tard",
+        items: cabinetSchedule.later,
+      },
+    ];
+    const hasScheduledActions = scheduleSections.some(
+      (section) => section.items.length > 0,
+    );
+
+    return (
+      <section className="expertDashboard">
+        <div className="expertDashboard__header">
+          <div>
+            <p className="expertDashboard__eyebrow">Pilotage cabinet</p>
+            <h2>Échéancier cabinet</h2>
+            <p className="expertDashboard__subtitle">
+              Actions générées automatiquement à partir des dossiers clients
+            </p>
+          </div>
+        </div>
+
+        {clients.length === 0 ? (
+          <>
+            {renderEmptyState({
+              text: "Ajoutez un client pour générer automatiquement l’échéancier du cabinet.",
+            })}
+            {renderAddClientModal()}
+          </>
+        ) : hasScheduledActions ? (
+          <div className="expertSchedule">
+            {scheduleSections.map((section) => (
+              <section
+                className={`expertScheduleGroup expertScheduleGroup--${section.key}`}
+                key={section.key}
+              >
+                <div className="expertScheduleHeader">
+                  <div>
+                    <h3>{section.title}</h3>
+                    <p>{section.items.length} action(s)</p>
+                  </div>
+                  <span className="expertActionPlanBadge">{section.badge}</span>
+                </div>
+
+                {section.items.length > 0 ? (
+                  <div className="expertScheduleList">
+                    {section.items.map((item, index) => (
+                      <article
+                        className="expertScheduleItem"
+                        key={`${item.priority}-${item.clientId}-${item.action}-${index}`}
+                      >
+                        <div>
+                          <h4>{item.clientName}</h4>
+                          <p>{item.action}</p>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btnPrimary btnSmall"
+                          onClick={() => handleOpenClientFromSchedule(item)}
+                        >
+                          Voir fiche
+                        </button>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="expertAlertEmpty">
+                    Aucune action à planifier
+                  </div>
+                )}
+              </section>
+            ))}
+          </div>
+        ) : (
+          <div className="expertEmptyState">Aucune action à planifier</div>
+        )}
+      </section>
+    );
+  }
+
   if (view === "notes") {
     return (
       <section className="expertDashboard">
@@ -1500,6 +1693,28 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
   }
 
   if (selectedClient) {
+    const selectedClientActionPlan = getClientActionPlan(selectedClient);
+    const actionPlanSections = [
+      {
+        key: "today",
+        title: "Aujourd’hui",
+        badge: "Urgent",
+        actions: selectedClientActionPlan.today,
+      },
+      {
+        key: "thisWeek",
+        title: "Cette semaine",
+        badge: "Cette semaine",
+        actions: selectedClientActionPlan.thisWeek,
+      },
+      {
+        key: "later",
+        title: "Plus tard",
+        badge: "Plus tard",
+        actions: selectedClientActionPlan.later,
+      },
+    ].filter((section) => section.actions.length > 0);
+
     return (
       <section className="expertDashboard">
         <div className="expertBanner">
@@ -1617,6 +1832,28 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
                   <li key={priority}>{priority}</li>
                 ))}
               </ul>
+            </div>
+
+            <div className="expertPanelBlock">
+              <h3>Plan d’action</h3>
+              <div className="expertActionPlan">
+                {actionPlanSections.map((section) => (
+                  <section
+                    className={`expertActionPlanGroup expertActionPlanGroup--${section.key}`}
+                    key={section.key}
+                  >
+                    <div className="expertActionPlanHeader">
+                      <h4>{section.title}</h4>
+                      <span className="expertActionPlanBadge">{section.badge}</span>
+                    </div>
+                    <ul>
+                      {section.actions.map((action) => (
+                        <li key={action}>{action}</li>
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+              </div>
             </div>
 
             <div className="expertPanelBlock">
