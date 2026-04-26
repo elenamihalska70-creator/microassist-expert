@@ -1,10 +1,12 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import "./App.css";
 import ExpertDashboard, {
   EXPERT_CLIENTS_STORAGE_KEY,
   EXPERT_HISTORY_STORAGE_KEY,
   seedClients,
 } from "./components/ExpertDashboard";
+import AuthModal from "./components/AuthModal";
+import { getCurrentSession, signOutExpert } from "./lib/authService";
 
 const CABINET_SETTINGS_STORAGE_KEY = "microassist_expert_cabinet_settings";
 
@@ -38,9 +40,33 @@ function App() {
   });
   const [settingsSaved, setSettingsSaved] = useState(false);
   const [devDataMessage, setDevDataMessage] = useState("");
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authToast, setAuthToast] = useState("");
   const activeLabel =
     sections.find((section) => section.id === activeSection)?.label ||
     "Dashboard";
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadSession() {
+      const { data } = await getCurrentSession();
+      const user = data?.session?.user || null;
+
+      if (!isMounted) return;
+
+      setCurrentUser(user ? { email: user.email } : null);
+      setAuthLoading(false);
+    }
+
+    loadSession();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   function updateCabinetSetting(field, value) {
     setCabinetSettings((currentSettings) => ({
@@ -85,6 +111,24 @@ function App() {
     }
   }
 
+  function handleAuthSuccess(data) {
+    const user = data?.user || data?.session?.user || null;
+
+    if (user?.email) {
+      setCurrentUser({ email: user.email });
+    }
+
+    console.log("User logged in");
+    setAuthToast("Connexion réussie");
+    setShowAuthModal(false);
+  }
+
+  async function handleSignOut() {
+    await signOutExpert();
+    setCurrentUser(null);
+    setAuthToast("Déconnexion réussie");
+  }
+
   return (
     <div className="app appShell">
       <aside className="appSidebar" aria-label="Navigation principale">
@@ -121,7 +165,37 @@ function App() {
             <p className="appEyebrow">Mon cabinet</p>
             <h2>{activeLabel}</h2>
           </div>
-          <p className="appHeaderMeta">Interface cabinet</p>
+          <div className="appHeaderActions">
+            <p className="appHeaderMeta">Interface cabinet</p>
+            <span className="appPrototypeNote">
+              {currentUser
+                ? "Session connectée — synchronisation cloud à venir."
+                : "Données enregistrées localement dans ce navigateur."}
+            </span>
+            {currentUser ? (
+              <>
+                <span className="appUserBadge">
+                  Connecté : {currentUser.email}
+                </span>
+                <button
+                  type="button"
+                  className="btn btnGhost btnSmall"
+                  onClick={handleSignOut}
+                >
+                  Se déconnecter
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="btn btnGhost btnSmall"
+                onClick={() => setShowAuthModal(true)}
+                disabled={authLoading}
+              >
+                Se connecter
+              </button>
+            )}
+          </div>
         </header>
 
         <main className="appMain">
@@ -257,6 +331,26 @@ function App() {
           )}
         </main>
       </div>
+
+      {showAuthModal && (
+        <AuthModal
+          onClose={() => setShowAuthModal(false)}
+          onSuccess={handleAuthSuccess}
+        />
+      )}
+
+      {authToast && (
+        <div className="appToast" role="status" aria-live="polite">
+          <span>{authToast}</span>
+          <button
+            type="button"
+            onClick={() => setAuthToast("")}
+            aria-label="Fermer le message"
+          >
+            ×
+          </button>
+        </div>
+      )}
     </div>
   );
 }
