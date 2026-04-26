@@ -1,65 +1,108 @@
-# Microassist
+# Microassist Expert 🧠
+🔗 Demo: https://microassist-expert.vercel.app
 
-Microassist est un assistant conçu pour aider les micro-entrepreneurs
-à comprendre simplement leurs obligations fiscales.
-
-L’objectif est de réduire le temps et le stress liés aux démarches
-administratives : déclarations, charges, TVA et échéances.
-
-En quelques étapes, l’outil donne une vision claire de ce qu’il faut
-déclarer, quand le faire et combien mettre de côté.
-
-Ainsi, l’entrepreneur peut se concentrer sur l’essentiel :
-développer son activité plutôt que perdre du temps
-dans les démarches administratives.
+**Microassist Expert** est un prototype d’outil SaaS destiné aux experts-comptables, consultants et accompagnateurs, pour suivre plusieurs micro-entrepreneurs, détecter les risques et automatiser les actions de suivi.
 
 ---
 
-## Fonctionnalités
+## 🚀 Objectif
 
-- assistant fiscal étape par étape
-- estimation des charges (URSSAF)
-- suivi des échéances
-- tableau d’actions
-- export de résumé
-- stockage local sécurisé
+Aider les professionnels à :
+
+- suivre facilement plusieurs clients
+- détecter les retards et risques fiscaux
+- prioriser les actions
+- éviter les oublis (URSSAF, TVA, échéances)
+- structurer le suivi client sans complexité
 
 ---
 
-## Stack technique
+## 🧩 Fonctionnalités
 
-- React
-- Vite
+### 📊 Dashboard cabinet
+- Synthèse des priorités du jour
+- KPI dynamiques (clients, actions, relances)
+- Détection automatique des risques
+
+### 👥 Gestion des clients
+- Portefeuille clients
+- Statut automatique (OK / Alerte / Risque TVA / En retard)
+- Fiche client détaillée
+
+### ⚠️ Smart Priorités
+- Priorisation automatique des actions
+- Détection :
+  - retards de déclaration
+  - seuils TVA
+  - anomalies
+
+### 📅 Échéancier cabinet
+- Vue globale des actions :
+  - Aujourd’hui
+  - Cette semaine
+  - Plus tard
+
+### 📝 Notes & Historique
+- Notes par client
+- Historique automatique des actions :
+  - relances
+  - modifications
+  - ajouts
+
+### 📩 Relances intelligentes
+- Génération automatique de messages
+- Copie en un clic
+- Base pour automatisation future (email / SMS)
+
+### 📄 Export PDF
+- Rapport client
+- Rapport cabinet
+- Données structurées et prêtes à partager
+
+### 📈 Score de risque
+- Score dynamique (0 → 100)
+- Visualisation simple (faible / moyen / élevé / critique)
+
+---
+
+## ⚙️ Stack technique
+
+- React (Vite)
 - JavaScript
-- UX wizard interface
-- logique métier fiscale
+- LocalStorage (prototype)
+- jsPDF (export PDF)
 
 ---
 
-## Auteur
+## 🧪 Statut
 
-Prototype développé par **Olena Mykhalska**  
-Cheffe de projet digital
+Prototype MVP en cours de test.
+
+- Données stockées localement (mode prototype)
+- Pas de backend connecté
+- Version B2B en exploration
 
 ---
 
-## Licence
+## 🔮 Évolutions prévues
 
-This project is provided for **demonstration and portfolio purposes only**.  
-Unauthorized copying or commercial use is prohibited.
-# React + Vite
+- Connexion backend (Supabase)
+- Envoi réel d’emails / SMS
+- Gestion multi-utilisateurs
+- Synchronisation cloud
+- Intégrations outils comptables
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+---
 
-Currently, two official plugins are available:
+## 👩‍💻 Auteur
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+Projet développé par **Olena Mykhalska**  
+Chef de projet digital – spécialisée en produits digitaux, UX et automatisation.
 
-## React Compiler
+---
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## 💡 Vision
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Simplifier la gestion des micro-entrepreneurs  
+→ pour les rendre autonomes  
+→ et faire gagner du temps aux experts
