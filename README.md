@@ -1,4 +1,4 @@
-# Microassist Expert 🧠
+# Microassist Expert 
 🔗 Demo: https://microassist-expert.vercel.app
 
 **Microassist Expert** est un prototype d’outil SaaS destiné aux experts-comptables, consultants et accompagnateurs, pour suivre plusieurs micro-entrepreneurs, détecter les risques et automatiser les actions de suivi.
