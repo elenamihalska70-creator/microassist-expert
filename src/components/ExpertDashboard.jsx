@@ -400,6 +400,7 @@ function buildClientFromForm(formData) {
     nextAction,
     priorities,
     notes: "Dossier ajouté automatiquement par l’assistant client.",
+    history: [],
   };
 }
 
@@ -426,6 +427,127 @@ function getClientNextAction(client) {
   return hasAssistedData
     ? getComputedNextAction(client, risk.status)
     : client?.nextAction || STATUS_DEFAULT_ACTIONS[risk.status];
+}
+
+function createClientHistoryEntry(entry) {
+  const entryDate = entry.date ? new Date(entry.date) : new Date();
+
+  return {
+    type: entry.type,
+    label: entry.label,
+    date: Number.isNaN(entryDate.getTime())
+      ? new Date().toISOString()
+      : entryDate.toISOString(),
+  };
+}
+
+function getClientHistoryEntries(client, legacyHistory = []) {
+  const clientHistory = Array.isArray(client?.history) ? client.history : [];
+  const normalizedClientHistory = clientHistory
+    .map((entry) => ({
+      ...entry,
+      date: typeof entry.date === "string" ? entry.date : new Date(entry.date).toISOString(),
+    }))
+    .filter((entry) => entry.label && !Number.isNaN(new Date(entry.date).getTime()));
+
+  const normalizedLegacyHistory = legacyHistory
+    .map((entry) => ({
+      type: entry.type,
+      label: entry.label,
+      date:
+        entry.date instanceof Date
+          ? entry.date.toISOString()
+          : new Date(entry.date).toISOString(),
+    }))
+    .filter((entry) => entry.label && !Number.isNaN(new Date(entry.date).getTime()));
+
+  return [...normalizedClientHistory, ...normalizedLegacyHistory].sort(
+    (firstEntry, secondEntry) =>
+      new Date(secondEntry.date).getTime() - new Date(firstEntry.date).getTime(),
+  );
+}
+
+function getHistoryDateGroup(dateValue) {
+  const date = new Date(dateValue);
+  const today = new Date();
+  const todayDate = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+  );
+  const entryDate = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+  );
+  const daysDifference = Math.floor(
+    (todayDate.getTime() - entryDate.getTime()) / MILLISECONDS_PER_DAY,
+  );
+
+  if (daysDifference === 0) return "Aujourd’hui";
+  if (daysDifference === 1) return "Hier";
+  return "Avant";
+}
+
+function groupHistoryByDate(entries) {
+  const groups = {
+    "Aujourd’hui": [],
+    Hier: [],
+    Avant: [],
+  };
+
+  entries.forEach((entry) => {
+    groups[getHistoryDateGroup(entry.date)].push(entry);
+  });
+
+  return Object.entries(groups)
+    .map(([label, items]) => ({ label, items }))
+    .filter((group) => group.items.length > 0);
+}
+
+function getCabinetStats(clients) {
+  return clients.reduce(
+    (stats, client) => {
+      const history = Array.isArray(client.history) ? client.history : [];
+
+      history.forEach((entry) => {
+        if (entry.type === "reminder") {
+          stats.remindersCount += 1;
+        }
+
+        if (entry.type === "note") {
+          stats.notesCount += 1;
+        }
+
+        if (entry.type === "update") {
+          stats.updatesCount += 1;
+        }
+      });
+
+      return stats;
+    },
+    {
+      remindersCount: 0,
+      notesCount: 0,
+      updatesCount: 0,
+    },
+  );
+}
+
+export function getClientReminderMessage(client) {
+  const name = client?.name || "client";
+  const risk = getClientRisk(client).status;
+
+  switch (risk) {
+    case "late":
+      return `Bonjour ${name},\n\nVotre déclaration semble en retard. Merci de me transmettre les éléments nécessaires afin de régulariser rapidement la situation.\n\nBien à vous,\n[Nom du cabinet]`;
+    case "tva":
+      return `Bonjour ${name},\n\nVotre chiffre d’affaires approche le seuil de TVA. Je vous propose de faire un point afin d’anticiper les prochaines obligations.\n\nBien à vous,\n[Nom du cabinet]`;
+    case "warning":
+      return `Bonjour ${name},\n\nUn point de vigilance a été détecté sur votre dossier. Je vous propose de vérifier ensemble les éléments concernés.\n\nBien à vous,\n[Nom du cabinet]`;
+    default:
+      return `Bonjour ${name},\n\nTout est à jour pour le moment. Je reste disponible si besoin.\n\nBien à vous,\n[Nom du cabinet]`;
+  }
 }
 
 function getClientActionPlan(client) {
@@ -581,7 +703,6 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
   const [activeFilter, setActiveFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [reminderClientId, setReminderClientId] = useState(null);
-  const [reminderType, setReminderType] = useState("declaration");
   const [reminderMessage, setReminderMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [clientHistory, setClientHistory] = useState(() => {
@@ -626,8 +747,16 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
   const selectedClientHistory = useMemo(() => {
     if (!selectedClient) return [];
 
-    return clientHistory.filter((event) => event.clientId === selectedClient.id);
+    const legacyHistory = clientHistory.filter(
+      (event) => event.clientId === selectedClient.id,
+    );
+
+    return getClientHistoryEntries(selectedClient, legacyHistory);
   }, [clientHistory, selectedClient]);
+  const selectedClientHistoryGroups = useMemo(
+    () => groupHistoryByDate(selectedClientHistory),
+    [selectedClientHistory],
+  );
   const selectedClientNotes = useMemo(() => {
     return getClientNoteEntries(selectedClient);
   }, [selectedClient]);
@@ -661,6 +790,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
 
     return { clientsSuivis, enRetard, risqueTva, actionsCetteSemaine };
   }, [clients]);
+  const cabinetStats = useMemo(() => getCabinetStats(clients), [clients]);
   const urgentClients = useMemo(
     () =>
       clients.filter((client) =>
@@ -778,22 +908,29 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
     }
   }, [clientHistory]);
 
-  function buildReminderMessage(client) {
-    if (!client) return "";
-
-    return `Bonjour ${client.name}, petit rappel concernant : ${getClientNextAction(client)}. Merci de vérifier ce point dès que possible.`;
-  }
-
   function openReminderModal(client) {
     setReminderClientId(client.id);
-    setReminderType("declaration");
-    setReminderMessage(buildReminderMessage(client));
+    setReminderMessage(getClientReminderMessage(client));
   }
 
   function closeReminderModal() {
     setReminderClientId(null);
-    setReminderType("declaration");
     setReminderMessage("");
+  }
+
+  function addClientHistory(clientId, entry) {
+    const historyEntry = createClientHistoryEntry(entry);
+
+    setClients((currentClients) =>
+      currentClients.map((client) =>
+        client.id === clientId
+          ? {
+              ...client,
+              history: [historyEntry, ...(Array.isArray(client.history) ? client.history : [])],
+            }
+          : client,
+      ),
+    );
   }
 
   function openNoteModal(client) {
@@ -876,11 +1013,16 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
                 ...computedClient,
                 notes: client.notes,
                 notesList: client.notesList,
+                history: Array.isArray(client.history) ? client.history : [],
                 updatedAt: new Date().toISOString(),
               }
             : client,
         ),
       );
+      addClientHistory(editingClient.id, {
+        type: "update",
+        label: "Fiche client modifiée",
+      });
       setSuccessMessage(`Client modifié : ${clientName}`);
       closeAddClientModal();
       return;
@@ -889,6 +1031,12 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
     const nextClient = {
       id: Date.now(),
       ...computedClient,
+      history: [
+        createClientHistoryEntry({
+          type: "create",
+          label: "Client ajouté au portefeuille",
+        }),
+      ],
       updatedAt: new Date().toISOString(),
     };
 
@@ -897,29 +1045,20 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
     closeAddClientModal();
   }
 
-  function handleSimulateReminder() {
+  async function handleCopyReminderMessage() {
     if (!reminderClient) return;
 
-    const reminderTypeLabels = {
-      declaration: "Déclaration URSSAF",
-      tva: "TVA",
-      cfe: "CFE",
-      pieces: "Pièces manquantes",
-      autre: "Autre",
-    };
+    try {
+      await navigator.clipboard.writeText(reminderMessage);
 
-    setClientHistory((currentHistory) => [
-      {
-        clientId: reminderClient.id,
+      addClientHistory(reminderClient.id, {
         type: "reminder",
-        label: "Rappel envoyé",
-        detail: reminderTypeLabels[reminderType] || "Autre",
-        date: new Date(),
-      },
-      ...currentHistory,
-    ]);
-    setSuccessMessage(`Rappel préparé pour ${reminderClient.name}.`);
-    closeReminderModal();
+        label: "Relance préparée",
+      });
+      setSuccessMessage(`Message copié pour ${reminderClient.name}.`);
+    } catch {
+      setSuccessMessage("Impossible de copier le message automatiquement.");
+    }
   }
 
   function handleAddNote() {
@@ -950,17 +1089,10 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
       ),
     );
 
-    setClientHistory((currentHistory) => [
-      {
-        clientId: noteClient.id,
-        type: "note",
-        label: "Note ajoutée",
-        detail:
-          trimmedNote.length > 60 ? `${trimmedNote.slice(0, 60)}…` : trimmedNote,
-        date: new Date(),
-      },
-      ...currentHistory,
-    ]);
+    addClientHistory(noteClient.id, {
+      type: "note",
+      label: "Note ajoutée",
+    });
 
     setSuccessMessage(`Note ajoutée pour ${noteClient.name}.`);
     closeNoteModal();
@@ -994,17 +1126,10 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
       ),
     );
 
-    setClientHistory((currentHistory) => [
-      {
-        clientId: notesClient.id,
-        type: "note",
-        label: "Note ajoutée",
-        detail:
-          trimmedNote.length > 60 ? `${trimmedNote.slice(0, 60)}…` : trimmedNote,
-        date: new Date(),
-      },
-      ...currentHistory,
-    ]);
+    addClientHistory(notesClient.id, {
+      type: "note",
+      label: "Note ajoutée",
+    });
 
     setInlineNoteDraft("");
     setInlineNoteError("");
@@ -1348,22 +1473,16 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
                 <strong>{kpis.actionsCetteSemaine}</strong>
               </div>
               <div className="expertKpiCard">
-                <span>Dossiers stables</span>
-                <strong>
-                  {clients.filter((client) => getClientRisk(client).status === "ok").length}
-                </strong>
+                <span>Relances effectuées</span>
+                <strong>{cabinetStats.remindersCount}</strong>
               </div>
               <div className="expertKpiCard">
-                <span>Notes enregistrées</span>
-                <strong>
-                  {clients.reduce((total, client) => {
-                    if (Array.isArray(client.notesList)) {
-                      return total + client.notesList.length;
-                    }
-
-                    return total + (client.notes ? 1 : 0);
-                  }, 0)}
-                </strong>
+                <span>Notes ajoutées</span>
+                <strong>{cabinetStats.notesCount}</strong>
+              </div>
+              <div className="expertKpiCard">
+                <span>Dossiers mis à jour</span>
+                <strong>{cabinetStats.updatesCount}</strong>
               </div>
             </div>
           </section>
@@ -1861,24 +1980,30 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
               {selectedClientHistory.length === 0 ? (
                 <p className="expertHistoryEmpty">Aucune action pour ce client.</p>
               ) : (
-                <ul className="expertHistoryList">
-                  {selectedClientHistory.map((event, index) => (
-                    <li
-                      key={`${event.clientId}-${event.type}-${event.date.toISOString()}-${index}`}
-                    >
-                      <span className="expertHistoryDate">
-                        {event.date.toLocaleDateString("fr-FR", {
-                          day: "numeric",
-                          month: "long",
-                          year: "numeric",
-                        })}
-                      </span>
-                      <span className="expertHistoryText">
-                        {event.label} ({event.detail})
-                      </span>
-                    </li>
+                <div className="expertHistoryGroups">
+                  {selectedClientHistoryGroups.map((group) => (
+                    <section className="expertHistoryGroup" key={group.label}>
+                      <h4>{group.label}</h4>
+                      <ul className="expertHistoryList">
+                        {group.items.map((event, index) => (
+                          <li
+                            key={`${event.type}-${event.date}-${index}`}
+                          >
+                            <span className="expertHistoryText">
+                              {event.label}
+                            </span>
+                            <span className="expertHistoryDate">
+                              {new Date(event.date).toLocaleTimeString("fr-FR", {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
                   ))}
-                </ul>
+                </div>
               )}
             </div>
           </div>
@@ -2086,7 +2211,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
           >
             <div className="expertModalHeader">
               <div>
-                <h3 id="expert-reminder-title">Envoyer un rappel</h3>
+                <h3 id="expert-reminder-title">Rappel client</h3>
                 <p className="expertModalSubtitle">{reminderClient.name}</p>
               </div>
               <button
@@ -2099,29 +2224,13 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
             </div>
 
             <div className="expertModalField">
-              <label htmlFor="expert-reminder-type">Type de rappel</label>
-              <select
-                id="expert-reminder-type"
-                className="expertModalSelect"
-                value={reminderType}
-                onChange={(event) => setReminderType(event.target.value)}
-              >
-                <option value="declaration">Déclaration URSSAF</option>
-                <option value="tva">TVA</option>
-                <option value="cfe">CFE</option>
-                <option value="pieces">Pièces manquantes</option>
-                <option value="autre">Autre</option>
-              </select>
-            </div>
-
-            <div className="expertModalField">
               <label htmlFor="expert-reminder-message">Message</label>
               <textarea
                 id="expert-reminder-message"
                 className="expertModalTextarea"
                 value={reminderMessage}
                 onChange={(event) => setReminderMessage(event.target.value)}
-                rows={5}
+                rows={8}
               />
             </div>
 
@@ -2131,14 +2240,14 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
                 className="btn btnGhost btnSmall"
                 onClick={closeReminderModal}
               >
-                Annuler
+                Fermer
               </button>
               <button
                 type="button"
                 className="btn btnPrimary btnSmall"
-                onClick={handleSimulateReminder}
+                onClick={handleCopyReminderMessage}
               >
-                Simuler l’envoi
+                Copier
               </button>
             </div>
           </div>
