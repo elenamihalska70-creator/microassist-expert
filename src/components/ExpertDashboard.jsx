@@ -12,6 +12,73 @@ const FILTERS = [
   { key: "ok", label: "OK" },
 ];
 
+const ACTIVITY_OPTIONS = [
+  "Vente / commerce",
+  "Prestations de services",
+  "Profession libérale",
+  "Activité mixte",
+  "Artisanat",
+  "Formation",
+  "Autre",
+];
+
+const PERIODICITY_OPTIONS = ["Mensuelle", "Trimestrielle", "Inconnue"];
+const TVA_OPTIONS = ["Non applicable", "Applicable", "Inconnue"];
+const ACRE_OPTIONS = ["Oui", "Non", "Inconnue"];
+
+const CHARGE_RATES = {
+  "Vente / commerce": 0.123,
+  "Prestations de services": 0.22,
+  "Profession libérale": 0.22,
+  "Activité mixte": 0.18,
+  Artisanat: 0.22,
+  Formation: 0.22,
+  Autre: 0.22,
+};
+
+const LEGACY_ACTIVITY_MAP = {
+  "Vente en ligne": "Vente / commerce",
+  "E-commerce": "Vente / commerce",
+  "Prestation de services": "Prestations de services",
+  Consulting: "Prestations de services",
+  Graphisme: "Prestations de services",
+  Coaching: "Prestations de services",
+  "Développement web": "Prestations de services",
+};
+
+const DEFAULT_CLIENT_FORM = {
+  name: "",
+  activity: "",
+  periodicity: "Inconnue",
+  revenue: "",
+  lastDeclarationDate: "",
+  tva: "Inconnue",
+  acre: "Inconnue",
+};
+
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+
+const STATUS_RECOMMENDATIONS = {
+  late: "Régulariser le dossier et relancer le client.",
+  tva: "Vérifier les seuils TVA et préparer la facturation.",
+  warning: "Contrôler le point de vigilance avant échéance.",
+  ok: "Continuer le suivi régulier du dossier.",
+};
+
+const STATUS_PRIORITY_LEVELS = {
+  late: 1,
+  tva: 2,
+  warning: 3,
+  ok: 4,
+};
+
+const STATUS_DEFAULT_ACTIONS = {
+  late: "Déclaration à vérifier ou régulariser",
+  tva: "Vérifier le seuil TVA",
+  warning: "Contrôler les charges estimées",
+  ok: "Aucune action urgente",
+};
+
 export const seedClients = [
   {
     id: "seed-1",
@@ -175,72 +242,190 @@ function parseRevenueValue(revenue) {
   return Number.isNaN(revenueValue) ? 0 : revenueValue;
 }
 
-function getClientRisk(client) {
-  const revenueValue = parseRevenueValue(client?.revenue);
-  const nextAction = String(client?.nextAction || "").toLowerCase();
-
-  if (nextAction.includes("retard") || nextAction.includes("régulariser")) {
-    return {
-      status: "late",
-      label: "En retard",
-      priorityLevel: 1,
-      recommendedAction: "Régulariser le dossier et relancer le client.",
-    };
-  }
-
-  if (revenueValue >= 12000 || nextAction.includes("tva")) {
-    return {
-      status: "tva",
-      label: "Risque TVA",
-      priorityLevel: 2,
-      recommendedAction: "Vérifier les seuils TVA et préparer la facturation.",
-    };
-  }
-
-  if (
-    nextAction.includes("charges") ||
-    nextAction.includes("cfe") ||
-    nextAction.includes("vérifier") ||
-    nextAction.includes("contrôler")
-  ) {
-    return {
-      status: "warning",
-      label: "Alerte",
-      priorityLevel: 3,
-      recommendedAction: "Contrôler le point de vigilance avant échéance.",
-    };
-  }
-
-  return {
-    status: "ok",
-    label: "OK",
-    priorityLevel: 4,
-    recommendedAction: "Continuer le suivi régulier du dossier.",
-  };
+function normalizeActivity(activity) {
+  return LEGACY_ACTIVITY_MAP[activity] || activity || "";
 }
 
-function getSuggestedStatus(revenueInput, nextActionInput) {
-  const revenueValue = parseRevenueValue(revenueInput);
-  const nextAction = String(nextActionInput || "").toLowerCase();
+function getChargeRate(activity) {
+  return CHARGE_RATES[normalizeActivity(activity)] || CHARGE_RATES.Autre;
+}
 
-  if (nextAction.includes("retard")) {
+function getEstimatedCharges(client) {
+  if (typeof client?.estimatedCharges === "number") {
+    return client.estimatedCharges;
+  }
+
+  return Math.round(parseRevenueValue(client?.revenue) * getChargeRate(client?.activity));
+}
+
+function formatCurrency(value) {
+  const amount = Number(value);
+
+  if (Number.isNaN(amount)) {
+    return "—";
+  }
+
+  return `${amount.toLocaleString("fr-FR")} €`;
+}
+
+function parseClientDate(value) {
+  if (typeof value !== "string") return null;
+
+  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (!match) return null;
+
+  const [, year, month, day] = match;
+  const date = new Date(Number(year), Number(month) - 1, Number(day));
+
+  if (
+    date.getFullYear() !== Number(year) ||
+    date.getMonth() !== Number(month) - 1 ||
+    date.getDate() !== Number(day)
+  ) {
+    return null;
+  }
+
+  return date;
+}
+
+function getIsoDateValue(value) {
+  return parseClientDate(value) ? value.trim() : "";
+}
+
+function getDaysSinceLastDeclaration(dateValue) {
+  const declarationDate = parseClientDate(dateValue);
+
+  if (!declarationDate) return null;
+
+  const today = new Date();
+  const todayDate = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+  );
+
+  return Math.floor((todayDate.getTime() - declarationDate.getTime()) / MILLISECONDS_PER_DAY);
+}
+
+function getComputedClientStatus(client) {
+  const revenueValue = parseRevenueValue(client?.revenue);
+  const tva = client?.tva || "Inconnue";
+  const periodicity = client?.periodicity || "Inconnue";
+  const daysSinceLastDeclaration = getDaysSinceLastDeclaration(
+    client?.lastDeclarationDate,
+  );
+
+  if (
+    periodicity === "Mensuelle" &&
+    daysSinceLastDeclaration !== null &&
+    daysSinceLastDeclaration > 45
+  ) {
     return "late";
   }
 
-  if (revenueValue >= 12000 || nextAction.includes("tva")) {
+  if (
+    periodicity === "Trimestrielle" &&
+    daysSinceLastDeclaration !== null &&
+    daysSinceLastDeclaration > 120
+  ) {
+    return "late";
+  }
+
+  if (revenueValue >= 12000 && tva !== "Applicable") {
     return "tva";
   }
 
-  if (
-    nextAction.includes("charges") ||
-    nextAction.includes("cfe") ||
-    nextAction.includes("vérifier") ||
-    nextAction.includes("contrôler")
-  ) {
-    return "warning";
+  return "ok";
+}
+
+function getComputedNextAction(client, status = getComputedClientStatus(client)) {
+  if (status === "tva") {
+    return "Vérifier le seuil TVA";
   }
 
-  return "ok";
+  if (status === "late") {
+    return "Déclaration à vérifier ou régulariser";
+  }
+
+  return "Aucune action urgente";
+}
+
+function getComputedPriorities(client, status = getComputedClientStatus(client)) {
+  const priorities = [];
+
+  if (status === "tva") {
+    priorities.push("Vérifier le seuil TVA");
+  }
+
+  if (status === "late") {
+    priorities.push("Vérifier la dernière déclaration");
+    priorities.push("Régulariser la déclaration si nécessaire");
+  }
+
+  priorities.push("Contrôler les charges estimées");
+
+  if (client?.acre === "Oui") {
+    priorities.push("Vérifier la période ACRE");
+  }
+
+  if (status === "ok") {
+    priorities.push("Continuer le suivi régulier du dossier");
+  }
+
+  return [...new Set(priorities)];
+}
+
+function buildClientFromForm(formData) {
+  const activity = normalizeActivity(formData.activity);
+  const revenue = parseRevenueValue(formData.revenue);
+  const clientDraft = {
+    name: formData.name.trim(),
+    activity,
+    periodicity: formData.periodicity || "Inconnue",
+    revenue,
+    lastDeclarationDate: getIsoDateValue(formData.lastDeclarationDate),
+    tva: formData.tva || "Inconnue",
+    acre: formData.acre || "Inconnue",
+  };
+  const estimatedCharges = Math.round(revenue * getChargeRate(activity));
+  const status = getComputedClientStatus(clientDraft);
+  const nextAction = getComputedNextAction(clientDraft, status);
+  const priorities = getComputedPriorities(clientDraft, status);
+
+  return {
+    ...clientDraft,
+    estimatedCharges,
+    status,
+    nextAction,
+    priorities,
+    notes: "Dossier ajouté automatiquement par l’assistant client.",
+  };
+}
+
+function getClientRisk(client) {
+  const hasAssistedData =
+    client?.periodicity || client?.tva || client?.acre || client?.lastDeclarationDate;
+  const status = getStatusGroup(
+    hasAssistedData ? getComputedClientStatus(client) : client?.status || "ok",
+  );
+
+  return {
+    status,
+    label: getStatusLabel(status),
+    priorityLevel: STATUS_PRIORITY_LEVELS[status] || STATUS_PRIORITY_LEVELS.ok,
+    recommendedAction: STATUS_RECOMMENDATIONS[status] || STATUS_RECOMMENDATIONS.ok,
+  };
+}
+
+function getClientNextAction(client) {
+  const risk = getClientRisk(client);
+  const hasAssistedData =
+    client?.periodicity || client?.tva || client?.acre || client?.lastDeclarationDate;
+
+  return hasAssistedData
+    ? getComputedNextAction(client, risk.status)
+    : client?.nextAction || STATUS_DEFAULT_ACTIONS[risk.status];
 }
 
 function normalizeNoteEntry(note) {
@@ -272,11 +457,27 @@ function getClientNoteEntries(client) {
 }
 
 function formatRevenue(revenue) {
-  if (typeof revenue === "number") {
-    return `${revenue.toLocaleString("fr-FR")} €`;
-  }
+  return formatCurrency(parseRevenueValue(revenue));
+}
 
-  return revenue || "—";
+function getFormattedRevenueInput(revenue) {
+  const revenueValue = parseRevenueValue(revenue);
+
+  return revenueValue > 0 ? String(revenueValue) : "";
+}
+
+function getClientFormState(client) {
+  return {
+    name: client?.name || "",
+    activity: ACTIVITY_OPTIONS.includes(normalizeActivity(client?.activity))
+      ? normalizeActivity(client?.activity)
+      : "Autre",
+    periodicity: client?.periodicity || "Inconnue",
+    revenue: getFormattedRevenueInput(client?.revenue),
+    lastDeclarationDate: getIsoDateValue(client?.lastDeclarationDate),
+    tva: client?.tva || "Inconnue",
+    acre: client?.acre || "Inconnue",
+  };
 }
 
 export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
@@ -312,6 +513,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
     }
   });
   const [showAddClientModal, setShowAddClientModal] = useState(false);
+  const [editingClientId, setEditingClientId] = useState(null);
   const [addClientError, setAddClientError] = useState("");
   const [noteClientId, setNoteClientId] = useState(null);
   const [noteDraft, setNoteDraft] = useState("");
@@ -319,13 +521,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
   const [notesClientId, setNotesClientId] = useState(null);
   const [inlineNoteDraft, setInlineNoteDraft] = useState("");
   const [inlineNoteError, setInlineNoteError] = useState("");
-  const [newClientForm, setNewClientForm] = useState({
-    name: "",
-    activity: "",
-    revenue: "",
-    nextAction: "",
-    status: "ok",
-  });
+  const [newClientForm, setNewClientForm] = useState(DEFAULT_CLIENT_FORM);
 
   const selectedClient = useMemo(
     () => clients.find((client) => client.id === selectedClientId) || null,
@@ -357,6 +553,10 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
   const notesClientEntries = useMemo(
     () => getClientNoteEntries(notesClient),
     [notesClient],
+  );
+  const editingClient = useMemo(
+    () => clients.find((client) => client.id === editingClientId) || null,
+    [clients, editingClientId],
   );
 
   const kpis = useMemo(() => {
@@ -397,7 +597,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
           id: client.id,
           clientName: client.name,
           risk,
-          action: client.nextAction,
+          action: getClientNextAction(client),
         };
       });
   }, [clients, urgentClients]);
@@ -470,11 +670,6 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
       return matchesFilter && matchesSearch;
     });
   }, [activeFilter, clients, searchQuery]);
-  const suggestedStatus = useMemo(
-    () => getSuggestedStatus(newClientForm.revenue, newClientForm.nextAction),
-    [newClientForm.nextAction, newClientForm.revenue],
-  );
-
   useEffect(() => {
     try {
       localStorage.setItem(EXPERT_CLIENTS_STORAGE_KEY, JSON.stringify(clients));
@@ -497,7 +692,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
   function buildReminderMessage(client) {
     if (!client) return "";
 
-    return `Bonjour ${client.name}, petit rappel concernant : ${client.nextAction}. Merci de vérifier ce point dès que possible.`;
+    return `Bonjour ${client.name}, petit rappel concernant : ${getClientNextAction(client)}. Merci de vérifier ce point dès que possible.`;
   }
 
   function openReminderModal(client) {
@@ -525,18 +720,23 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
   }
 
   function openAddClientModal() {
+    setEditingClientId(null);
     setAddClientError("");
-    setNewClientForm({
-      name: "",
-      activity: "",
-      revenue: "",
-      nextAction: "",
-      status: "ok",
-    });
+    setNewClientForm(DEFAULT_CLIENT_FORM);
+    setShowAddClientModal(true);
+  }
+
+  function openEditClientModal(client) {
+    if (!client) return;
+
+    setEditingClientId(client.id);
+    setAddClientError("");
+    setNewClientForm(getClientFormState(client));
     setShowAddClientModal(true);
   }
 
   function closeAddClientModal() {
+    setEditingClientId(null);
     setAddClientError("");
     setShowAddClientModal(false);
   }
@@ -548,11 +748,10 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
     }));
   }
 
-  function handleAddClient() {
+  function handleSaveClient() {
     const clientName = newClientForm.name.trim();
     const clientActivity = newClientForm.activity.trim();
     const clientRevenue = newClientForm.revenue.trim();
-    const clientNextAction = newClientForm.nextAction.trim();
     const normalizedRevenue = clientRevenue.replace(/\s/g, "").replace(",", ".");
     const revenueValue = Number(normalizedRevenue);
 
@@ -571,25 +770,37 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
       return;
     }
 
-    if (!clientNextAction) {
-      setAddClientError("La prochaine action est requise.");
+    setAddClientError("");
+    const computedClient = buildClientFromForm({
+      ...newClientForm,
+      name: clientName,
+      activity: clientActivity,
+      revenue: revenueValue,
+    });
+
+    if (editingClient) {
+      setClients((currentClients) =>
+        currentClients.map((client) =>
+          client.id === editingClient.id
+            ? {
+                ...client,
+                ...computedClient,
+                notes: client.notes,
+                notesList: client.notesList,
+                updatedAt: new Date().toISOString(),
+              }
+            : client,
+        ),
+      );
+      setSuccessMessage(`Client modifié : ${clientName}`);
+      closeAddClientModal();
       return;
     }
 
-    setAddClientError("");
-
     const nextClient = {
       id: Date.now(),
-      name: clientName,
-      activity: clientActivity,
-      revenue: `${revenueValue.toLocaleString("fr-FR")} €`,
-      nextAction: clientNextAction,
-      status: newClientForm.status,
-      priorities: [
-        "Vérifier les informations du dossier",
-        "Préparer la prochaine action",
-      ],
-      notes: "Dossier ajouté manuellement dans le prototype expert.",
+      ...computedClient,
+      updatedAt: new Date().toISOString(),
     };
 
     setClients((currentClients) => [nextClient, ...currentClients]);
@@ -760,6 +971,10 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
       return null;
     }
 
+    const isEditingClient = Boolean(editingClient);
+    const modalTitle = isEditingClient ? "Modifier un client" : "Ajouter un client";
+    const submitLabel = isEditingClient ? "Enregistrer" : "Ajouter";
+
     return (
       <div className="expertModalOverlay" role="presentation">
         <div
@@ -770,7 +985,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
         >
           <div className="expertModalHeader">
             <div>
-              <h3 id="expert-add-client-title">Ajouter un client</h3>
+              <h3 id="expert-add-client-title">{modalTitle}</h3>
             </div>
             <button
               type="button"
@@ -795,23 +1010,54 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
           </div>
 
           <div className="expertModalField">
-            <label htmlFor="expert-client-activity">Activité</label>
-            <input
+            <label htmlFor="expert-client-activity">Type d’activité</label>
+            <select
               id="expert-client-activity"
-              type="text"
-              className="expertModalInput"
+              className="expertModalSelect"
               value={newClientForm.activity}
               onChange={(event) =>
                 handleNewClientChange("activity", event.target.value)
               }
-            />
+            >
+              <option value="">Sélectionner une activité</option>
+              {ACTIVITY_OPTIONS.map((activity) => (
+                <option key={activity} value={activity}>
+                  {activity}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="expertModalField">
-            <label htmlFor="expert-client-revenue">Chiffre d’affaires</label>
+            <label htmlFor="expert-client-periodicity">
+              Périodicité de déclaration
+            </label>
+            <select
+              id="expert-client-periodicity"
+              className="expertModalSelect"
+              value={newClientForm.periodicity}
+              onChange={(event) =>
+                handleNewClientChange("periodicity", event.target.value)
+              }
+            >
+              {PERIODICITY_OPTIONS.map((periodicity) => (
+                <option key={periodicity} value={periodicity}>
+                  {periodicity}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="expertModalField">
+            <label htmlFor="expert-client-revenue">
+              Chiffre d’affaires encaissé
+            </label>
             <input
               id="expert-client-revenue"
-              type="text"
+              type="number"
+              min="0.01"
+              step="0.01"
+              inputMode="decimal"
               className="expertModalInput"
               value={newClientForm.revenue}
               onChange={(event) =>
@@ -821,45 +1067,54 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
           </div>
 
           <div className="expertModalField">
-            <label htmlFor="expert-client-next-action">Prochaine action</label>
+            <label htmlFor="expert-client-last-declaration">
+              Dernière déclaration
+            </label>
             <input
-              id="expert-client-next-action"
-              type="text"
+              id="expert-client-last-declaration"
+              type="date"
               className="expertModalInput"
-              value={newClientForm.nextAction}
+              value={newClientForm.lastDeclarationDate}
               onChange={(event) =>
-                handleNewClientChange("nextAction", event.target.value)
+                handleNewClientChange("lastDeclarationDate", event.target.value)
               }
             />
           </div>
 
           <div className="expertModalField">
-            <label htmlFor="expert-client-status">Statut</label>
+            <label htmlFor="expert-client-tva">TVA</label>
             <select
-              id="expert-client-status"
+              id="expert-client-tva"
               className="expertModalSelect"
-              value={newClientForm.status}
+              value={newClientForm.tva}
               onChange={(event) =>
-                handleNewClientChange("status", event.target.value)
+                handleNewClientChange("tva", event.target.value)
               }
             >
-              <option value="ok">OK</option>
-              <option value="late">En retard</option>
-              <option value="tva">Risque TVA</option>
-              <option value="warning">Alerte</option>
+              {TVA_OPTIONS.map((tva) => (
+                <option key={tva} value={tva}>
+                  {tva}
+                </option>
+              ))}
             </select>
-            <div className="expertModalHelperRow">
-              <span className="expertModalHelperText">
-                Statut suggéré : {getStatusLabel(suggestedStatus)}
-              </span>
-              <button
-                type="button"
-                className="expertModalHelperAction"
-                onClick={() => handleNewClientChange("status", suggestedStatus)}
-              >
-                Appliquer le statut suggéré
-              </button>
-            </div>
+          </div>
+
+          <div className="expertModalField">
+            <label htmlFor="expert-client-acre">ACRE</label>
+            <select
+              id="expert-client-acre"
+              className="expertModalSelect"
+              value={newClientForm.acre}
+              onChange={(event) =>
+                handleNewClientChange("acre", event.target.value)
+              }
+            >
+              {ACRE_OPTIONS.map((acre) => (
+                <option key={acre} value={acre}>
+                  {acre}
+                </option>
+              ))}
+            </select>
           </div>
 
           {addClientError && (
@@ -879,9 +1134,9 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
             <button
               type="button"
               className="btn btnPrimary btnSmall"
-              onClick={handleAddClient}
+              onClick={handleSaveClient}
             >
-              Ajouter
+              {submitLabel}
             </button>
           </div>
         </div>
@@ -1061,7 +1316,9 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
                       <div className="expertAlertItemMain">
                         <div>
                           <h4>{client.name}</h4>
-                          <p>{client.nextAction}</p>
+                          <p>
+                            {getClientNextAction(client)}
+                          </p>
                           <p className="expertRecommendedAction">
                             {getClientRisk(client).recommendedAction}
                           </p>
@@ -1266,6 +1523,13 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
             </button>
             <button
               type="button"
+              className="btn btnPrimary btnSmall"
+              onClick={() => openEditClientModal(selectedClient)}
+            >
+              Modifier client
+            </button>
+            <button
+              type="button"
               className="btn btnGhost btnSmall expertDangerButton"
               onClick={() => handleDeleteClient(selectedClient)}
             >
@@ -1288,16 +1552,30 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
 
             <div className="expertDetailGrid">
               <div className="expertInfoBlock">
-                <span>Activité</span>
-                <strong>{selectedClient.activity}</strong>
-              </div>
-              <div className="expertInfoBlock">
                 <span>Chiffre d’affaires</span>
                 <strong>{formatRevenue(selectedClient.revenue)}</strong>
               </div>
               <div className="expertInfoBlock">
+                <span>Charges estimées</span>
+                <strong>{formatCurrency(getEstimatedCharges(selectedClient))}</strong>
+              </div>
+              <div className="expertInfoBlock">
+                <span>Périodicité</span>
+                <strong>{selectedClient.periodicity || "Inconnue"}</strong>
+              </div>
+              <div className="expertInfoBlock">
+                <span>TVA</span>
+                <strong>{selectedClient.tva || "Inconnue"}</strong>
+              </div>
+              <div className="expertInfoBlock">
+                <span>ACRE</span>
+                <strong>{selectedClient.acre || "Inconnue"}</strong>
+              </div>
+              <div className="expertInfoBlock">
                 <span>Prochaine action</span>
-                <strong>{selectedClient.nextAction}</strong>
+                <strong>
+                  {getClientNextAction(selectedClient)}
+                </strong>
               </div>
               <div className="expertInfoBlock">
                 <span>Statut</span>
@@ -1332,7 +1610,10 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
             <div className="expertPanelBlock">
               <h3>Smart Priorités</h3>
               <ul className="expertPriorityList">
-                {selectedClient.priorities.map((priority) => (
+                {getComputedPriorities(
+                  selectedClient,
+                  getClientRisk(selectedClient).status,
+                ).map((priority) => (
                   <li key={priority}>{priority}</li>
                 ))}
               </ul>
@@ -1365,6 +1646,22 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
             </div>
           </div>
         </div>
+
+        {successMessage && (
+          <div className="expertToast" role="status" aria-live="polite">
+            <span>{successMessage}</span>
+            <button
+              type="button"
+              className="expertToastClose"
+              onClick={() => setSuccessMessage("")}
+              aria-label="Fermer le message"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {renderAddClientModal()}
       </section>
     );
   }
@@ -1399,10 +1696,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
       </div>
 
       {clients.length === 0 ? (
-        <>
-          {renderEmptyState()}
-          {renderAddClientModal()}
-        </>
+        renderEmptyState()
       ) : (
       <>
       <div className="expertKpis">
@@ -1480,8 +1774,14 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
                 <strong>{formatRevenue(client.revenue)}</strong>
               </div>
               <div>
+                <span>Charges estimées</span>
+                <strong>{formatCurrency(getEstimatedCharges(client))}</strong>
+              </div>
+              <div>
                 <span>Prochaine action</span>
-                <strong>{client.nextAction}</strong>
+                <strong>
+                  {getClientNextAction(client)}
+                </strong>
               </div>
             </div>
 
@@ -1608,133 +1908,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
         </div>
       )}
 
-      {clients.length > 0 && showAddClientModal && (
-        <div className="expertModalOverlay" role="presentation">
-          <div
-            className="expertModalCard"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="expert-add-client-title"
-          >
-            <div className="expertModalHeader">
-              <div>
-                <h3 id="expert-add-client-title">Ajouter un client</h3>
-              </div>
-              <button
-                type="button"
-                className="btn btnGhost btnSmall"
-                onClick={closeAddClientModal}
-              >
-                Fermer
-              </button>
-            </div>
-
-            <div className="expertModalField">
-              <label htmlFor="expert-client-name">Nom du client</label>
-              <input
-                id="expert-client-name"
-                type="text"
-                className="expertModalInput"
-                value={newClientForm.name}
-                onChange={(event) =>
-                  handleNewClientChange("name", event.target.value)
-                }
-              />
-            </div>
-
-            <div className="expertModalField">
-              <label htmlFor="expert-client-activity">Activité</label>
-              <input
-                id="expert-client-activity"
-                type="text"
-                className="expertModalInput"
-                value={newClientForm.activity}
-                onChange={(event) =>
-                  handleNewClientChange("activity", event.target.value)
-                }
-              />
-            </div>
-
-            <div className="expertModalField">
-              <label htmlFor="expert-client-revenue">Chiffre d’affaires</label>
-              <input
-                id="expert-client-revenue"
-                type="text"
-                className="expertModalInput"
-                value={newClientForm.revenue}
-                onChange={(event) =>
-                  handleNewClientChange("revenue", event.target.value)
-                }
-              />
-            </div>
-
-            <div className="expertModalField">
-              <label htmlFor="expert-client-next-action">Prochaine action</label>
-              <input
-                id="expert-client-next-action"
-                type="text"
-                className="expertModalInput"
-                value={newClientForm.nextAction}
-                onChange={(event) =>
-                  handleNewClientChange("nextAction", event.target.value)
-                }
-              />
-            </div>
-
-            <div className="expertModalField">
-              <label htmlFor="expert-client-status">Statut</label>
-              <select
-                id="expert-client-status"
-                className="expertModalSelect"
-                value={newClientForm.status}
-                onChange={(event) =>
-                  handleNewClientChange("status", event.target.value)
-                }
-              >
-                <option value="ok">OK</option>
-                <option value="late">En retard</option>
-                <option value="tva">Risque TVA</option>
-                <option value="warning">Alerte</option>
-              </select>
-              <div className="expertModalHelperRow">
-                <span className="expertModalHelperText">
-                  Statut suggéré : {getStatusLabel(suggestedStatus)}
-                </span>
-                <button
-                  type="button"
-                  className="expertModalHelperAction"
-                  onClick={() => handleNewClientChange("status", suggestedStatus)}
-                >
-                  Appliquer le statut suggéré
-                </button>
-              </div>
-            </div>
-
-            {addClientError && (
-              <div className="expertModalError" role="alert">
-                {addClientError}
-              </div>
-            )}
-
-            <div className="expertModalActions">
-              <button
-                type="button"
-                className="btn btnGhost btnSmall"
-                onClick={closeAddClientModal}
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                className="btn btnPrimary btnSmall"
-                onClick={handleAddClient}
-              >
-                Ajouter
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {renderAddClientModal()}
 
       {noteClient && (
         <div className="expertModalOverlay" role="presentation">
