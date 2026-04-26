@@ -722,6 +722,73 @@
   color: #64748b;
 }
 
+.expertCardRisk,
+.expertDetailRisk {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.expertRiskScore {
+  width: min(180px, 100%);
+  display: grid;
+  gap: 5px;
+}
+
+.expertRiskScoreTop {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.expertRiskScoreTop strong {
+  color: #0f172a;
+  font-size: 12px;
+}
+
+.expertRiskScoreTrack {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.expertRiskScoreTrack span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #22c55e;
+}
+
+.expertRiskScore--medium .expertRiskScoreTrack span {
+  background: #f59e0b;
+}
+
+.expertRiskScore--high .expertRiskScoreTrack span {
+  background: #f97316;
+}
+
+.expertRiskScore--critical .expertRiskScoreTrack span {
+  background: #ef4444;
+}
+
+.expertRiskScore--compact {
+  width: 150px;
+  margin-top: 6px;
+}
+
+.expertRiskScore--compact .expertRiskScoreTop {
+  font-size: 11px;
+}
+
+.expertRiskScore--compact .expertRiskScoreTop strong {
+  font-size: 11px;
+}
+
 .expertCard__body {
   display: grid;
   gap: 12px;
@@ -1109,6 +1176,21 @@
 
   .expertCard__actions {
     grid-template-columns: 1fr;
+  }
+
+  .expertCard__top,
+  .expertDetailHeader {
+    display: grid;
+  }
+
+  .expertCardRisk,
+  .expertDetailRisk {
+    justify-items: start;
+  }
+
+  .expertRiskScore,
+  .expertRiskScore--compact {
+    width: 100%;
   }
 
   .expertAlertItem,

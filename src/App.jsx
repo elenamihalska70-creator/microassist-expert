@@ -1,6 +1,10 @@
 import React, { useState } from "react";
 import "./App.css";
-import ExpertDashboard from "./components/ExpertDashboard";
+import ExpertDashboard, {
+  EXPERT_CLIENTS_STORAGE_KEY,
+  EXPERT_HISTORY_STORAGE_KEY,
+  seedClients,
+} from "./components/ExpertDashboard";
 
 const CABINET_SETTINGS_STORAGE_KEY = "microassist_expert_cabinet_settings";
 
@@ -20,6 +24,8 @@ const defaultCabinetSettings = {
   maxClients: "50",
 };
 
+const isDevelopment = import.meta.env.DEV;
+
 function App() {
   const [activeSection, setActiveSection] = useState("dashboard");
   const [cabinetSettings, setCabinetSettings] = useState(() => {
@@ -31,6 +37,7 @@ function App() {
     }
   });
   const [settingsSaved, setSettingsSaved] = useState(false);
+  const [devDataMessage, setDevDataMessage] = useState("");
   const activeLabel =
     sections.find((section) => section.id === activeSection)?.label ||
     "Dashboard";
@@ -52,6 +59,29 @@ function App() {
       setSettingsSaved(true);
     } catch {
       setSettingsSaved(false);
+    }
+  }
+
+  function loadSeedClients() {
+    try {
+      localStorage.setItem(EXPERT_CLIENTS_STORAGE_KEY, JSON.stringify(seedClients));
+      localStorage.setItem(EXPERT_HISTORY_STORAGE_KEY, JSON.stringify([]));
+      setDevDataMessage("Données test chargées.");
+    } catch {
+      setDevDataMessage("Impossible de charger les données test.");
+    }
+  }
+
+  function resetLocalData() {
+    try {
+      localStorage.removeItem(EXPERT_CLIENTS_STORAGE_KEY);
+      localStorage.removeItem(EXPERT_HISTORY_STORAGE_KEY);
+      localStorage.removeItem(CABINET_SETTINGS_STORAGE_KEY);
+      setCabinetSettings(defaultCabinetSettings);
+      setSettingsSaved(false);
+      setDevDataMessage("Données locales réinitialisées.");
+    } catch {
+      setDevDataMessage("Impossible de réinitialiser les données locales.");
     }
   }
 
@@ -185,7 +215,38 @@ function App() {
                     <li>Données enregistrées localement</li>
                     <li>Version B2B en test</li>
                   </ul>
+                  <p className="settingsSafetyNote">
+                    Les données sont enregistrées localement dans ce prototype.
+                  </p>
                 </section>
+
+                {isDevelopment && (
+                  <section className="settingsCard settingsTestCard">
+                    <h3>Outils de développement</h3>
+                    <p>
+                      Ces actions servent uniquement à tester le prototype en local.
+                    </p>
+                    <div className="settingsActions">
+                      <button
+                        type="button"
+                        className="btn btnPrimary btnSmall"
+                        onClick={loadSeedClients}
+                      >
+                        Charger données test
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btnGhost btnSmall settingsDangerButton"
+                        onClick={resetLocalData}
+                      >
+                        Réinitialiser données locales
+                      </button>
+                      {devDataMessage && (
+                        <span className="settingsSaved">{devDataMessage}</span>
+                      )}
+                    </div>
+                  </section>
+                )}
               </div>
             </section>
           ) : (

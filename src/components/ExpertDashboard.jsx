@@ -1,8 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
+import jsPDF from "jspdf";
 import "./ExpertDashboard.css";
+import robotoBoldUrl from "../assets/fonts/Roboto-Bold.ttf?url";
+import robotoRegularUrl from "../assets/fonts/Roboto-Regular.ttf?url";
 
 export const EXPERT_CLIENTS_STORAGE_KEY = "microassist_expert_clients";
 export const EXPERT_HISTORY_STORAGE_KEY = "microassist_expert_history";
+
+const PDF_FONT_FAMILY = "Roboto";
+const PDF_FONT_FILES = {
+  normal: "Roboto-Regular.ttf",
+  bold: "Roboto-Bold.ttf",
+};
+let pdfFontCache = null;
 
 const FILTERS = [
   { key: "all", label: "Tous" },
@@ -83,8 +93,12 @@ export const seedClients = [
   {
     id: "seed-1",
     name: "Sophie Martin",
-    activity: "Consulting",
+    activity: "Prestations de services",
+    periodicity: "Mensuelle",
     revenue: 4850,
+    lastDeclarationDate: "2026-04-05",
+    tva: "Non applicable",
+    acre: "Non",
     status: "ok",
     nextAction: "Déclaration URSSAF le 30 avril",
     notes: [
@@ -102,8 +116,12 @@ export const seedClients = [
   {
     id: "seed-2",
     name: "Lucas Bernard",
-    activity: "E-commerce",
+    activity: "Vente / commerce",
+    periodicity: "Mensuelle",
     revenue: 12400,
+    lastDeclarationDate: "2026-04-01",
+    tva: "Non applicable",
+    acre: "Non",
     status: "tva",
     nextAction: "Vérifier le seuil TVA",
     notes: [
@@ -122,7 +140,11 @@ export const seedClients = [
     id: "seed-3",
     name: "Emma Petit",
     activity: "Formation",
+    periodicity: "Mensuelle",
     revenue: 2100,
+    lastDeclarationDate: "2026-02-10",
+    tva: "Non applicable",
+    acre: "Oui",
     status: "late",
     nextAction: "Déclaration en retard à régulariser",
     notes: [
@@ -140,8 +162,12 @@ export const seedClients = [
   {
     id: "seed-4",
     name: "Nina Robert",
-    activity: "Graphisme",
+    activity: "Profession libérale",
+    periodicity: "Trimestrielle",
     revenue: 6320,
+    lastDeclarationDate: "2026-03-28",
+    tva: "Non applicable",
+    acre: "Non",
     status: "ok",
     nextAction: "Préparer l’échéance CFE",
     notes: [
@@ -160,7 +186,11 @@ export const seedClients = [
     id: "seed-5",
     name: "Thomas Garcia",
     activity: "Activité mixte",
+    periodicity: "Trimestrielle",
     revenue: 8970,
+    lastDeclarationDate: "",
+    tva: "Inconnue",
+    acre: "Oui",
     status: "warning",
     nextAction: "Contrôler les charges estimées",
     notes: [
@@ -173,39 +203,6 @@ export const seedClients = [
     priorities: [
       "Vérifier la ventilation vente / service",
       "Contrôler les charges estimées",
-    ],
-  },
-  {
-    id: "seed-6",
-    name: "Camille Moreau",
-    activity: "Coaching",
-    revenue: 3650,
-    status: "ok",
-    nextAction: "Planifier le point mensuel",
-    notes: [],
-    updatedAt: "2026-04-16T13:20:00.000Z",
-    priorities: [
-      "Planifier le point mensuel",
-      "Vérifier les derniers encaissements",
-    ],
-  },
-  {
-    id: "seed-7",
-    name: "Yanis Lefevre",
-    activity: "Développement web",
-    revenue: 10950,
-    status: "tva",
-    nextAction: "Préparer un audit TVA avant nouvelle facture",
-    notes: [
-      {
-        date: "2026-04-15T11:00:00.000Z",
-        text: "Plusieurs missions signées ce mois-ci, seuils à surveiller.",
-      },
-    ],
-    updatedAt: "2026-04-15T11:00:00.000Z",
-    priorities: [
-      "Contrôler le seuil TVA",
-      "Revoir les mentions de facturation",
     ],
   },
 ];
@@ -419,6 +416,51 @@ function getClientRisk(client) {
   };
 }
 
+function getClientRiskScore(client) {
+  const status = getClientRisk(client).status;
+  let score = 20;
+
+  if (status === "warning") {
+    score += 25;
+  }
+
+  if (status === "tva") {
+    score += 35;
+  }
+
+  if (status === "late") {
+    score += 50;
+  }
+
+  if (client?.acre === "Oui") {
+    score += 10;
+  }
+
+  if (parseRevenueValue(client?.revenue) >= 12000) {
+    score += 15;
+  }
+
+  if (!client?.lastDeclarationDate) {
+    score += 10;
+  }
+
+  score = Math.min(score, 100);
+
+  if (score <= 30) {
+    return { score, level: "low", label: "Risque faible" };
+  }
+
+  if (score <= 60) {
+    return { score, level: "medium", label: "Risque moyen" };
+  }
+
+  if (score <= 80) {
+    return { score, level: "high", label: "Risque élevé" };
+  }
+
+  return { score, level: "critical", label: "Risque critique" };
+}
+
 function getClientNextAction(client) {
   const risk = getClientRisk(client);
   const hasAssistedData =
@@ -550,6 +592,27 @@ export function getClientReminderMessage(client) {
   }
 }
 
+function RiskScoreIndicator({ client, compact = false }) {
+  const riskScore = getClientRiskScore(client);
+
+  return (
+    <div
+      className={`expertRiskScore expertRiskScore--${riskScore.level}${
+        compact ? " expertRiskScore--compact" : ""
+      }`}
+      aria-label={`${riskScore.label} : ${riskScore.score} sur 100`}
+    >
+      <div className="expertRiskScoreTop">
+        <span>{riskScore.label}</span>
+        <strong>{riskScore.score}/100</strong>
+      </div>
+      <div className="expertRiskScoreTrack" aria-hidden="true">
+        <span style={{ width: `${riskScore.score}%` }} />
+      </div>
+    </div>
+  );
+}
+
 function getClientActionPlan(client) {
   const plan = {
     today: [],
@@ -668,6 +731,79 @@ function getClientNoteEntries(client) {
 
 function formatRevenue(revenue) {
   return formatCurrency(parseRevenueValue(revenue));
+}
+
+function formatLongDateTimeFr(dateValue = new Date()) {
+  const date = new Date(dateValue);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Date inconnue";
+  }
+
+  return date.toLocaleString("fr-FR", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = "";
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+
+  return btoa(binary);
+}
+
+async function getPdfFontData() {
+  if (pdfFontCache) {
+    return pdfFontCache;
+  }
+
+  const [regularResponse, boldResponse] = await Promise.all([
+    fetch(robotoRegularUrl),
+    fetch(robotoBoldUrl),
+  ]);
+
+  if (!regularResponse.ok || !boldResponse.ok) {
+    throw new Error("PDF font files could not be loaded.");
+  }
+
+  const [regularBuffer, boldBuffer] = await Promise.all([
+    regularResponse.arrayBuffer(),
+    boldResponse.arrayBuffer(),
+  ]);
+
+  pdfFontCache = {
+    normal: arrayBufferToBase64(regularBuffer),
+    bold: arrayBufferToBase64(boldBuffer),
+  };
+
+  return pdfFontCache;
+}
+
+async function configurePdfFont(doc) {
+  try {
+    const fontData = await getPdfFontData();
+
+    doc.addFileToVFS(PDF_FONT_FILES.normal, fontData.normal);
+    doc.addFont(PDF_FONT_FILES.normal, PDF_FONT_FAMILY, "normal");
+    doc.addFileToVFS(PDF_FONT_FILES.bold, fontData.bold);
+    doc.addFont(PDF_FONT_FILES.bold, PDF_FONT_FAMILY, "bold");
+    doc.setFont(PDF_FONT_FAMILY, "normal");
+
+    return PDF_FONT_FAMILY;
+  } catch {
+    doc.setFont("helvetica", "normal");
+    return "helvetica";
+  }
 }
 
 function getFormattedRevenueInput(revenue) {
@@ -814,6 +950,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
         return {
           id: client.id,
           clientName: client.name,
+          client,
           risk,
           action: getClientNextAction(client),
         };
@@ -931,6 +1068,274 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
           : client,
       ),
     );
+  }
+
+  async function exportClientReportPdf(client) {
+    if (!client) return;
+
+    try {
+      const doc = new jsPDF();
+      const pdfFontFamily = await configurePdfFont(doc);
+      const risk = getClientRisk(client);
+      const riskScore = getClientRiskScore(client);
+      const actionPlan = getClientActionPlan(client);
+      const priorities = getComputedPriorities(client, risk.status);
+      const notes = getClientNoteEntries(client);
+      const legacyHistory = clientHistory.filter((event) => event.clientId === client.id);
+      const historyGroups = groupHistoryByDate(
+        getClientHistoryEntries(client, legacyHistory),
+      );
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const marginX = 18;
+      const maxTextWidth = pageWidth - marginX * 2;
+      let y = 20;
+
+      function ensureSpace(height = 10) {
+        if (y + height <= pageHeight - 18) return;
+
+        doc.addPage();
+        y = 20;
+      }
+
+      function addTitle(text) {
+        ensureSpace(16);
+        doc.setFont(pdfFontFamily, "bold");
+        doc.setFontSize(18);
+        doc.setTextColor(15, 23, 42);
+        doc.text(text, marginX, y);
+        y += 12;
+      }
+
+      function addSectionTitle(text) {
+        ensureSpace(14);
+        y += 3;
+        doc.setFont(pdfFontFamily, "bold");
+        doc.setFontSize(12);
+        doc.setTextColor(15, 23, 42);
+        doc.text(text, marginX, y);
+        y += 8;
+      }
+
+      function addLine(label, value) {
+        const text =
+          value === "" ? String(label) : `${label} : ${value ?? "Inconnue"}`;
+        const lines = doc.splitTextToSize(text, maxTextWidth);
+
+        ensureSpace(lines.length * 6 + 2);
+        doc.setFont(pdfFontFamily, "normal");
+        doc.setFontSize(10);
+        doc.setTextColor(51, 65, 85);
+        doc.text(lines, marginX, y);
+        y += lines.length * 6 + 2;
+      }
+
+      function addBullet(text) {
+        const lines = doc.splitTextToSize(String(text || ""), maxTextWidth - 7);
+
+        ensureSpace(lines.length * 6 + 2);
+        doc.setFont(pdfFontFamily, "normal");
+        doc.setFontSize(10);
+        doc.setTextColor(51, 65, 85);
+        doc.text("•", marginX, y);
+        doc.text(lines, marginX + 7, y);
+        y += lines.length * 6 + 2;
+      }
+
+      addTitle(`Rapport client - ${client.name}`);
+      addLine("Date d’export", formatLongDateTimeFr());
+
+      addSectionTitle("Synthèse client");
+      addLine("Activité", client.activity);
+      addLine("Chiffre d’affaires", formatRevenue(client.revenue));
+      addLine("Charges estimées", formatCurrency(getEstimatedCharges(client)));
+      addLine("Périodicité", client.periodicity || "Inconnue");
+      addLine("TVA", client.tva || "Inconnue");
+      addLine("ACRE", client.acre || "Inconnue");
+      addLine("Statut calculé", risk.label);
+      addLine("Score de risque", `${riskScore.score}/100 - ${riskScore.label}`);
+      addLine("Prochaine action", getClientNextAction(client));
+
+      addSectionTitle("Smart Priorités");
+      priorities.forEach((priority) => addBullet(priority));
+
+      addSectionTitle("Plan d’action");
+      [
+        ["Aujourd’hui", actionPlan.today],
+        ["Cette semaine", actionPlan.thisWeek],
+        ["Plus tard", actionPlan.later],
+      ].forEach(([title, actions]) => {
+        if (actions.length === 0) return;
+
+        addLine(title, "");
+        actions.forEach((action) => addBullet(action));
+      });
+
+      addSectionTitle("Notes expert");
+      if (notes.length === 0) {
+        addBullet("Aucune note pour ce client.");
+      } else {
+        notes.forEach((note) => {
+          const noteDate = note.date
+            ? formatLongDateTimeFr(note.date)
+            : "Note existante";
+          addBullet(`${noteDate} - ${note.text}`);
+        });
+      }
+
+      addSectionTitle("Historique des actions");
+      if (historyGroups.length === 0) {
+        addBullet("Aucune action pour ce client.");
+      } else {
+        historyGroups.forEach((group) => {
+          addLine(group.label, "");
+          group.items.forEach((event) => {
+            addBullet(`${formatLongDateTimeFr(event.date)} - ${event.label}`);
+          });
+        });
+      }
+
+      const safeName = String(client.name || "client")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .toLowerCase();
+
+      doc.save(`rapport-client-${safeName || "client"}.pdf`);
+    } catch {
+      window.print();
+    }
+  }
+
+  async function exportCabinetReportPdf() {
+    try {
+      const doc = new jsPDF();
+      const pdfFontFamily = await configurePdfFont(doc);
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const marginX = 18;
+      const maxTextWidth = pageWidth - marginX * 2;
+      const sortedUrgentClients = [...urgentClients].sort(
+        (firstClient, secondClient) =>
+          getClientRisk(firstClient).priorityLevel -
+          getClientRisk(secondClient).priorityLevel,
+      );
+      let y = 20;
+
+      function ensureSpace(height = 10) {
+        if (y + height <= pageHeight - 18) return;
+
+        doc.addPage();
+        y = 20;
+      }
+
+      function addTitle(text) {
+        ensureSpace(16);
+        doc.setFont(pdfFontFamily, "bold");
+        doc.setFontSize(18);
+        doc.setTextColor(15, 23, 42);
+        doc.text(text, marginX, y);
+        y += 12;
+      }
+
+      function addSectionTitle(text) {
+        ensureSpace(14);
+        y += 3;
+        doc.setFont(pdfFontFamily, "bold");
+        doc.setFontSize(12);
+        doc.setTextColor(15, 23, 42);
+        doc.text(text, marginX, y);
+        y += 8;
+      }
+
+      function addLine(label, value) {
+        const text =
+          value === "" ? String(label) : `${label} : ${value ?? "Aucun"}`;
+        const lines = doc.splitTextToSize(text, maxTextWidth);
+
+        ensureSpace(lines.length * 6 + 2);
+        doc.setFont(pdfFontFamily, "normal");
+        doc.setFontSize(10);
+        doc.setTextColor(51, 65, 85);
+        doc.text(lines, marginX, y);
+        y += lines.length * 6 + 2;
+      }
+
+      function addBullet(text) {
+        const lines = doc.splitTextToSize(String(text || ""), maxTextWidth - 7);
+
+        ensureSpace(lines.length * 6 + 2);
+        doc.setFont(pdfFontFamily, "normal");
+        doc.setFontSize(10);
+        doc.setTextColor(51, 65, 85);
+        doc.text("•", marginX, y);
+        doc.text(lines, marginX + 7, y);
+        y += lines.length * 6 + 2;
+      }
+
+      addTitle("Rapport cabinet - Microassist Expert");
+      addLine("Date d’export", formatLongDateTimeFr());
+
+      addSectionTitle("Synthèse cabinet");
+      addLine("Nombre de clients suivis", kpis.clientsSuivis);
+      addLine("Actions à traiter", kpis.actionsCetteSemaine);
+      addLine("Dossiers en retard", kpis.enRetard);
+      addLine("Risques TVA", kpis.risqueTva);
+      addLine("Relances effectuées", cabinetStats.remindersCount);
+      addLine("Notes ajoutées", cabinetStats.notesCount);
+      addLine("Dossiers mis à jour", cabinetStats.updatesCount);
+
+      addSectionTitle("Priorités du jour");
+      if (sortedUrgentClients.length === 0) {
+        addBullet("Aucune priorité urgente pour le moment.");
+      } else {
+        sortedUrgentClients.forEach((client) => {
+          const risk = getClientRisk(client);
+          const riskScore = getClientRiskScore(client);
+
+          addBullet(
+            `${client.name} - ${risk.label} - ${riskScore.score}/100 (${riskScore.label}) - ${getClientNextAction(client)} - ${risk.recommendedAction}`,
+          );
+        });
+      }
+
+      addSectionTitle("Échéancier cabinet");
+      [
+        ["Aujourd’hui", cabinetSchedule.today],
+        ["Cette semaine", cabinetSchedule.thisWeek],
+        ["Plus tard", cabinetSchedule.later],
+      ].forEach(([title, items]) => {
+        addLine(title, "");
+
+        if (items.length === 0) {
+          addBullet("Aucune action planifiée.");
+          return;
+        }
+
+        items.forEach((item) => {
+          addBullet(`${item.clientName} - ${item.action}`);
+        });
+      });
+
+      addSectionTitle("Liste clients");
+      if (clients.length === 0) {
+        addBullet("Aucun client suivi.");
+      } else {
+        clients.forEach((client) => {
+          const risk = getClientRisk(client);
+          const riskScore = getClientRiskScore(client);
+
+          addBullet(
+            `${client.name} - ${client.activity || "Activité inconnue"} - CA ${formatRevenue(client.revenue)} - Charges ${formatCurrency(getEstimatedCharges(client))} - ${risk.label} - ${riskScore.score}/100 (${riskScore.label}) - ${getClientNextAction(client)}`,
+          );
+        });
+      }
+
+      doc.save("rapport-cabinet-microassist-expert.pdf");
+    } catch {
+      window.print();
+    }
   }
 
   function openNoteModal(client) {
@@ -1388,6 +1793,13 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
               Synthèse des priorités, risques et signaux de la semaine.
             </p>
           </div>
+          <button
+            type="button"
+            className="btn btnPrimary btnSmall"
+            onClick={exportCabinetReportPdf}
+          >
+            Exporter rapport cabinet PDF
+          </button>
         </div>
 
         {clients.length === 0 ? (
@@ -1420,6 +1832,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
                     <div>
                       <strong>{priority.clientName}</strong>
                       <p>{priority.action}</p>
+                      <RiskScoreIndicator client={priority.client} compact />
                       {priority.risk.recommendedAction && (
                         <p className="expertRecommendedAction">
                           {priority.risk.recommendedAction}
@@ -1536,6 +1949,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
                           <p>
                             {getClientNextAction(client)}
                           </p>
+                          <RiskScoreIndicator client={client} compact />
                           <p className="expertRecommendedAction">
                             {getClientRisk(client).recommendedAction}
                           </p>
@@ -1864,6 +2278,13 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
             </button>
             <button
               type="button"
+              className="btn btnGhost btnSmall"
+              onClick={() => exportClientReportPdf(selectedClient)}
+            >
+              Exporter rapport PDF
+            </button>
+            <button
+              type="button"
               className="btn btnGhost btnSmall expertDangerButton"
               onClick={() => handleDeleteClient(selectedClient)}
             >
@@ -1877,11 +2298,14 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
                 <p className="expertDashboard__eyebrow">Fiche client</p>
                 <h2>{selectedClient.name}</h2>
               </div>
-              <span
-                className={`expertBadge expertBadge--${getClientRisk(selectedClient).status}`}
-              >
-                {getClientRisk(selectedClient).label}
-              </span>
+              <div className="expertDetailRisk">
+                <span
+                  className={`expertBadge expertBadge--${getClientRisk(selectedClient).status}`}
+                >
+                  {getClientRisk(selectedClient).label}
+                </span>
+                <RiskScoreIndicator client={selectedClient} compact />
+              </div>
             </div>
 
             <div className="expertDetailGrid">
@@ -1914,6 +2338,13 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
               <div className="expertInfoBlock">
                 <span>Statut</span>
                 <strong>{getClientRisk(selectedClient).label}</strong>
+              </div>
+              <div className="expertInfoBlock">
+                <span>Score de risque</span>
+                <strong>
+                  {getClientRiskScore(selectedClient).score}/100 ·{" "}
+                  {getClientRiskScore(selectedClient).label}
+                </strong>
               </div>
             </div>
 
@@ -2125,9 +2556,12 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
                 <h3>{client.name}</h3>
                 <p>{client.activity}</p>
               </div>
-              <span className={`expertBadge expertBadge--${getClientRisk(client).status}`}>
-                {getClientRisk(client).label}
-              </span>
+              <div className="expertCardRisk">
+                <span className={`expertBadge expertBadge--${getClientRisk(client).status}`}>
+                  {getClientRisk(client).label}
+                </span>
+                <RiskScoreIndicator client={client} compact />
+              </div>
             </div>
 
             <div className="expertCard__body">
