@@ -3,9 +3,12 @@ import jsPDF from "jspdf";
 import "./ExpertDashboard.css";
 import robotoBoldUrl from "../assets/fonts/Roboto-Bold.ttf?url";
 import robotoRegularUrl from "../assets/fonts/Roboto-Regular.ttf?url";
+import { supabase } from "../lib/supabase";
 
-export const EXPERT_CLIENTS_STORAGE_KEY = "microassist_expert_clients";
+export const EXPERT_CLIENTS_STORAGE_KEY = "microassist_expert_clients_v1";
 export const EXPERT_HISTORY_STORAGE_KEY = "microassist_expert_history";
+export const EXPERT_CLIENTS_REPLACED_EVENT = "microassist:clients-replaced";
+export const LEGACY_EXPERT_CLIENTS_STORAGE_KEY = "microassist_expert_clients";
 
 const PDF_FONT_FAMILY = "Roboto";
 const PDF_FONT_FILES = {
@@ -64,9 +67,12 @@ const DEFAULT_CLIENT_FORM = {
   lastDeclarationDate: "",
   tva: "Inconnue",
   acre: "Inconnue",
+  note: "",
 };
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const STATUS_RECOMMENDATIONS = {
   late: "Régulariser le dossier et relancer le client.",
@@ -96,15 +102,28 @@ export const seedClients = [
     activity: "Prestations de services",
     periodicity: "Mensuelle",
     revenue: 4850,
+    estimatedCharges: 1067,
     lastDeclarationDate: "2026-04-05",
     tva: "Non applicable",
     acre: "Non",
     status: "ok",
-    nextAction: "Déclaration URSSAF le 30 avril",
+    riskScore: 25,
+    riskLabel: "OK",
+    nextAction: "Suivi mensuel à maintenir",
     notes: [
       {
+        id: "seed-note-1",
         date: "2026-04-22T09:30:00.000Z",
+        createdAt: "2026-04-22T09:30:00.000Z",
         text: "Cliente autonome, peu de relances nécessaires.",
+      },
+    ],
+    actions: [
+      {
+        id: "seed-action-1",
+        text: "Vérifier la prochaine échéance URSSAF",
+        status: "todo",
+        createdAt: "2026-04-24T10:00:00.000Z",
       },
     ],
     updatedAt: "2026-04-22T09:30:00.000Z",
@@ -119,15 +138,28 @@ export const seedClients = [
     activity: "Vente / commerce",
     periodicity: "Mensuelle",
     revenue: 12400,
+    estimatedCharges: 1525,
     lastDeclarationDate: "2026-04-01",
     tva: "Non applicable",
     acre: "Non",
     status: "tva",
+    riskScore: 80,
+    riskLabel: "Risque TVA",
     nextAction: "Vérifier le seuil TVA",
     notes: [
       {
+        id: "seed-note-2",
         date: "2026-04-21T14:10:00.000Z",
+        createdAt: "2026-04-21T14:10:00.000Z",
         text: "CA en hausse, surveiller le passage de seuil.",
+      },
+    ],
+    actions: [
+      {
+        id: "seed-action-2",
+        text: "Préparer un point TVA avec le client",
+        status: "todo",
+        createdAt: "2026-04-18T08:30:00.000Z",
       },
     ],
     updatedAt: "2026-04-21T14:10:00.000Z",
@@ -142,15 +174,34 @@ export const seedClients = [
     activity: "Formation",
     periodicity: "Mensuelle",
     revenue: 2100,
+    estimatedCharges: 462,
     lastDeclarationDate: "2026-02-10",
     tva: "Non applicable",
     acre: "Oui",
     status: "late",
+    riskScore: 90,
+    riskLabel: "En retard",
     nextAction: "Déclaration en retard à régulariser",
     notes: [
       {
+        id: "seed-note-3",
         date: "2026-04-20T08:45:00.000Z",
+        createdAt: "2026-04-20T08:45:00.000Z",
         text: "Besoin d’un rappel rapide cette semaine.",
+      },
+    ],
+    actions: [
+      {
+        id: "seed-action-3",
+        text: "Relancer pour les justificatifs manquants",
+        status: "todo",
+        createdAt: "2026-04-11T09:15:00.000Z",
+      },
+      {
+        id: "seed-action-4",
+        text: "Préparer la régularisation URSSAF",
+        status: "todo",
+        createdAt: "2026-04-19T11:00:00.000Z",
       },
     ],
     updatedAt: "2026-04-20T08:45:00.000Z",
@@ -162,18 +213,38 @@ export const seedClients = [
   {
     id: "seed-4",
     name: "Nina Robert",
-    activity: "Profession libérale",
+    activity: "Artisanat",
     periodicity: "Trimestrielle",
     revenue: 6320,
+    estimatedCharges: 1390,
     lastDeclarationDate: "2026-03-28",
     tva: "Non applicable",
     acre: "Non",
     status: "ok",
+    riskScore: 30,
+    riskLabel: "OK",
     nextAction: "Préparer l’échéance CFE",
     notes: [
       {
+        id: "seed-note-4",
         date: "2026-04-18T16:00:00.000Z",
+        createdAt: "2026-04-18T16:00:00.000Z",
         text: "RAS, dossier stable.",
+      },
+      {
+        id: "seed-note-5",
+        date: "2026-04-12T15:20:00.000Z",
+        createdAt: "2026-04-12T15:20:00.000Z",
+        text: "Prévoir un point CFE avant la prochaine échéance.",
+      },
+    ],
+    actions: [
+      {
+        id: "seed-action-5",
+        text: "Préparer le contrôle CFE",
+        status: "done",
+        createdAt: "2026-04-12T15:30:00.000Z",
+        doneAt: "2026-04-18T16:10:00.000Z",
       },
     ],
     updatedAt: "2026-04-18T16:00:00.000Z",
@@ -188,15 +259,28 @@ export const seedClients = [
     activity: "Activité mixte",
     periodicity: "Trimestrielle",
     revenue: 8970,
+    estimatedCharges: 1615,
     lastDeclarationDate: "",
     tva: "Inconnue",
     acre: "Oui",
     status: "warning",
+    riskScore: 55,
+    riskLabel: "Alerte",
     nextAction: "Contrôler les charges estimées",
     notes: [
       {
+        id: "seed-note-6",
         date: "2026-04-17T10:15:00.000Z",
+        createdAt: "2026-04-17T10:15:00.000Z",
         text: "Activité mixte, points de vigilance sur le suivi.",
+      },
+    ],
+    actions: [
+      {
+        id: "seed-action-6",
+        text: "Ventiler les ventes et prestations du trimestre",
+        status: "todo",
+        createdAt: "2026-04-23T14:00:00.000Z",
       },
     ],
     updatedAt: "2026-04-17T10:15:00.000Z",
@@ -205,7 +289,45 @@ export const seedClients = [
       "Contrôler les charges estimées",
     ],
   },
+  {
+    id: "seed-6",
+    name: "Karim Benali",
+    activity: "Profession libérale",
+    periodicity: "Trimestrielle",
+    revenue: 7420,
+    estimatedCharges: 1632,
+    lastDeclarationDate: "2026-04-03",
+    tva: "Non applicable",
+    acre: "Non",
+    status: "ok",
+    riskScore: 35,
+    riskLabel: "OK",
+    nextAction: "Suivi régulier à maintenir",
+    notes: [
+      {
+        id: "seed-note-7",
+        date: "2026-04-23T11:40:00.000Z",
+        createdAt: "2026-04-23T11:40:00.000Z",
+        text: "Consultant indépendant, suivi trimestriel sans anomalie.",
+      },
+    ],
+    actions: [
+      {
+        id: "seed-action-7",
+        text: "Revoir les frais professionnels déclarés",
+        status: "todo",
+        createdAt: "2026-04-25T09:00:00.000Z",
+      },
+    ],
+    updatedAt: "2026-04-23T11:40:00.000Z",
+    priorities: [
+      "Maintenir le suivi trimestriel",
+      "Vérifier les frais professionnels",
+    ],
+  },
 ];
+
+const demoClients = seedClients;
 
 function getStatusGroup(status) {
   if (status === "tva_risk") return "tva";
@@ -333,12 +455,20 @@ function getComputedClientStatus(client) {
     return "tva";
   }
 
+  if (revenueValue >= 8000) {
+    return "warning";
+  }
+
   return "ok";
 }
 
 function getComputedNextAction(client, status = getComputedClientStatus(client)) {
   if (status === "tva") {
     return "Vérifier le seuil TVA";
+  }
+
+  if (status === "warning") {
+    return "Contrôler les charges estimées";
   }
 
   if (status === "late") {
@@ -389,14 +519,28 @@ function buildClientFromForm(formData) {
   const status = getComputedClientStatus(clientDraft);
   const nextAction = getComputedNextAction(clientDraft, status);
   const priorities = getComputedPriorities(clientDraft, status);
+  const riskScore = revenue >= 12000 ? 80 : revenue >= 8000 ? 55 : 30;
+  const riskLabel =
+    riskScore >= 80 ? "Risque TVA" : riskScore >= 55 ? "Alerte" : "OK";
+  const note = formData.note?.trim();
 
   return {
     ...clientDraft,
     estimatedCharges,
     status,
+    riskScore,
+    riskLabel,
     nextAction,
     priorities,
-    notes: "Dossier ajouté automatiquement par l’assistant client.",
+    notes: note || "Dossier ajouté automatiquement par l’assistant client.",
+    notesList: note
+      ? [
+          {
+            date: new Date().toISOString(),
+            text: note,
+          },
+        ]
+      : [],
     history: [],
   };
 }
@@ -461,6 +605,70 @@ function getClientRiskScore(client) {
   return { score, level: "critical", label: "Risque critique" };
 }
 
+function getClientPriority(client) {
+  const todoActions = Array.isArray(client?.actions) ? getClientActions(client) : [];
+  const hasLateTodoAction = todoActions.some(
+    (action) => action.status !== "done" && isOlderThanDays(action.createdAt, 7),
+  );
+  const risk = getClientRisk(client);
+  const riskScore = getClientRiskScore(client);
+  const normalizedRiskLabel = client?.riskLabel || risk.label;
+  const normalizedRiskScore = Number(client?.riskScore ?? riskScore.score);
+
+  if (hasLateTodoAction) {
+    return {
+      level: "danger",
+      status: "late",
+      label: "Action en retard",
+      message: "Une action est ouverte depuis plus de 7 jours.",
+      score: 100,
+      hasLateTodoAction: true,
+    };
+  }
+
+  if (normalizedRiskLabel === "En retard" || risk.status === "late") {
+    return {
+      level: "danger",
+      status: "late",
+      label: "Dossier en retard",
+      message: client?.nextAction || "Déclaration à vérifier ou régulariser",
+      score: 90,
+      hasLateTodoAction: false,
+    };
+  }
+
+  if (normalizedRiskLabel === "Risque TVA" || risk.status === "tva") {
+    return {
+      level: "warning",
+      status: "tva",
+      label: "Risque TVA",
+      message: "Vérifier les seuils TVA et préparer la facturation.",
+      score: 80,
+      hasLateTodoAction: false,
+    };
+  }
+
+  if (normalizedRiskScore >= 55) {
+    return {
+      level: "warning",
+      status: "warning",
+      label: "Point de vigilance",
+      message: "Contrôler le point de vigilance avant échéance.",
+      score: 55,
+      hasLateTodoAction: false,
+    };
+  }
+
+  return {
+    level: "ok",
+    status: "ok",
+    label: "OK",
+    message: "Continuer le suivi régulier du dossier.",
+    score: 20,
+    hasLateTodoAction: false,
+  };
+}
+
 function getClientNextAction(client) {
   const risk = getClientRisk(client);
   const hasAssistedData =
@@ -471,10 +679,51 @@ function getClientNextAction(client) {
     : client?.nextAction || STATUS_DEFAULT_ACTIONS[risk.status];
 }
 
+function getClientFileSummary(client) {
+  const risk = getClientRisk(client);
+  const riskScore = getClientRiskScore(client);
+  const riskLabel = client?.riskLabel || risk.label;
+  const actions = getClientActions(client);
+  const todoActions = actions.filter((action) => action.status !== "done");
+  const doneActionsCount = actions.filter((action) => action.status === "done").length;
+  const notesCount = getClientNoteEntries(client).length;
+  const nextAction =
+    todoActions[0]?.text || client?.nextAction || "Aucune action urgente.";
+  let situation = "Dossier globalement stable.";
+  let vigilance = "Continuer le suivi régulier.";
+
+  if (riskLabel === "Risque TVA" || risk.status === "tva") {
+    situation = "Chiffre d’affaires à surveiller.";
+    vigilance = "Vérifier les seuils TVA.";
+  } else if (riskLabel === "En retard" || risk.status === "late") {
+    situation = "Dossier nécessitant une action rapide.";
+    vigilance = "Un retard ou une action non traitée est détecté.";
+  } else if (riskLabel === "Alerte" || risk.status === "warning") {
+    situation = "Dossier avec un point de vigilance.";
+    vigilance = "Contrôler les éléments sensibles avant échéance.";
+  }
+
+  return [
+    {
+      label: "Situation actuelle",
+      text: `${situation} CA suivi : ${formatRevenue(client?.revenue)}. Score ${riskScore.score}/100.`,
+    },
+    {
+      label: "Point de vigilance",
+      text: `${vigilance} ${todoActions.length} action(s) à faire, ${doneActionsCount} terminée(s), ${notesCount} note(s).`,
+    },
+    {
+      label: "Prochaine action recommandée",
+      text: nextAction,
+    },
+  ];
+}
+
 function createClientHistoryEntry(entry) {
   const entryDate = entry.date ? new Date(entry.date) : new Date();
 
   return {
+    id: entry.id || createUuid() || `history-${Date.now()}`,
     type: entry.type,
     label: entry.label,
     date: Number.isNaN(entryDate.getTime())
@@ -659,6 +908,67 @@ function getClientActionPlan(client) {
   };
 }
 
+function createClientAction(text, status = "todo") {
+  const now = new Date().toISOString();
+
+  return {
+    id: createUuid() || `action-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    text,
+    status,
+    createdAt: now,
+    ...(status === "done" ? { doneAt: now } : {}),
+  };
+}
+
+function createStableActionId(client, text, index, prefix = "computed-action") {
+  const safeText = String(text || "action")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
+
+  return `${prefix}-${client?.id || "client"}-${index}-${safeText || "action"}`;
+}
+
+function getClientActions(client) {
+  if (!client) return [];
+
+  if (Array.isArray(client.actions)) {
+    return client.actions
+      .map((action, index) => {
+        if (typeof action === "string") {
+          return {
+            id: createStableActionId(client, action, index, "legacy-action"),
+            text: action,
+            status: "todo",
+            createdAt: client.updatedAt || new Date().toISOString(),
+          };
+        }
+
+        return {
+          id:
+            action.id ||
+            createStableActionId(client, action.text || "", index, "legacy-action"),
+          text: action.text || "",
+          status: action.status === "done" ? "done" : "todo",
+          createdAt: action.createdAt || new Date().toISOString(),
+          doneAt: action.doneAt,
+        };
+      })
+      .filter((action) => action.text);
+  }
+
+  const plan = getClientActionPlan(client);
+
+  return [...plan.today, ...plan.thisWeek, ...plan.later].map((action, index) => ({
+    id: createStableActionId(client, action, index),
+    text: action,
+    status: "todo",
+    createdAt: client.updatedAt || new Date().toISOString(),
+  }));
+}
+
 function getCabinetSchedule(clients) {
   return clients.reduce(
     (schedule, client) => {
@@ -704,13 +1014,16 @@ function getCabinetSchedule(clients) {
 function normalizeNoteEntry(note) {
   if (note && typeof note === "object") {
     return {
-      date: note.date || null,
+      id: note.id || null,
+      date: note.createdAt || note.date || null,
+      createdAt: note.createdAt || note.date || null,
       text: note.text || "",
     };
   }
 
   return {
     date: null,
+    createdAt: null,
     text: String(note || ""),
   };
 }
@@ -719,18 +1032,75 @@ function getClientNoteEntries(client) {
   if (!client) return [];
 
   if (Array.isArray(client.notesList) && client.notesList.length > 0) {
-    return client.notesList.map(normalizeNoteEntry).filter((note) => note.text);
+    return client.notesList
+      .map(normalizeNoteEntry)
+      .filter((note) => note.text)
+      .sort((firstNote, secondNote) => {
+        const firstTime = firstNote.createdAt ? new Date(firstNote.createdAt).getTime() : 0;
+        const secondTime = secondNote.createdAt ? new Date(secondNote.createdAt).getTime() : 0;
+
+        return secondTime - firstTime;
+      });
   }
 
   if (Array.isArray(client.notes)) {
-    return client.notes.map(normalizeNoteEntry).filter((note) => note.text);
+    return client.notes
+      .map(normalizeNoteEntry)
+      .filter((note) => note.text)
+      .sort((firstNote, secondNote) => {
+        const firstTime = firstNote.createdAt ? new Date(firstNote.createdAt).getTime() : 0;
+        const secondTime = secondNote.createdAt ? new Date(secondNote.createdAt).getTime() : 0;
+
+        return secondTime - firstTime;
+      });
   }
 
   return client.notes ? [{ date: null, text: client.notes }] : [];
 }
 
+function formatNoteDate(dateValue) {
+  if (!dateValue) return "Note existante";
+
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return "Note existante";
+
+  const today = new Date();
+  const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const noteDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const daysDifference = Math.floor(
+    (todayDate.getTime() - noteDate.getTime()) / MILLISECONDS_PER_DAY,
+  );
+
+  if (daysDifference === 0) return "Aujourd’hui";
+  if (daysDifference === 1) return "Hier";
+
+  return date.toLocaleDateString("fr-FR", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
 function formatRevenue(revenue) {
   return formatCurrency(parseRevenueValue(revenue));
+}
+
+function isWithinLastDays(dateValue, days) {
+  if (!dateValue) return false;
+
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return false;
+
+  return Date.now() - date.getTime() <= days * MILLISECONDS_PER_DAY;
+}
+
+function isOlderThanDays(dateValue, days) {
+  if (!dateValue) return false;
+
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return false;
+
+  return Date.now() - date.getTime() > days * MILLISECONDS_PER_DAY;
 }
 
 function formatLongDateTimeFr(dateValue = new Date()) {
@@ -823,16 +1193,169 @@ function getClientFormState(client) {
     lastDeclarationDate: getIsoDateValue(client?.lastDeclarationDate),
     tva: client?.tva || "Inconnue",
     acre: client?.acre || "Inconnue",
+    note: "",
   };
 }
 
-export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
+function getLocalStoredClients() {
+  try {
+    const raw =
+      localStorage.getItem(EXPERT_CLIENTS_STORAGE_KEY) ||
+      localStorage.getItem(LEGACY_EXPERT_CLIENTS_STORAGE_KEY);
+
+    if (!raw) return [];
+
+    const parsedClients = JSON.parse(raw);
+    return Array.isArray(parsedClients) ? parsedClients : [];
+  } catch {
+    return [];
+  }
+}
+
+function getCloudClientId(clientId) {
+  if (typeof clientId === "string" && UUID_PATTERN.test(clientId)) {
+    return clientId;
+  }
+
+  return createUuid();
+}
+
+function createUuid() {
+  return typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : null;
+}
+
+function toCloudClientPayload(client, cabinetId) {
+  const cloudId = getCloudClientId(client.id);
+
+  if (!cloudId || !cabinetId) {
+    return null;
+  }
+
+  const risk = getClientRisk(client);
+
+  return {
+    id: cloudId,
+    cabinet_id: cabinetId,
+    name: client.name,
+    activity: client.activity || null,
+    revenue: Number(client.revenue || 0),
+    estimated_charges: Number(client.charges || client.estimatedCharges || 0),
+    periodicity: client.periodicity || null,
+    last_declaration_date: client.lastDeclarationDate || null,
+    tva_status: client.tva || client.tvaStatus || null,
+    acre_status: client.acre || client.acreStatus || null,
+    status: risk.status,
+    next_action: client.nextAction || risk.recommendedAction || null,
+  };
+}
+
+function fromCloudClientRow(row) {
+  const client = {
+    activity: row.activity || "",
+    revenue: Number(row.revenue ?? 0),
+    estimatedCharges: Number(row.estimated_charges ?? 0),
+    periodicity: row.periodicity || "Inconnue",
+    lastDeclarationDate: row.last_declaration_date || "",
+    tva: row.tva_status || "Inconnue",
+    acre: row.acre_status || "Inconnue",
+    status: row.status || "ok",
+    nextAction: row.next_action || "",
+  };
+  const riskScore = getClientRiskScore(client);
+  const risk = getClientRisk(client);
+
+  return {
+    id: row.id,
+    name: row.name,
+    ...client,
+    riskScore: riskScore.score,
+    riskLabel: risk.label,
+    notes: [],
+    notesList: [],
+    actions: [],
+    history: [],
+    updatedAt: row.updated_at || row.created_at || new Date().toISOString(),
+  };
+}
+
+function fromCloudNoteRow(row) {
+  return {
+    id: row.id,
+    text: row.content || row.text || "",
+    createdAt: row.created_at || new Date().toISOString(),
+  };
+}
+
+function fromCloudActionRow(row) {
+  return {
+    id: row.id,
+    text: row.text || row.content || "",
+    status: row.status === "done" ? "done" : "todo",
+    createdAt: row.created_at || new Date().toISOString(),
+    doneAt: row.done_at || null,
+  };
+}
+
+function fromCloudHistoryRow(row) {
+  return {
+    id: row.id,
+    type: row.type,
+    label: row.label,
+    date: row.created_at || new Date().toISOString(),
+  };
+}
+
+function getSupabaseErrorMessage(error) {
+  const status = Number(error?.status || error?.code);
+  const message = String(error?.message || "").toLowerCase();
+
+  if (
+    error instanceof TypeError ||
+    message.includes("failed to fetch") ||
+    message.includes("network") ||
+    message.includes("fetch")
+  ) {
+    return "Problème de connexion";
+  }
+
+  if (
+    status === 401 ||
+    status === 403 ||
+    message.includes("permission") ||
+    message.includes("not authorized") ||
+    message.includes("unauthorized") ||
+    message.includes("row-level security") ||
+    message.includes("rls")
+  ) {
+    return "Accès non autorisé";
+  }
+
+  return "Une erreur est survenue";
+}
+
+export default function ExpertDashboard({
+  view = "dashboard",
+  onOpenClient,
+  currentUser = null,
+  currentCabinet = null,
+}) {
   const [clients, setClients] = useState(() => {
     try {
       const raw = localStorage.getItem(EXPERT_CLIENTS_STORAGE_KEY);
-      return raw ? JSON.parse(raw) : [];
+      if (raw) {
+        return JSON.parse(raw);
+      }
+
+      const legacyRaw = localStorage.getItem(LEGACY_EXPERT_CLIENTS_STORAGE_KEY);
+      if (legacyRaw) {
+        return JSON.parse(legacyRaw);
+      }
+
+      return demoClients;
     } catch {
-      return [];
+      return demoClients;
     }
   });
   const [selectedClientId, setSelectedClientId] = useState(null);
@@ -866,7 +1389,13 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
   const [notesClientId, setNotesClientId] = useState(null);
   const [inlineNoteDraft, setInlineNoteDraft] = useState("");
   const [inlineNoteError, setInlineNoteError] = useState("");
+  const [detailNoteDraft, setDetailNoteDraft] = useState("");
+  const [detailNoteError, setDetailNoteError] = useState("");
+  const [detailActionDraft, setDetailActionDraft] = useState("");
+  const [detailActionError, setDetailActionError] = useState("");
   const [newClientForm, setNewClientForm] = useState(DEFAULT_CLIENT_FORM);
+  const [isDashboardLoading, setIsDashboardLoading] = useState(false);
+  const isCloudEnabled = !!currentUser && !!currentCabinet;
 
   const selectedClient = useMemo(
     () => clients.find((client) => client.id === selectedClientId) || null,
@@ -896,6 +1425,14 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
   const selectedClientNotes = useMemo(() => {
     return getClientNoteEntries(selectedClient);
   }, [selectedClient]);
+  const selectedClientActions = useMemo(
+    () => getClientActions(selectedClient),
+    [selectedClient],
+  );
+  const selectedClientSummary = useMemo(
+    () => getClientFileSummary(selectedClient),
+    [selectedClient],
+  );
   const notesClient = useMemo(() => {
     if (notesClientId) {
       return clients.find((client) => client.id === notesClientId) || clients[0] || null;
@@ -907,109 +1444,179 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
     () => getClientNoteEntries(notesClient),
     [notesClient],
   );
+  const allClientNotes = useMemo(() => {
+    return clients
+      .flatMap((client) =>
+        getClientNoteEntries(client).map((note, index) => ({
+          id: note.id || `${client.id}-note-${index}`,
+          clientId: client.id,
+          clientName: client.name,
+          client,
+          text: note.text,
+          createdAt: note.createdAt || note.date || null,
+        })),
+      )
+      .sort((firstNote, secondNote) => {
+        const firstTime = firstNote.createdAt
+          ? new Date(firstNote.createdAt).getTime()
+          : 0;
+        const secondTime = secondNote.createdAt
+          ? new Date(secondNote.createdAt).getTime()
+          : 0;
+
+        return secondTime - firstTime;
+      });
+  }, [clients]);
   const editingClient = useMemo(
     () => clients.find((client) => client.id === editingClientId) || null,
     [clients, editingClientId],
   );
 
   const kpis = useMemo(() => {
-    const clientsSuivis = clients.length;
+    const realActions = clients.flatMap((client) =>
+      Array.isArray(client.actions) ? getClientActions(client) : [],
+    );
+    const realNotes = clients.flatMap((client) => getClientNoteEntries(client));
+    const totalClients = clients.length;
+    const totalRevenue = clients.reduce(
+      (total, client) => total + parseRevenueValue(client.revenue),
+      0,
+    );
+    const totalActionsTodo = realActions.filter(
+      (action) => action.status !== "done",
+    ).length;
+    const totalActionsDone = realActions.filter(
+      (action) => action.status === "done",
+    ).length;
+    const actionsLate = realActions.filter(
+      (action) =>
+        action.status !== "done" && isOlderThanDays(action.createdAt, 7),
+    ).length;
+    const notesThisWeek = realNotes.filter((note) =>
+      isWithinLastDays(note.createdAt || note.date, 7),
+    ).length;
+    const clientsSuivis = totalClients;
     const enRetard = clients.filter(
       (client) => getClientRisk(client).status === "late",
     ).length;
     const risqueTva = clients.filter(
       (client) => getClientRisk(client).status === "tva",
     ).length;
-    const actionsCetteSemaine = clients.filter(
-      (client) => ["late", "tva", "warning"].includes(getClientRisk(client).status),
-    ).length;
+    const actionsCetteSemaine = totalActionsTodo;
 
-    return { clientsSuivis, enRetard, risqueTva, actionsCetteSemaine };
+    return {
+      totalClients,
+      totalRevenue,
+      totalActionsTodo,
+      totalActionsDone,
+      actionsLate,
+      notesThisWeek,
+      clientsSuivis,
+      enRetard,
+      risqueTva,
+      actionsCetteSemaine,
+    };
   }, [clients]);
   const cabinetStats = useMemo(() => getCabinetStats(clients), [clients]);
-  const urgentClients = useMemo(
+  const priorityItems = useMemo(
     () =>
-      clients.filter((client) =>
-        ["late", "tva", "warning"].includes(getClientRisk(client).status),
-      ),
+      clients.map((client) => ({
+        id: client.id,
+        clientName: client.name,
+        client,
+        priority: getClientPriority(client),
+      })),
     [clients],
   );
   const dailyPriorities = useMemo(() => {
-    const priorityClients = urgentClients.length > 0 ? urgentClients : clients;
-
-    return [...priorityClients]
-      .sort(
-        (firstClient, secondClient) =>
-          getClientRisk(firstClient).priorityLevel -
-          getClientRisk(secondClient).priorityLevel,
-      )
+    return [...priorityItems]
+      .filter((item) => item.priority.score > 20)
+      .sort((firstItem, secondItem) => secondItem.priority.score - firstItem.priority.score)
       .slice(0, 4)
-      .map((client) => {
-        const risk = getClientRisk(client);
-
-        return {
-          id: client.id,
-          clientName: client.name,
-          client,
-          risk,
-          action: getClientNextAction(client),
-        };
-      });
-  }, [clients, urgentClients]);
+      .map((item) => ({
+        id: item.id,
+        clientName: item.clientName,
+        client: item.client,
+        risk: {
+          status: item.priority.status,
+          label: item.priority.label,
+          recommendedAction: item.priority.message,
+        },
+        action: item.priority.message,
+        priority: item.priority,
+      }));
+  }, [priorityItems]);
+  const normalFollowUpClients = useMemo(() => {
+    return priorityItems
+      .filter((item) => item.priority.level === "ok")
+      .slice(0, 3);
+  }, [priorityItems]);
   const globalAlerts = useMemo(
     () => [
       {
         label: "Dossiers en retard",
-        value: kpis.enRetard,
+        value: priorityItems.filter((item) => item.priority.level === "danger").length,
         helper:
-          kpis.enRetard > 0
-            ? "Déclarations ou relances à régulariser"
+          priorityItems.some((item) => item.priority.level === "danger")
+            ? "Priorités à régulariser rapidement"
             : "Aucun retard identifié",
       },
       {
         label: "Risques TVA",
-        value: kpis.risqueTva,
+        value: priorityItems.filter((item) => item.priority.label === "Risque TVA").length,
         helper:
-          kpis.risqueTva > 0
+          priorityItems.some((item) => item.priority.label === "Risque TVA")
             ? "Seuils à contrôler sur les prochains dossiers"
             : "Aucun seuil critique détecté",
       },
       {
         label: "Alertes cabinet",
-        value: clients.filter(
-          (client) => getClientRisk(client).status === "warning",
-        ).length,
-        helper: "Points de vigilance à suivre cette semaine",
+        value: priorityItems.filter((item) => item.priority.hasLateTodoAction).length,
+        helper: "Actions ouvertes depuis plus de 7 jours",
       },
     ],
-    [clients, kpis.enRetard, kpis.risqueTva],
+    [priorityItems],
   );
   const alertGroups = useMemo(
     () => [
       {
-        key: "late",
-        title: "Déclarations en retard",
-        description: "Dossiers à régulariser rapidement.",
-        clients: clients.filter((client) => getClientRisk(client).status === "late"),
-      },
-      {
-        key: "tva",
-        title: "Risques TVA",
-        description: "Clients proches ou au-dessus des seuils de vigilance.",
-        clients: clients.filter(
-          (client) => getClientRisk(client).status === "tva",
-        ),
+        key: "danger",
+        title: "Danger",
+        description: "Priorités à traiter en premier.",
+        items: priorityItems.filter((item) => item.priority.level === "danger"),
       },
       {
         key: "warning",
-        title: "Autres vigilances",
-        description: "Points à contrôler avant la prochaine échéance.",
-        clients: clients.filter((client) => getClientRisk(client).status === "warning"),
+        title: "Attention",
+        description: "Points de vigilance à suivre.",
+        items: priorityItems.filter((item) => item.priority.level === "warning"),
       },
     ],
-    [clients],
+    [priorityItems],
   );
   const cabinetSchedule = useMemo(() => getCabinetSchedule(clients), [clients]);
+  const pendingScheduleActions = useMemo(() => {
+    return clients
+      .flatMap((client) =>
+        (Array.isArray(client.actions) ? getClientActions(client) : [])
+          .filter((action) => action.status !== "done")
+          .map((action) => ({
+            id: action.id,
+            clientId: client.id,
+            clientName: client.name,
+            client,
+            action,
+            createdAt: action.createdAt,
+            isLate: isOlderThanDays(action.createdAt, 7),
+          })),
+      )
+      .sort((firstAction, secondAction) => {
+        const firstTime = new Date(firstAction.createdAt || 0).getTime();
+        const secondTime = new Date(secondAction.createdAt || 0).getTime();
+
+        return firstTime - secondTime;
+      });
+  }, [clients]);
 
   const visibleClients = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -1026,6 +1633,527 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
       return matchesFilter && matchesSearch;
     });
   }, [activeFilter, clients, searchQuery]);
+
+  function handleCloudError(label, error, { notify = true } = {}) {
+    if (import.meta.env.DEV) {
+      console.error(label, error);
+    }
+
+    if (notify) {
+      setSuccessMessage(getSupabaseErrorMessage(error));
+    }
+  }
+
+  async function runSupabaseRequest(label, request, options) {
+    try {
+      return await request();
+    } catch (error) {
+      handleCloudError(label, error, options);
+      return { data: null, error };
+    }
+  }
+
+  async function syncLocalClientsToCloud(localClients) {
+    if (!isCloudEnabled || !supabase) return;
+
+    const cloudClients = localClients
+      .map((client) => ({
+        localClient: client,
+        payload: toCloudClientPayload(client, currentCabinet.id),
+      }))
+      .filter((clientSync) => clientSync.payload);
+
+    if (cloudClients.length === 0) return;
+
+    const { error } = await runSupabaseRequest(
+      "Client cloud upload failed:",
+      () =>
+        supabase.from("clients").upsert(
+          cloudClients.map((clientSync) => clientSync.payload),
+          {
+            onConflict: "id",
+            ignoreDuplicates: false,
+          },
+        ),
+    );
+
+    if (error) {
+      handleCloudError("Client cloud upload failed:", error);
+      return;
+    }
+
+    const notePayload = cloudClients.flatMap((clientSync) =>
+      getClientNoteEntries(clientSync.localClient)
+        .map((note) => ({
+          id: UUID_PATTERN.test(String(note.id)) ? note.id : createUuid(),
+          client_id: clientSync.payload.id,
+          cabinet_id: currentCabinet.id,
+          content: note.text,
+          created_by: currentUser?.id || null,
+          created_at: note.createdAt || note.date || new Date().toISOString(),
+        }))
+        .filter((note) => note.id),
+    );
+    const actionPayload = cloudClients.flatMap((clientSync) =>
+      (Array.isArray(clientSync.localClient.actions)
+        ? getClientActions(clientSync.localClient)
+        : []
+      )
+        .map((action) => ({
+          id: UUID_PATTERN.test(String(action.id)) ? action.id : createUuid(),
+          client_id: clientSync.payload.id,
+          cabinet_id: currentCabinet.id,
+          text: action.text,
+          status: action.status || "todo",
+          done_at: action.doneAt || null,
+          created_by: currentUser?.id || null,
+          created_at: action.createdAt || new Date().toISOString(),
+        }))
+        .filter((action) => action.id),
+    );
+    const historyPayload = cloudClients.flatMap((clientSync) =>
+      (Array.isArray(clientSync.localClient.history)
+        ? clientSync.localClient.history
+        : []
+      )
+        .map((entry) => {
+          const historyEntry = createClientHistoryEntry(entry);
+
+          return {
+            id: UUID_PATTERN.test(String(historyEntry.id)) ? historyEntry.id : createUuid(),
+            client_id: clientSync.payload.id,
+            cabinet_id: currentCabinet.id,
+            type: historyEntry.type || "update",
+            label: historyEntry.label,
+            created_by: currentUser?.id || null,
+            created_at: historyEntry.date,
+          };
+        })
+        .filter((entry) => entry.id),
+    );
+
+    if (notePayload.length > 0) {
+      const { error: notesError } = await runSupabaseRequest(
+        "Notes cloud upload failed:",
+        () =>
+          supabase.from("client_notes").upsert(notePayload, {
+            onConflict: "id",
+            ignoreDuplicates: true,
+          }),
+      );
+
+      if (notesError) {
+        handleCloudError("Notes cloud upload failed:", notesError);
+      }
+    }
+
+    if (actionPayload.length > 0) {
+      const { error: actionsError } = await runSupabaseRequest(
+        "Actions cloud upload failed:",
+        () =>
+          supabase.from("client_actions").upsert(actionPayload, {
+            onConflict: "id",
+            ignoreDuplicates: true,
+          }),
+      );
+
+      if (actionsError) {
+        handleCloudError("Actions cloud upload failed:", actionsError);
+      }
+    }
+
+    if (historyPayload.length > 0) {
+      const { error: historyError } = await runSupabaseRequest(
+        "History cloud upload failed:",
+        () =>
+          supabase.from("client_history").upsert(historyPayload, {
+            onConflict: "id",
+            ignoreDuplicates: true,
+          }),
+      );
+
+      if (historyError) {
+        handleCloudError("History cloud upload failed:", historyError);
+      }
+    }
+
+    setClients((currentClients) =>
+      currentClients.map((client) => {
+        const syncedClient = cloudClients.find(
+          (clientSync) => clientSync.localClient.id === client.id,
+        );
+
+        return syncedClient ? { ...client, id: syncedClient.payload.id } : client;
+      }),
+    );
+  }
+
+  async function insertClientToCloud(client) {
+    if (!isCloudEnabled || !supabase) return;
+
+    const payload = toCloudClientPayload(client, currentCabinet.id);
+    if (!payload) return;
+
+    const { error } = await runSupabaseRequest("Client cloud insert failed:", () =>
+      supabase.from("clients").insert(payload),
+    );
+
+    if (error) {
+      handleCloudError("Client cloud insert failed:", error);
+      return false;
+    }
+
+    return true;
+  }
+
+  async function deleteClientFromCloud(client) {
+    if (!isCloudEnabled || !supabase || !UUID_PATTERN.test(String(client.id))) return;
+
+    const { error } = await runSupabaseRequest("Client cloud delete failed:", () =>
+      supabase
+        .from("clients")
+        .delete()
+        .eq("cabinet_id", currentCabinet.id)
+        .eq("id", client.id),
+    );
+
+    if (error) {
+      handleCloudError("Client cloud delete failed:", error);
+    }
+  }
+
+  async function loadClientRelatedData(cloudClients) {
+    if (!isCloudEnabled || !supabase || cloudClients.length === 0) {
+      return cloudClients;
+    }
+
+    const clientIds = cloudClients.map((client) => client.id);
+
+    const [notesResult, actionsResult, historyResult] = await Promise.all([
+      runSupabaseRequest(
+        "Notes cloud fetch failed:",
+        () =>
+          supabase
+            .from("client_notes")
+            .select("*")
+            .in("client_id", clientIds)
+            .order("created_at", { ascending: false }),
+        { notify: false },
+      ),
+      runSupabaseRequest(
+        "Actions cloud fetch failed:",
+        () =>
+          supabase
+            .from("client_actions")
+            .select("*")
+            .in("client_id", clientIds)
+            .order("created_at", { ascending: false }),
+        { notify: false },
+      ),
+      runSupabaseRequest(
+        "History cloud fetch failed:",
+        () =>
+          supabase
+            .from("client_history")
+            .select("*")
+            .in("client_id", clientIds)
+            .order("created_at", { ascending: false }),
+        { notify: false },
+      ),
+    ]);
+
+    if (notesResult.error) {
+      handleCloudError("Notes cloud fetch failed:", notesResult.error);
+    }
+
+    if (actionsResult.error) {
+      handleCloudError("Actions cloud fetch failed:", actionsResult.error);
+    }
+
+    if (historyResult.error) {
+      handleCloudError("History cloud fetch failed:", historyResult.error);
+    }
+
+    const notesByClient = new Map();
+    const actionsByClient = new Map();
+    const historyByClient = new Map();
+
+    (notesResult.data || []).forEach((note) => {
+      const currentNotes = notesByClient.get(note.client_id) || [];
+      notesByClient.set(note.client_id, [...currentNotes, fromCloudNoteRow(note)]);
+    });
+
+    (actionsResult.data || []).forEach((action) => {
+      const currentActions = actionsByClient.get(action.client_id) || [];
+      actionsByClient.set(action.client_id, [
+        ...currentActions,
+        fromCloudActionRow(action),
+      ]);
+    });
+
+    (historyResult.data || []).forEach((entry) => {
+      const currentHistory = historyByClient.get(entry.client_id) || [];
+      historyByClient.set(entry.client_id, [
+        ...currentHistory,
+        fromCloudHistoryRow(entry),
+      ]);
+    });
+
+    return cloudClients.map((client) => ({
+      ...client,
+      notes: notesByClient.get(client.id) || [],
+      notesList: notesByClient.get(client.id) || [],
+      actions: actionsByClient.get(client.id) || [],
+      history: historyByClient.get(client.id) || [],
+    }));
+  }
+
+  async function insertClientNoteToCloud(clientId, note) {
+    if (!isCloudEnabled || !supabase || !UUID_PATTERN.test(String(clientId))) return;
+
+    const payload = {
+      id: UUID_PATTERN.test(String(note.id)) ? note.id : createUuid(),
+      client_id: clientId,
+      cabinet_id: currentCabinet.id,
+      content: note.text,
+      created_by: currentUser?.id || null,
+      created_at: note.createdAt || new Date().toISOString(),
+    };
+
+    if (!payload.id) return;
+
+    const { error } = await runSupabaseRequest("Note cloud insert failed:", () =>
+      supabase.from("client_notes").upsert(payload, {
+        onConflict: "id",
+        ignoreDuplicates: true,
+      }),
+    );
+
+    if (error) {
+      handleCloudError("Note cloud insert failed:", error);
+    }
+  }
+
+  async function deleteClientNoteFromCloud(clientId, noteId) {
+    if (
+      !isCloudEnabled ||
+      !supabase ||
+      !UUID_PATTERN.test(String(clientId)) ||
+      !UUID_PATTERN.test(String(noteId))
+    ) {
+      return;
+    }
+
+    const { error } = await runSupabaseRequest("Note cloud delete failed:", () =>
+      supabase
+        .from("client_notes")
+        .delete()
+        .eq("cabinet_id", currentCabinet.id)
+        .eq("client_id", clientId)
+        .eq("id", noteId),
+    );
+
+    if (error) {
+      handleCloudError("Note cloud delete failed:", error);
+    }
+  }
+
+  async function insertClientActionToCloud(clientId, action) {
+    if (!isCloudEnabled || !supabase || !UUID_PATTERN.test(String(clientId))) return;
+
+    const payload = {
+      id: UUID_PATTERN.test(String(action.id)) ? action.id : createUuid(),
+      client_id: clientId,
+      cabinet_id: currentCabinet.id,
+      text: action.text,
+      status: action.status || "todo",
+      done_at: action.doneAt || null,
+      created_by: currentUser?.id || null,
+      created_at: action.createdAt || new Date().toISOString(),
+    };
+
+    if (!payload.id) return;
+
+    const { error } = await runSupabaseRequest("Action cloud insert failed:", () =>
+      supabase.from("client_actions").upsert(payload, {
+        onConflict: "id",
+        ignoreDuplicates: true,
+      }),
+    );
+
+    if (error) {
+      handleCloudError("Action cloud insert failed:", error);
+    }
+  }
+
+  async function updateClientActionInCloud(clientId, action) {
+    if (
+      !isCloudEnabled ||
+      !supabase ||
+      !UUID_PATTERN.test(String(clientId)) ||
+      !UUID_PATTERN.test(String(action.id))
+    ) {
+      return;
+    }
+
+    const { error } = await runSupabaseRequest("Action cloud update failed:", () =>
+      supabase
+        .from("client_actions")
+        .update({
+          status: action.status,
+          done_at: action.doneAt || null,
+        })
+        .eq("cabinet_id", currentCabinet.id)
+        .eq("client_id", clientId)
+        .eq("id", action.id),
+    );
+
+    if (error) {
+      handleCloudError("Action cloud update failed:", error);
+    }
+  }
+
+  async function deleteClientActionFromCloud(clientId, actionId) {
+    if (
+      !isCloudEnabled ||
+      !supabase ||
+      !UUID_PATTERN.test(String(clientId)) ||
+      !UUID_PATTERN.test(String(actionId))
+    ) {
+      return;
+    }
+
+    const { error } = await runSupabaseRequest("Action cloud delete failed:", () =>
+      supabase
+        .from("client_actions")
+        .delete()
+        .eq("cabinet_id", currentCabinet.id)
+        .eq("client_id", clientId)
+        .eq("id", actionId),
+    );
+
+    if (error) {
+      handleCloudError("Action cloud delete failed:", error);
+    }
+  }
+
+  async function insertClientHistoryToCloud(clientId, entry) {
+    if (!isCloudEnabled || !supabase || !UUID_PATTERN.test(String(clientId))) return;
+
+    const payload = {
+      id: UUID_PATTERN.test(String(entry.id)) ? entry.id : createUuid(),
+      client_id: clientId,
+      cabinet_id: currentCabinet.id,
+      type: entry.type || "update",
+      label: entry.label,
+      created_by: currentUser?.id || null,
+      created_at: entry.date || new Date().toISOString(),
+    };
+
+    if (!payload.id) return;
+
+    const { error } = await runSupabaseRequest("History cloud insert failed:", () =>
+      supabase.from("client_history").upsert(payload, {
+        onConflict: "id",
+        ignoreDuplicates: true,
+      }),
+    );
+
+    if (error) {
+      handleCloudError("History cloud insert failed:", error);
+    }
+  }
+
+  useEffect(() => {
+    if (!isCloudEnabled || !supabase || !currentCabinet?.id) return undefined;
+
+    let isCancelled = false;
+
+    async function loadCloudClients() {
+      setIsDashboardLoading(true);
+
+      try {
+        const { data, error } = await runSupabaseRequest(
+          "Client cloud fetch failed:",
+          () =>
+            supabase
+              .from("clients")
+              .select("*")
+              .eq("cabinet_id", currentCabinet.id)
+              .order("created_at", { ascending: false }),
+        );
+
+        if (isCancelled) return;
+
+        if (error) {
+          handleCloudError("Client cloud fetch failed:", error);
+          return;
+        }
+
+        if (Array.isArray(data) && data.length > 0) {
+          const cloudClients = await loadClientRelatedData(data.map(fromCloudClientRow));
+          if (!isCancelled) {
+            setClients(cloudClients);
+          }
+          return;
+        }
+
+        const localStoredClients = getLocalStoredClients();
+        if (localStoredClients.length > 0) {
+          await syncLocalClientsToCloud(localStoredClients);
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsDashboardLoading(false);
+        }
+      }
+    }
+
+    loadCloudClients();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [isCloudEnabled, currentCabinet?.id]);
+
+  useEffect(() => {
+    function handleClientsReplaced(event) {
+      const nextClients = event.detail?.clients;
+
+      if (!Array.isArray(nextClients)) {
+        return;
+      }
+
+      setClients(nextClients);
+      setSelectedClientId(null);
+      setReminderClientId(null);
+      setReminderMessage("");
+      setShowAddClientModal(false);
+      setEditingClientId(null);
+      setAddClientError("");
+      setNoteClientId(null);
+      setNoteDraft("");
+      setNoteError("");
+      setNotesClientId(null);
+      setInlineNoteDraft("");
+      setInlineNoteError("");
+      setDetailNoteDraft("");
+      setDetailNoteError("");
+      setDetailActionDraft("");
+      setDetailActionError("");
+      setNewClientForm(DEFAULT_CLIENT_FORM);
+    }
+
+    window.addEventListener(EXPERT_CLIENTS_REPLACED_EVENT, handleClientsReplaced);
+
+    return () => {
+      window.removeEventListener(
+        EXPERT_CLIENTS_REPLACED_EVENT,
+        handleClientsReplaced,
+      );
+    };
+  }, []);
+
   useEffect(() => {
     try {
       localStorage.setItem(EXPERT_CLIENTS_STORAGE_KEY, JSON.stringify(clients));
@@ -1047,7 +2175,9 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
 
   function openReminderModal(client) {
     setReminderClientId(client.id);
-    setReminderMessage(getClientReminderMessage(client));
+    setReminderMessage(
+      `Bonjour ${client.name}, petit rappel concernant votre dossier : merci de vérifier votre prochaine déclaration ou action à traiter.`,
+    );
   }
 
   function closeReminderModal() {
@@ -1068,6 +2198,8 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
           : client,
       ),
     );
+
+    void insertClientHistoryToCloud(clientId, historyEntry);
   }
 
   async function exportClientReportPdf(client) {
@@ -1216,11 +2348,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
       const pageHeight = doc.internal.pageSize.getHeight();
       const marginX = 18;
       const maxTextWidth = pageWidth - marginX * 2;
-      const sortedUrgentClients = [...urgentClients].sort(
-        (firstClient, secondClient) =>
-          getClientRisk(firstClient).priorityLevel -
-          getClientRisk(secondClient).priorityLevel,
-      );
+      const sortedUrgentClients = [...dailyPriorities];
       let y = 20;
 
       function ensureSpace(height = 10) {
@@ -1290,12 +2418,10 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
       if (sortedUrgentClients.length === 0) {
         addBullet("Aucune priorité urgente pour le moment.");
       } else {
-        sortedUrgentClients.forEach((client) => {
-          const risk = getClientRisk(client);
-          const riskScore = getClientRiskScore(client);
-
+        sortedUrgentClients.forEach((priority) => {
+          const riskScore = getClientRiskScore(priority.client);
           addBullet(
-            `${client.name} - ${risk.label} - ${riskScore.score}/100 (${riskScore.label}) - ${getClientNextAction(client)} - ${risk.recommendedAction}`,
+            `${priority.clientName} - ${priority.priority.label} - ${riskScore.score}/100 (${riskScore.label}) - ${priority.priority.message}`,
           );
         });
       }
@@ -1434,7 +2560,10 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
     }
 
     const nextClient = {
-      id: Date.now(),
+      id:
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `client-${Date.now()}`,
       ...computedClient,
       history: [
         createClientHistoryEntry({
@@ -1446,24 +2575,26 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
     };
 
     setClients((currentClients) => [nextClient, ...currentClients]);
+    void (async () => {
+      const isInserted = await insertClientToCloud(nextClient);
+
+      if (isInserted) {
+        await insertClientHistoryToCloud(nextClient.id, nextClient.history[0]);
+      }
+    })();
     setSuccessMessage(`Client ajouté : ${clientName}`);
     closeAddClientModal();
   }
 
-  async function handleCopyReminderMessage() {
+  function handleSendReminderSimulation() {
     if (!reminderClient) return;
 
-    try {
-      await navigator.clipboard.writeText(reminderMessage);
-
-      addClientHistory(reminderClient.id, {
-        type: "reminder",
-        label: "Relance préparée",
-      });
-      setSuccessMessage(`Message copié pour ${reminderClient.name}.`);
-    } catch {
-      setSuccessMessage("Impossible de copier le message automatiquement.");
-    }
+    addClientHistory(reminderClient.id, {
+      type: "reminder",
+      label: "Rappel envoyé (simulation)",
+    });
+    closeReminderModal();
+    setSuccessMessage("Rappel envoyé au client (simulation).");
   }
 
   function handleAddNote() {
@@ -1476,8 +2607,11 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
       return;
     }
 
+    const noteCreatedAt = new Date().toISOString();
     const nextNoteEntry = {
-      date: new Date().toISOString(),
+      id: createUuid() || `note-${Date.now()}`,
+      createdAt: noteCreatedAt,
+      date: noteCreatedAt,
       text: trimmedNote,
     };
     const nextNotesList = [nextNoteEntry, ...getClientNoteEntries(noteClient)];
@@ -1494,6 +2628,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
       ),
     );
 
+    void insertClientNoteToCloud(noteClient.id, nextNoteEntry);
     addClientHistory(noteClient.id, {
       type: "note",
       label: "Note ajoutée",
@@ -1513,8 +2648,11 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
       return;
     }
 
+    const noteCreatedAt = new Date().toISOString();
     const nextNoteEntry = {
-      date: new Date().toISOString(),
+      id: createUuid() || `note-${Date.now()}`,
+      createdAt: noteCreatedAt,
+      date: noteCreatedAt,
       text: trimmedNote,
     };
     const nextNotesList = [nextNoteEntry, ...getClientNoteEntries(notesClient)];
@@ -1531,6 +2669,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
       ),
     );
 
+    void insertClientNoteToCloud(notesClient.id, nextNoteEntry);
     addClientHistory(notesClient.id, {
       type: "note",
       label: "Note ajoutée",
@@ -1539,6 +2678,171 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
     setInlineNoteDraft("");
     setInlineNoteError("");
     setSuccessMessage(`Note ajoutée pour ${notesClient.name}.`);
+  }
+
+  function handleAddDetailNote() {
+    if (!selectedClient) return;
+
+    const trimmedNote = detailNoteDraft.trim();
+
+    if (!trimmedNote) {
+      setDetailNoteError("La note expert ne peut pas être vide.");
+      return;
+    }
+
+    const nextNote = {
+      id: createUuid() || `note-${Date.now()}`,
+      text: trimmedNote,
+      createdAt: new Date().toISOString(),
+    };
+
+    setClients((currentClients) =>
+      currentClients.map((client) =>
+        client.id === selectedClient.id
+          ? {
+              ...client,
+              notes: [nextNote, ...getClientNoteEntries(client)],
+              notesList: [nextNote, ...getClientNoteEntries(client)],
+            }
+          : client,
+      ),
+    );
+
+    void insertClientNoteToCloud(selectedClient.id, nextNote);
+    addClientHistory(selectedClient.id, {
+      type: "note",
+      label: "Note ajoutée",
+    });
+    setDetailNoteDraft("");
+    setDetailNoteError("");
+  }
+
+  function handleAddDetailAction() {
+    if (!selectedClient) return;
+
+    const trimmedAction = detailActionDraft.trim();
+
+    if (!trimmedAction) {
+      setDetailActionError("L’action ne peut pas être vide.");
+      return;
+    }
+
+    const nextAction = createClientAction(trimmedAction);
+
+    setClients((currentClients) =>
+      currentClients.map((client) =>
+        client.id === selectedClient.id
+          ? {
+              ...client,
+              actions: [nextAction, ...getClientActions(client)],
+            }
+          : client,
+      ),
+    );
+
+    void insertClientActionToCloud(selectedClient.id, nextAction);
+    addClientHistory(selectedClient.id, {
+      type: "update",
+      label: `Action ajoutée : ${trimmedAction}`,
+    });
+    setDetailActionDraft("");
+    setDetailActionError("");
+  }
+
+  function handleCompleteDetailAction(actionId) {
+    if (!selectedClient) return;
+
+    const completedAction = selectedClientActions.find((action) => action.id === actionId);
+    const completedAt = new Date().toISOString();
+    const nextCompletedAction = completedAction
+      ? {
+          ...completedAction,
+          status: "done",
+          doneAt: completedAt,
+        }
+      : null;
+
+    setClients((currentClients) =>
+      currentClients.map((client) =>
+        client.id === selectedClient.id
+          ? {
+              ...client,
+              actions: getClientActions(client).map((action) =>
+                action.id === actionId
+                  ? {
+                      ...action,
+                      status: "done",
+                      doneAt: completedAt,
+                    }
+                  : action,
+              ),
+            }
+          : client,
+      ),
+    );
+
+    if (nextCompletedAction) {
+      void updateClientActionInCloud(selectedClient.id, nextCompletedAction);
+    }
+    addClientHistory(selectedClient.id, {
+      type: "update",
+      label: `Action terminée : ${completedAction?.text || "Action"}`,
+    });
+  }
+
+  function handleDeleteDetailNote(noteId, noteIndex) {
+    if (!selectedClient) return;
+
+    setClients((currentClients) =>
+      currentClients.map((client) => {
+        if (client.id !== selectedClient.id) {
+          return client;
+        }
+
+        const nextNotes = getClientNoteEntries(client).filter((note, index) => {
+          if (noteId) {
+            return note.id !== noteId;
+          }
+
+          return index !== noteIndex;
+        });
+
+        return {
+          ...client,
+          notes: nextNotes,
+          notesList: nextNotes,
+        };
+      }),
+    );
+
+    if (noteId) {
+      void deleteClientNoteFromCloud(selectedClient.id, noteId);
+    }
+    addClientHistory(selectedClient.id, {
+      type: "note",
+      label: "Note supprimée",
+    });
+  }
+
+  function handleDeleteDetailAction(actionId) {
+    if (!selectedClient) return;
+
+    setClients((currentClients) =>
+      currentClients.map((client) =>
+        client.id === selectedClient.id
+          ? {
+              ...client,
+              actions: getClientActions(client).filter((action) => action.id !== actionId),
+            }
+          : client,
+      ),
+    );
+
+    void deleteClientActionFromCloud(selectedClient.id, actionId);
+    addClientHistory(selectedClient.id, {
+      type: "update",
+      label: "Action supprimée",
+    });
   }
 
   function handleDeleteClient(client) {
@@ -1553,12 +2857,17 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
     setClients((currentClients) =>
       currentClients.filter((currentClient) => currentClient.id !== client.id),
     );
+    void deleteClientFromCloud(client);
     setClientHistory((currentHistory) =>
       currentHistory.filter((event) => event.clientId !== client.id),
     );
     setReminderClientId((currentId) => (currentId === client.id ? null : currentId));
     setNoteClientId((currentId) => (currentId === client.id ? null : currentId));
     setSelectedClientId((currentId) => (currentId === client.id ? null : currentId));
+    setDetailNoteDraft("");
+    setDetailNoteError("");
+    setDetailActionDraft("");
+    setDetailActionError("");
     setSuccessMessage(`Client supprimé : ${client.name}`);
   }
 
@@ -1606,7 +2915,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
     return (
       <div className="expertModalOverlay" role="presentation">
         <div
-          className="expertModalCard"
+          className="expertModalCard expertModalCard--clientForm"
           role="dialog"
           aria-modal="true"
           aria-labelledby="expert-add-client-title"
@@ -1624,134 +2933,150 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
             </button>
           </div>
 
-          <div className="expertModalField">
-            <label htmlFor="expert-client-name">Nom du client</label>
-            <input
-              id="expert-client-name"
-              type="text"
-              className="expertModalInput"
-              value={newClientForm.name}
-              onChange={(event) =>
-                handleNewClientChange("name", event.target.value)
-              }
-            />
-          </div>
-
-          <div className="expertModalField">
-            <label htmlFor="expert-client-activity">Type d’activité</label>
-            <select
-              id="expert-client-activity"
-              className="expertModalSelect"
-              value={newClientForm.activity}
-              onChange={(event) =>
-                handleNewClientChange("activity", event.target.value)
-              }
-            >
-              <option value="">Sélectionner une activité</option>
-              {ACTIVITY_OPTIONS.map((activity) => (
-                <option key={activity} value={activity}>
-                  {activity}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="expertModalField">
-            <label htmlFor="expert-client-periodicity">
-              Périodicité de déclaration
-            </label>
-            <select
-              id="expert-client-periodicity"
-              className="expertModalSelect"
-              value={newClientForm.periodicity}
-              onChange={(event) =>
-                handleNewClientChange("periodicity", event.target.value)
-              }
-            >
-              {PERIODICITY_OPTIONS.map((periodicity) => (
-                <option key={periodicity} value={periodicity}>
-                  {periodicity}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="expertModalField">
-            <label htmlFor="expert-client-revenue">
-              Chiffre d’affaires encaissé
-            </label>
-            <input
-              id="expert-client-revenue"
-              type="number"
-              min="0.01"
-              step="0.01"
-              inputMode="decimal"
-              className="expertModalInput"
-              value={newClientForm.revenue}
-              onChange={(event) =>
-                handleNewClientChange("revenue", event.target.value)
-              }
-            />
-          </div>
-
-          <div className="expertModalField">
-            <label htmlFor="expert-client-last-declaration">
-              Dernière déclaration
-            </label>
-            <input
-              id="expert-client-last-declaration"
-              type="date"
-              className="expertModalInput"
-              value={newClientForm.lastDeclarationDate}
-              onChange={(event) =>
-                handleNewClientChange("lastDeclarationDate", event.target.value)
-              }
-            />
-          </div>
-
-          <div className="expertModalField">
-            <label htmlFor="expert-client-tva">TVA</label>
-            <select
-              id="expert-client-tva"
-              className="expertModalSelect"
-              value={newClientForm.tva}
-              onChange={(event) =>
-                handleNewClientChange("tva", event.target.value)
-              }
-            >
-              {TVA_OPTIONS.map((tva) => (
-                <option key={tva} value={tva}>
-                  {tva}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="expertModalField">
-            <label htmlFor="expert-client-acre">ACRE</label>
-            <select
-              id="expert-client-acre"
-              className="expertModalSelect"
-              value={newClientForm.acre}
-              onChange={(event) =>
-                handleNewClientChange("acre", event.target.value)
-              }
-            >
-              {ACRE_OPTIONS.map((acre) => (
-                <option key={acre} value={acre}>
-                  {acre}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {addClientError && (
-            <div className="expertModalError" role="alert">
-              {addClientError}
+          <div className="expertModalBody">
+            <div className="expertModalField">
+              <label htmlFor="expert-client-name">Nom du client</label>
+              <input
+                id="expert-client-name"
+                type="text"
+                className="expertModalInput"
+                value={newClientForm.name}
+                onChange={(event) =>
+                  handleNewClientChange("name", event.target.value)
+                }
+              />
             </div>
-          )}
 
-          <div className="expertModalActions">
+            <div className="expertModalField">
+              <label htmlFor="expert-client-activity">Type d’activité</label>
+              <select
+                id="expert-client-activity"
+                className="expertModalSelect"
+                value={newClientForm.activity}
+                onChange={(event) =>
+                  handleNewClientChange("activity", event.target.value)
+                }
+              >
+                <option value="">Sélectionner une activité</option>
+                {ACTIVITY_OPTIONS.map((activity) => (
+                  <option key={activity} value={activity}>
+                    {activity}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="expertModalField">
+              <label htmlFor="expert-client-periodicity">
+                Périodicité de déclaration
+              </label>
+              <select
+                id="expert-client-periodicity"
+                className="expertModalSelect"
+                value={newClientForm.periodicity}
+                onChange={(event) =>
+                  handleNewClientChange("periodicity", event.target.value)
+                }
+              >
+                {PERIODICITY_OPTIONS.map((periodicity) => (
+                  <option key={periodicity} value={periodicity}>
+                    {periodicity}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="expertModalField">
+              <label htmlFor="expert-client-revenue">
+                Chiffre d’affaires encaissé
+              </label>
+              <input
+                id="expert-client-revenue"
+                type="number"
+                min="0.01"
+                step="0.01"
+                inputMode="decimal"
+                className="expertModalInput"
+                value={newClientForm.revenue}
+                onChange={(event) =>
+                  handleNewClientChange("revenue", event.target.value)
+                }
+              />
+            </div>
+
+            <div className="expertModalField">
+              <label htmlFor="expert-client-last-declaration">
+                Dernière déclaration
+              </label>
+              <input
+                id="expert-client-last-declaration"
+                type="date"
+                className="expertModalInput"
+                value={newClientForm.lastDeclarationDate}
+                onChange={(event) =>
+                  handleNewClientChange("lastDeclarationDate", event.target.value)
+                }
+              />
+            </div>
+
+            <div className="expertModalField">
+              <label htmlFor="expert-client-tva">TVA</label>
+              <select
+                id="expert-client-tva"
+                className="expertModalSelect"
+                value={newClientForm.tva}
+                onChange={(event) =>
+                  handleNewClientChange("tva", event.target.value)
+                }
+              >
+                {TVA_OPTIONS.map((tva) => (
+                  <option key={tva} value={tva}>
+                    {tva}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="expertModalField">
+              <label htmlFor="expert-client-acre">ACRE</label>
+              <select
+                id="expert-client-acre"
+                className="expertModalSelect"
+                value={newClientForm.acre}
+                onChange={(event) =>
+                  handleNewClientChange("acre", event.target.value)
+                }
+              >
+                {ACRE_OPTIONS.map((acre) => (
+                  <option key={acre} value={acre}>
+                    {acre}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="expertModalField">
+              <label htmlFor="expert-client-note">Note optionnelle</label>
+              <textarea
+                id="expert-client-note"
+                className="expertModalTextarea"
+                value={newClientForm.note}
+                onChange={(event) =>
+                  handleNewClientChange("note", event.target.value)
+                }
+                rows={4}
+                placeholder="Ex : premier échange, point de vigilance, document attendu..."
+              />
+            </div>
+
+            {addClientError && (
+              <div className="expertModalError" role="alert">
+                {addClientError}
+              </div>
+            )}
+          </div>
+
+          <div className="expertModalActions expertModalActions--sticky">
             <button
               type="button"
               className="btn btnGhost btnSmall"
@@ -1764,7 +3089,66 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
               className="btn btnPrimary btnSmall"
               onClick={handleSaveClient}
             >
-              {submitLabel}
+              {isEditingClient ? submitLabel : "Ajouter le client"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderReminderModal() {
+    if (!reminderClient) {
+      return null;
+    }
+
+    return (
+      <div className="expertModalOverlay" role="presentation">
+        <div
+          className="expertModalCard"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="expert-reminder-title"
+        >
+          <div className="expertModalHeader">
+            <div>
+              <h3 id="expert-reminder-title">Envoyer un rappel</h3>
+              <p className="expertModalSubtitle">{reminderClient.name}</p>
+            </div>
+            <button
+              type="button"
+              className="btn btnGhost btnSmall"
+              onClick={closeReminderModal}
+            >
+              Fermer
+            </button>
+          </div>
+
+          <div className="expertModalField">
+            <label htmlFor="expert-reminder-message">Message simulé</label>
+            <textarea
+              id="expert-reminder-message"
+              className="expertModalTextarea"
+              value={reminderMessage}
+              onChange={(event) => setReminderMessage(event.target.value)}
+              rows={6}
+            />
+          </div>
+
+          <div className="expertModalActions">
+            <button
+              type="button"
+              className="btn btnGhost btnSmall"
+              onClick={closeReminderModal}
+            >
+              Annuler
+            </button>
+            <button
+              type="button"
+              className="btn btnPrimary btnSmall"
+              onClick={handleSendReminderSimulation}
+            >
+              Envoyer le rappel
             </button>
           </div>
         </div>
@@ -1780,8 +3164,8 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
           micro-entrepreneurs, repérer les risques et éviter les oublis côté
           client.
           <div className="expertBannerHint">
-            Mode prototype : les données expert sont enregistrées localement
-            dans ce navigateur.
+            Version de démonstration — aucune donnée réelle utilisée. Test
+            libre, sans inscription.
           </div>
         </div>
 
@@ -1802,7 +3186,28 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
           </button>
         </div>
 
-        {clients.length === 0 ? (
+        <section className="expertDemoGuide" aria-label="Comment tester rapidement">
+          <div>
+            <h3>Comment tester rapidement</h3>
+            <p>
+              Version de démonstration — aucune donnée réelle utilisée. Test
+              libre, sans inscription.
+            </p>
+          </div>
+          <ol>
+            <li>Ouvrir une fiche client</li>
+            <li>Ajouter une note</li>
+            <li>Créer une action</li>
+            <li>Vérifier les priorités mises à jour</li>
+          </ol>
+        </section>
+
+        {isDashboardLoading && clients.length === 0 ? (
+          <>
+            <p className="expertHistoryEmpty">Chargement...</p>
+            {renderAddClientModal()}
+          </>
+        ) : clients.length === 0 ? (
           <>
             {renderEmptyState()}
             {renderAddClientModal()}
@@ -1843,9 +3248,31 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
                 ))}
               </ul>
             ) : (
-              <p className="expertOverviewEmpty">
-                Aucune priorité urgente pour le moment.
-              </p>
+              <div className="expertHealthyState">
+                <p className="expertOverviewEmpty">
+                  Aucune priorité urgente pour le moment.
+                </p>
+                <p className="expertOverviewEmpty">
+                  Les dossiers suivis ne présentent pas de signal critique actuellement.
+                </p>
+                {normalFollowUpClients.length > 0 && (
+                  <div className="expertNormalFollowUp">
+                    <h4>Suivi normal</h4>
+                    <ul className="expertPriorityBoard expertPriorityBoard--normal">
+                      {normalFollowUpClients.map((item) => (
+                        <li key={`normal-follow-up-${item.id}`}>
+                          <span className="expertBadge expertBadge--ok">OK</span>
+                          <div>
+                            <strong>{item.clientName}</strong>
+                            <p>Suivi régulier à maintenir</p>
+                            <RiskScoreIndicator client={item.client} compact />
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
             )}
           </section>
 
@@ -1876,26 +3303,30 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
               </div>
             </div>
 
+            {isDashboardLoading && (
+              <p className="expertHistoryEmpty">Chargement...</p>
+            )}
+
             <div className="expertKpis expertKpis--compact">
               <div className="expertKpiCard">
                 <span>Clients suivis</span>
-                <strong>{kpis.clientsSuivis}</strong>
+                <strong>{kpis.totalClients}</strong>
               </div>
               <div className="expertKpiCard">
-                <span>Actions cette semaine</span>
-                <strong>{kpis.actionsCetteSemaine}</strong>
+                <span>Chiffre d’affaires</span>
+                <strong>{formatCurrency(kpis.totalRevenue)}</strong>
               </div>
               <div className="expertKpiCard">
-                <span>Relances effectuées</span>
-                <strong>{cabinetStats.remindersCount}</strong>
+                <span>Actions à traiter</span>
+                <strong>{kpis.totalActionsTodo}</strong>
               </div>
               <div className="expertKpiCard">
-                <span>Notes ajoutées</span>
-                <strong>{cabinetStats.notesCount}</strong>
+                <span>Actions terminées</span>
+                <strong>{kpis.totalActionsDone}</strong>
               </div>
               <div className="expertKpiCard">
-                <span>Dossiers mis à jour</span>
-                <strong>{cabinetStats.updatesCount}</strong>
+                <span>Notes cette semaine</span>
+                <strong>{kpis.notesThisWeek}</strong>
               </div>
             </div>
           </section>
@@ -1925,6 +3356,11 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
             })}
             {renderAddClientModal()}
           </>
+        ) : alertGroups.every((group) => group.items.length === 0) ? (
+          <div className="expertAlertEmpty">
+            <p>Aucune alerte active pour le moment.</p>
+            <p>Les dossiers suivis ne présentent pas de signal critique.</p>
+          </div>
         ) : (
         <div className="expertAlertGroups">
           {alertGroups.map((group) => (
@@ -1935,36 +3371,31 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
                   <p>{group.description}</p>
                 </div>
                 <span className="expertOverviewCount">
-                  {group.clients.length}
+                  {group.items.length}
                 </span>
               </div>
 
-              {group.clients.length > 0 ? (
+              {group.items.length > 0 ? (
                 <div className="expertAlertList">
-                  {group.clients.map((client) => (
-                    <article className="expertAlertItem" key={client.id}>
+                  {group.items.map((item) => (
+                    <article className="expertAlertItem" key={item.id}>
                       <div className="expertAlertItemMain">
                         <div>
-                          <h4>{client.name}</h4>
-                          <p>
-                            {getClientNextAction(client)}
-                          </p>
-                          <RiskScoreIndicator client={client} compact />
-                          <p className="expertRecommendedAction">
-                            {getClientRisk(client).recommendedAction}
-                          </p>
+                          <h4>{item.clientName}</h4>
+                          <p>{item.priority.message}</p>
+                          <RiskScoreIndicator client={item.client} compact />
                         </div>
                         <span
-                          className={`expertBadge expertBadge--${getClientRisk(client).status}`}
+                          className={`expertBadge expertBadge--${item.priority.status}`}
                         >
-                          {getClientRisk(client).label}
+                          {item.priority.label}
                         </span>
                       </div>
 
                       <button
                         type="button"
                         className="btn btnPrimary btnSmall"
-                        onClick={() => handleOpenClientFromAlert(client)}
+                        onClick={() => handleOpenClientFromAlert(item.client)}
                       >
                         Voir fiche
                       </button>
@@ -1987,22 +3418,16 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
   if (view === "echeancier") {
     const scheduleSections = [
       {
-        key: "today",
-        title: "Aujourd’hui",
-        badge: "Urgent",
-        items: cabinetSchedule.today,
+        key: "late",
+        title: "En retard",
+        badge: "En retard",
+        items: pendingScheduleActions.filter((item) => item.isLate),
       },
       {
-        key: "thisWeek",
-        title: "Cette semaine",
-        badge: "Cette semaine",
-        items: cabinetSchedule.thisWeek,
-      },
-      {
-        key: "later",
-        title: "Plus tard",
-        badge: "Plus tard",
-        items: cabinetSchedule.later,
+        key: "todo",
+        title: "À traiter",
+        badge: "À traiter",
+        items: pendingScheduleActions.filter((item) => !item.isLate),
       },
     ];
     const hasScheduledActions = scheduleSections.some(
@@ -2016,7 +3441,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
             <p className="expertDashboard__eyebrow">Pilotage cabinet</p>
             <h2>Échéancier cabinet</h2>
             <p className="expertDashboard__subtitle">
-              Actions générées automatiquement à partir des dossiers clients
+              Actions ouvertes à traiter sur les dossiers clients
             </p>
           </div>
         </div>
@@ -2048,11 +3473,15 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
                     {section.items.map((item, index) => (
                       <article
                         className="expertScheduleItem"
-                        key={`${item.priority}-${item.clientId}-${item.action}-${index}`}
+                        key={`${section.key}-${item.clientId}-${item.id}-${index}`}
                       >
                         <div>
                           <h4>{item.clientName}</h4>
-                          <p>{item.action}</p>
+                          <p>{item.action.text}</p>
+                          <small className="expertScheduleMeta">
+                            Créée le {formatLongDateTimeFr(item.createdAt)} ·{" "}
+                            {item.isLate ? "En retard" : "À traiter"}
+                          </small>
                         </div>
                         <button
                           type="button"
@@ -2066,14 +3495,16 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
                   </div>
                 ) : (
                   <div className="expertAlertEmpty">
-                    Aucune action à planifier
+                    Aucune action à traiter dans ce groupe.
                   </div>
                 )}
               </section>
             ))}
           </div>
         ) : (
-          <div className="expertEmptyState">Aucune action à planifier</div>
+          <div className="expertEmptyState">
+            Aucune action à traiter pour le moment.
+          </div>
         )}
       </section>
     );
@@ -2099,113 +3530,36 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
             })}
             {renderAddClientModal()}
           </>
+        ) : allClientNotes.length === 0 ? (
+          <div className="expertAlertEmpty">
+            Aucune note ajoutée pour le moment.
+          </div>
         ) : (
-        <div className="expertNotesWorkspace">
-          <aside className="expertNotesClientList" aria-label="Clients">
-            {clients.map((client) => (
-              <button
-                type="button"
-                key={client.id}
-                className={`expertNotesClientButton${
-                  notesClient?.id === client.id
-                    ? " expertNotesClientButton--active"
-                    : ""
-                }`}
-                onClick={() => {
-                  setNotesClientId(client.id);
-                  setInlineNoteDraft("");
-                  setInlineNoteError("");
-                }}
-              >
-                <span className="expertNotesClientButtonTop">
-                  <strong>{client.name}</strong>
-                  <span className={`expertBadge expertBadge--${getClientRisk(client).status}`}>
-                    {getClientRisk(client).label}
-                  </span>
-                </span>
-                <small>{client.activity}</small>
-                <small>{getClientNoteEntries(client).length} note(s)</small>
-              </button>
-            ))}
-          </aside>
-
-          <section className="expertNotesPanel">
-            {notesClient ? (
-              <>
-                <div className="expertNotesPanelHeader">
+          <div className="expertAlertList">
+            {allClientNotes.map((note) => (
+              <article className="expertAlertItem" key={note.id}>
+                <div className="expertAlertItemMain">
                   <div>
-                    <p className="expertDashboard__eyebrow">Client sélectionné</p>
-                    <h3>{notesClient.name}</h3>
-                  </div>
-                  <span className={`expertBadge expertBadge--${getClientRisk(notesClient).status}`}>
-                    {getClientRisk(notesClient).label}
-                  </span>
-                </div>
-
-                <div className="expertNotesTimeline">
-                  {notesClientEntries.length > 0 ? (
-                    notesClientEntries.map((note, index) => (
-                      <article
-                        className="expertNoteEntry"
-                        key={`${notesClient.id}-inline-note-${index}`}
-                      >
-                        <time>
-                          {note.date
-                            ? new Date(note.date).toLocaleDateString("fr-FR", {
-                                day: "numeric",
-                                month: "long",
-                                year: "numeric",
-                              })
-                            : "Note existante"}
-                        </time>
-                        <p>{note.text}</p>
-                      </article>
-                    ))
-                  ) : (
-                    <div className="expertAlertEmpty">
-                      Aucune note pour ce client.
-                    </div>
-                  )}
-                </div>
-
-                <div className="expertInlineNoteForm">
-                  <label htmlFor="expert-inline-note">Nouvelle note</label>
-                  <textarea
-                    id="expert-inline-note"
-                    className="expertModalTextarea"
-                    value={inlineNoteDraft}
-                    onChange={(event) => {
-                      setInlineNoteDraft(event.target.value);
-                      if (inlineNoteError) {
-                        setInlineNoteError("");
-                      }
-                    }}
-                    rows={5}
-                    placeholder="Ex : Appelé le client, relance URSSAF prévue, attente de réponse..."
-                  />
-                  {inlineNoteError && (
-                    <div className="expertModalError" role="alert">
-                      {inlineNoteError}
-                    </div>
-                  )}
-                  <div className="expertModalActions">
-                    <button
-                      type="button"
-                      className="btn btnPrimary btnSmall"
-                      onClick={handleAddInlineNote}
-                    >
-                      Ajouter note
-                    </button>
+                    <h4>{note.clientName}</h4>
+                    <p>{note.text}</p>
+                    <p className="expertRecommendedAction">
+                      {note.createdAt
+                        ? formatLongDateTimeFr(note.createdAt)
+                        : "Note existante"}
+                    </p>
                   </div>
                 </div>
-              </>
-            ) : (
-              <div className="expertAlertEmpty">
-                Aucun client disponible pour ajouter une note.
-              </div>
-            )}
-          </section>
-        </div>
+
+                <button
+                  type="button"
+                  className="btn btnPrimary btnSmall"
+                  onClick={() => handleOpenClientFromAlert(note.client)}
+                >
+                  Voir fiche
+                </button>
+              </article>
+            ))}
+          </div>
         )}
 
         {successMessage && (
@@ -2226,28 +3580,6 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
   }
 
   if (selectedClient) {
-    const selectedClientActionPlan = getClientActionPlan(selectedClient);
-    const actionPlanSections = [
-      {
-        key: "today",
-        title: "Aujourd’hui",
-        badge: "Urgent",
-        actions: selectedClientActionPlan.today,
-      },
-      {
-        key: "thisWeek",
-        title: "Cette semaine",
-        badge: "Cette semaine",
-        actions: selectedClientActionPlan.thisWeek,
-      },
-      {
-        key: "later",
-        title: "Plus tard",
-        badge: "Plus tard",
-        actions: selectedClientActionPlan.later,
-      },
-    ].filter((section) => section.actions.length > 0);
-
     return (
       <section className="expertDashboard">
         <div className="expertBanner">
@@ -2282,6 +3614,13 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
               onClick={() => exportClientReportPdf(selectedClient)}
             >
               Exporter rapport PDF
+            </button>
+            <button
+              type="button"
+              className="btn btnGhost btnSmall"
+              onClick={() => openReminderModal(selectedClient)}
+            >
+              Envoyer rappel
             </button>
             <button
               type="button"
@@ -2348,27 +3687,68 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
               </div>
             </div>
 
+            <div className="expertPanelBlock expertFileSummary">
+              <h3>Synthèse du dossier</h3>
+              <ul>
+                {selectedClientSummary.map((item) => (
+                  <li key={item.label}>
+                    <span>{item.label}</span>
+                    <p>{item.text}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
             <div className="expertPanelBlock">
               <h3>Notes expert</h3>
+              <div className="expertDetailNoteForm">
+                <textarea
+                  className="expertModalTextarea"
+                  value={detailNoteDraft}
+                  onChange={(event) => {
+                    setDetailNoteDraft(event.target.value);
+                    if (detailNoteError) {
+                      setDetailNoteError("");
+                    }
+                  }}
+                  placeholder="Ajouter une note..."
+                  rows={3}
+                />
+                <button
+                  type="button"
+                  className="btn btnPrimary btnSmall"
+                  onClick={handleAddDetailNote}
+                >
+                  Ajouter
+                </button>
+              </div>
+              {detailNoteError && (
+                <div className="expertModalError" role="alert">
+                  {detailNoteError}
+                </div>
+              )}
               {selectedClientNotes.length > 0 ? (
                 <ul className="expertNotesList">
                   {selectedClientNotes.map((note, index) => (
-                    <li key={`${selectedClient.id}-note-${index}`}>
-                      <span className="expertNoteDate">
-                        {note.date
-                          ? new Date(note.date).toLocaleDateString("fr-FR", {
-                              day: "numeric",
-                              month: "long",
-                              year: "numeric",
-                            })
-                          : "Note existante"}
-                      </span>
-                      {note.text}
+                    <li key={note.id || `${selectedClient.id}-note-${index}`}>
+                      <div>
+                        <span className="expertNoteDate">
+                          {formatNoteDate(note.createdAt || note.date)}
+                        </span>
+                        <p className="expertNoteText">{note.text}</p>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btnGhost btnSmall expertInlineDangerButton"
+                        onClick={() => handleDeleteDetailNote(note.id, index)}
+                      >
+                        Supprimer
+                      </button>
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p>Aucune note pour ce client.</p>
+                <p className="expertHistoryEmpty">Aucune note pour ce client</p>
               )}
             </div>
 
@@ -2386,22 +3766,66 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
 
             <div className="expertPanelBlock">
               <h3>Plan d’action</h3>
+              <div className="expertDetailActionForm">
+                <input
+                  type="text"
+                  className="expertModalInput"
+                  value={detailActionDraft}
+                  onChange={(event) => {
+                    setDetailActionDraft(event.target.value);
+                    if (detailActionError) {
+                      setDetailActionError("");
+                    }
+                  }}
+                  placeholder="Ajouter une action..."
+                />
+                <button
+                  type="button"
+                  className="btn btnPrimary btnSmall"
+                  onClick={handleAddDetailAction}
+                >
+                  Ajouter
+                </button>
+              </div>
+              {detailActionError && (
+                <div className="expertModalError" role="alert">
+                  {detailActionError}
+                </div>
+              )}
               <div className="expertActionPlan">
-                {actionPlanSections.map((section) => (
-                  <section
-                    className={`expertActionPlanGroup expertActionPlanGroup--${section.key}`}
-                    key={section.key}
+                {selectedClientActions.map((action) => (
+                  <article
+                    className={`expertActionItem${
+                      action.status === "done" ? " expertActionItem--done" : ""
+                    }`}
+                    key={action.id}
                   >
-                    <div className="expertActionPlanHeader">
-                      <h4>{section.title}</h4>
-                      <span className="expertActionPlanBadge">{section.badge}</span>
+                    <div>
+                      <strong>{action.text}</strong>
+                      <span className="expertActionMeta">
+                        {action.status === "done" ? "Terminée" : "À faire"} ·{" "}
+                        {formatLongDateTimeFr(action.createdAt)}
+                      </span>
                     </div>
-                    <ul>
-                      {section.actions.map((action) => (
-                        <li key={action}>{action}</li>
-                      ))}
-                    </ul>
-                  </section>
+                    <div className="expertActionButtons">
+                      {action.status !== "done" && (
+                        <button
+                          type="button"
+                          className="btn btnGhost btnSmall"
+                          onClick={() => handleCompleteDetailAction(action.id)}
+                        >
+                          Marquer fait
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="btn btnGhost btnSmall expertInlineDangerButton"
+                        onClick={() => handleDeleteDetailAction(action.id)}
+                      >
+                        Supprimer
+                      </button>
+                    </div>
+                  </article>
                 ))}
               </div>
             </div>
@@ -2455,6 +3879,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
         )}
 
         {renderAddClientModal()}
+        {renderReminderModal()}
       </section>
     );
   }
@@ -2492,22 +3917,25 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
         renderEmptyState()
       ) : (
       <>
+      {isDashboardLoading && (
+        <p className="expertHistoryEmpty">Chargement...</p>
+      )}
       <div className="expertKpis">
         <div className="expertKpiCard">
           <span>Clients suivis</span>
-          <strong>{kpis.clientsSuivis}</strong>
+          <strong>{kpis.totalClients}</strong>
         </div>
         <div className="expertKpiCard">
-          <span>Dossiers en retard</span>
-          <strong>{kpis.enRetard}</strong>
+          <span>Chiffre d’affaires</span>
+          <strong>{formatCurrency(kpis.totalRevenue)}</strong>
         </div>
         <div className="expertKpiCard">
-          <span>Risques TVA</span>
-          <strong>{kpis.risqueTva}</strong>
+          <span>Actions terminées</span>
+          <strong>{kpis.totalActionsDone}</strong>
         </div>
         <div className="expertKpiCard">
           <span>Actions à traiter</span>
-          <strong>{kpis.actionsCetteSemaine}</strong>
+          <strong>{kpis.totalActionsTodo}</strong>
         </div>
       </div>
 
@@ -2635,58 +4063,7 @@ export default function ExpertDashboard({ view = "dashboard", onOpenClient }) {
         </div>
       )}
 
-      {reminderClient && (
-        <div className="expertModalOverlay" role="presentation">
-          <div
-            className="expertModalCard"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="expert-reminder-title"
-          >
-            <div className="expertModalHeader">
-              <div>
-                <h3 id="expert-reminder-title">Rappel client</h3>
-                <p className="expertModalSubtitle">{reminderClient.name}</p>
-              </div>
-              <button
-                type="button"
-                className="btn btnGhost btnSmall"
-                onClick={closeReminderModal}
-              >
-                Fermer
-              </button>
-            </div>
-
-            <div className="expertModalField">
-              <label htmlFor="expert-reminder-message">Message</label>
-              <textarea
-                id="expert-reminder-message"
-                className="expertModalTextarea"
-                value={reminderMessage}
-                onChange={(event) => setReminderMessage(event.target.value)}
-                rows={8}
-              />
-            </div>
-
-            <div className="expertModalActions">
-              <button
-                type="button"
-                className="btn btnGhost btnSmall"
-                onClick={closeReminderModal}
-              >
-                Fermer
-              </button>
-              <button
-                type="button"
-                className="btn btnPrimary btnSmall"
-                onClick={handleCopyReminderMessage}
-              >
-                Copier
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {renderReminderModal()}
 
       {renderAddClientModal()}
 

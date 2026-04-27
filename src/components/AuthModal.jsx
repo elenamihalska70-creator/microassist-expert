@@ -6,13 +6,54 @@ function getAuthErrorMessage(error) {
 
   const message = error.message || "";
   const normalizedMessage = message.toLowerCase();
+  const status = error.status || error.code;
+
+  if (
+    error instanceof TypeError ||
+    normalizedMessage.includes("failed to fetch") ||
+    normalizedMessage.includes("network") ||
+    normalizedMessage.includes("fetch")
+  ) {
+    return "Problème de connexion";
+  }
+
+  if (
+    status === 401 ||
+    status === 403 ||
+    normalizedMessage.includes("permission") ||
+    normalizedMessage.includes("not authorized") ||
+    normalizedMessage.includes("unauthorized") ||
+    normalizedMessage.includes("row-level security") ||
+    normalizedMessage.includes("rls")
+  ) {
+    return "Accès non autorisé";
+  }
+
+  if (
+    status === 429 ||
+    normalizedMessage.includes("rate limit") ||
+    normalizedMessage.includes("too many")
+  ) {
+    return "Trop de tentatives. Merci d’attendre quelques minutes avant de réessayer.";
+  }
 
   if (normalizedMessage.includes("invalid login credentials")) {
     return "Email ou mot de passe incorrect.";
   }
 
-  if (normalizedMessage.includes("user already registered")) {
-    return "Un compte existe déjà avec cet email.";
+  if (
+    normalizedMessage.includes("user already registered") ||
+    normalizedMessage.includes("already registered") ||
+    normalizedMessage.includes("already exists")
+  ) {
+    return "Un compte existe déjà avec cet email. Essayez de vous connecter.";
+  }
+
+  if (
+    normalizedMessage.includes("email not confirmed") ||
+    normalizedMessage.includes("not confirmed")
+  ) {
+    return "Merci de confirmer votre email avant de vous connecter. Vérifiez votre boîte mail et vos spams.";
   }
 
   if (normalizedMessage.includes("password")) {
@@ -23,7 +64,7 @@ function getAuthErrorMessage(error) {
     return "Supabase n’est pas encore configuré pour cet environnement.";
   }
 
-  return "Une erreur est survenue. Merci de réessayer.";
+  return "Une erreur est survenue";
 }
 
 export default function AuthModal({ onClose, onSuccess }) {
@@ -37,29 +78,35 @@ export default function AuthModal({ onClose, onSuccess }) {
   async function handleSubmit(event) {
     event.preventDefault();
 
+    if (isSubmitting) return;
+
     setError("");
     setMessage("");
     setIsSubmitting(true);
 
-    const result =
-      mode === "signin"
-        ? await signInExpert(email.trim(), password)
-        : await signUpExpert(email.trim(), password);
+    try {
+      const result =
+        mode === "signin"
+          ? await signInExpert(email.trim(), password)
+          : await signUpExpert(email.trim(), password);
 
-    setIsSubmitting(false);
+      if (result.error) {
+        setError(getAuthErrorMessage(result.error));
+        return;
+      }
 
-    if (result.error) {
-      setError(getAuthErrorMessage(result.error));
-      return;
+      if (mode === "signin") {
+        setMessage("Connexion réussie.");
+        onSuccess?.(result.data);
+      } else {
+        setMessage(
+          "Compte créé. Un email de confirmation vous a été envoyé. Vérifiez votre boîte mail et vos spams.",
+        );
+        setMode("signin");
+      }
+    } finally {
+      setIsSubmitting(false);
     }
-
-    if (mode === "signin") {
-      setMessage("Connexion réussie.");
-    } else {
-      setMessage("Compte créé. Vérifiez votre email si une confirmation est demandée.");
-    }
-
-    onSuccess?.(result.data);
   }
 
   function switchMode(nextMode) {
@@ -136,7 +183,11 @@ export default function AuthModal({ onClose, onSuccess }) {
             className="btn btnPrimary"
             disabled={isSubmitting}
           >
-            {mode === "signin" ? "Se connecter" : "Créer un compte"}
+            {isSubmitting
+              ? "Veuillez patienter..."
+              : mode === "signin"
+                ? "Se connecter"
+                : "Créer un compte"}
           </button>
         </form>
 

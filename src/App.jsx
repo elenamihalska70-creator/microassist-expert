@@ -1,12 +1,19 @@
 import React, { useEffect, useState } from "react";
 import "./App.css";
 import ExpertDashboard, {
+  EXPERT_CLIENTS_REPLACED_EVENT,
   EXPERT_CLIENTS_STORAGE_KEY,
   EXPERT_HISTORY_STORAGE_KEY,
+  LEGACY_EXPERT_CLIENTS_STORAGE_KEY,
   seedClients,
 } from "./components/ExpertDashboard";
 import AuthModal from "./components/AuthModal";
-import { getCurrentSession, signOutExpert } from "./lib/authService";
+import {
+  ensureExpertCabinet,
+  getCurrentSession,
+  signOutExpert,
+} from "./lib/authService";
+import { supabase } from "./lib/supabase";
 
 const CABINET_SETTINGS_STORAGE_KEY = "microassist_expert_cabinet_settings";
 
@@ -28,6 +35,101 @@ const defaultCabinetSettings = {
 
 const isDevelopment = import.meta.env.DEV;
 
+function createUuid() {
+  return typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : null;
+}
+
+function logDevError(...details) {
+  if (import.meta.env.DEV) {
+    console.error(...details);
+  }
+}
+
+function parseDemoNumber(value) {
+  if (typeof value === "number") {
+    return value;
+  }
+
+  const parsedValue = Number(
+    String(value || "")
+      .replace(/\s/g, "")
+      .replace("€", "")
+      .replace(",", "."),
+  );
+
+  return Number.isNaN(parsedValue) ? 0 : parsedValue;
+}
+
+function normalizeDemoClient(client) {
+  const revenue = parseDemoNumber(client.revenue);
+  const estimatedCharges = parseDemoNumber(
+    client.estimatedCharges ?? client.charges,
+  );
+
+  return {
+    ...client,
+    name: client.name || "Client démonstration",
+    activity: client.activity || "Activité non renseignée",
+    revenue,
+    estimatedCharges,
+    periodicity: client.periodicity || "Inconnue",
+    riskScore: Number(client.riskScore ?? 30),
+    riskLabel: client.riskLabel || "OK",
+    nextAction: client.nextAction || "Suivi régulier à maintenir",
+    notes: Array.isArray(client.notes) ? client.notes : [],
+    notesList: Array.isArray(client.notesList)
+      ? client.notesList
+      : Array.isArray(client.notes)
+        ? client.notes
+        : [],
+    actions: Array.isArray(client.actions) ? client.actions : [],
+    history: Array.isArray(client.history) ? client.history : [],
+  };
+}
+
+function mergeReturnedCloudClient(cleanClient, returnedClient) {
+  if (!returnedClient) {
+    return normalizeDemoClient(cleanClient);
+  }
+
+  return normalizeDemoClient({
+    ...cleanClient,
+    id: returnedClient.id || cleanClient.id,
+    name: returnedClient.name || cleanClient.name,
+    activity: returnedClient.activity || cleanClient.activity,
+    revenue: returnedClient.revenue ?? cleanClient.revenue,
+    estimatedCharges:
+      returnedClient.estimated_charges ?? cleanClient.estimatedCharges,
+    periodicity: returnedClient.periodicity || cleanClient.periodicity,
+    lastDeclarationDate:
+      returnedClient.last_declaration_date || cleanClient.lastDeclarationDate,
+    tva: returnedClient.tva_status || cleanClient.tva,
+    acre: returnedClient.acre_status || cleanClient.acre,
+    status: returnedClient.status || cleanClient.status,
+    nextAction: returnedClient.next_action || cleanClient.nextAction,
+    updatedAt: returnedClient.updated_at || returnedClient.created_at || cleanClient.updatedAt,
+  });
+}
+
+function replaceStoredDemoClients(cleanClients) {
+  const normalizedClients = cleanClients.map(normalizeDemoClient);
+
+  localStorage.removeItem(EXPERT_CLIENTS_STORAGE_KEY);
+  localStorage.removeItem(LEGACY_EXPERT_CLIENTS_STORAGE_KEY);
+  localStorage.setItem(
+    EXPERT_CLIENTS_STORAGE_KEY,
+    JSON.stringify(normalizedClients),
+  );
+  localStorage.setItem(EXPERT_HISTORY_STORAGE_KEY, JSON.stringify([]));
+  window.dispatchEvent(
+    new CustomEvent(EXPERT_CLIENTS_REPLACED_EVENT, {
+      detail: { clients: normalizedClients },
+    }),
+  );
+}
+
 function App() {
   const [activeSection, setActiveSection] = useState("dashboard");
   const [cabinetSettings, setCabinetSettings] = useState(() => {
@@ -42,6 +144,7 @@ function App() {
   const [devDataMessage, setDevDataMessage] = useState("");
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
+  const [currentCabinet, setCurrentCabinet] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authToast, setAuthToast] = useState("");
   const activeLabel =
@@ -57,7 +160,22 @@ function App() {
 
       if (!isMounted) return;
 
-      setCurrentUser(user ? { email: user.email } : null);
+      setCurrentUser(user ? { id: user.id, email: user.email } : null);
+
+      if (user) {
+        try {
+          const cabinet = await ensureExpertCabinet(user);
+
+          if (isMounted && cabinet) {
+            setCurrentCabinet(cabinet);
+          }
+        } catch {
+          if (isMounted) {
+            setAuthToast("Session connectée, cabinet à configurer");
+          }
+        }
+      }
+
       setAuthLoading(false);
     }
 
@@ -90,11 +208,10 @@ function App() {
 
   function loadSeedClients() {
     try {
-      localStorage.setItem(EXPERT_CLIENTS_STORAGE_KEY, JSON.stringify(seedClients));
-      localStorage.setItem(EXPERT_HISTORY_STORAGE_KEY, JSON.stringify([]));
-      setDevDataMessage("Données test chargées.");
+      replaceStoredDemoClients(seedClients);
+      setDevDataMessage("Données démo chargées.");
     } catch {
-      setDevDataMessage("Impossible de charger les données test.");
+      setDevDataMessage("Impossible de charger les données démo.");
     }
   }
 
@@ -103,6 +220,7 @@ function App() {
       localStorage.removeItem(EXPERT_CLIENTS_STORAGE_KEY);
       localStorage.removeItem(EXPERT_HISTORY_STORAGE_KEY);
       localStorage.removeItem(CABINET_SETTINGS_STORAGE_KEY);
+      replaceStoredDemoClients(seedClients);
       setCabinetSettings(defaultCabinetSettings);
       setSettingsSaved(false);
       setDevDataMessage("Données locales réinitialisées.");
@@ -111,21 +229,220 @@ function App() {
     }
   }
 
-  function handleAuthSuccess(data) {
+  function resetDemoClientData() {
+    const shouldReset = window.confirm(
+      "Réinitialiser les données locales de démonstration ?",
+    );
+
+    if (!shouldReset) {
+      return;
+    }
+
+    try {
+      replaceStoredDemoClients(seedClients);
+      setDevDataMessage("Données locales de démonstration réinitialisées.");
+    } catch {
+      setDevDataMessage("Impossible de réinitialiser les données locales.");
+    }
+  }
+
+  async function resetCloudDemoData() {
+    if (!supabase || !currentCabinet?.id) {
+      setDevDataMessage("Mode cloud indisponible.");
+      return;
+    }
+
+    const shouldReset = window.confirm(
+      "Cette action supprimera les clients, notes, actions et historiques de démonstration de ce cabinet. Continuer ?",
+    );
+
+    if (!shouldReset) {
+      return;
+    }
+
+    try {
+      const cleanClients = seedClients.map((seedClient) => {
+        const client = normalizeDemoClient(seedClient);
+        const nextClientId = createUuid();
+
+        if (!nextClientId) {
+          throw new Error("UUID unavailable");
+        }
+
+        const cleanNotes = Array.isArray(client.notes)
+          ? client.notes.map((note) => ({
+              ...note,
+              id: createUuid() || note.id,
+            }))
+          : [];
+
+        return {
+          ...client,
+          id: nextClientId,
+          notes: cleanNotes,
+          notesList: cleanNotes,
+          actions: Array.isArray(client.actions)
+            ? client.actions.map((action) => ({
+                ...action,
+                id: createUuid() || action.id,
+              }))
+            : [],
+          history: [
+            {
+              id: createUuid() || `history-${nextClientId}`,
+              type: "create",
+              label: "Client ajouté au portefeuille",
+              date: client.updatedAt || new Date().toISOString(),
+            },
+          ],
+        };
+      });
+
+      for (const tableName of [
+        "client_history",
+        "client_notes",
+        "client_actions",
+        "clients",
+      ]) {
+        const { error } = await supabase
+          .from(tableName)
+          .delete()
+          .eq("cabinet_id", currentCabinet.id);
+
+        if (error) {
+          throw error;
+        }
+      }
+
+      const clientPayload = cleanClients.map((client) => ({
+        id: client.id,
+        cabinet_id: currentCabinet.id,
+        name: client.name,
+        activity: client.activity || null,
+        revenue: parseDemoNumber(client.revenue),
+        estimated_charges: parseDemoNumber(client.estimatedCharges),
+        periodicity: client.periodicity || null,
+        last_declaration_date: client.lastDeclarationDate || null,
+        tva_status: client.tva || null,
+        acre_status: client.acre || null,
+        status: client.status || null,
+        next_action: client.nextAction || null,
+        created_at: client.updatedAt || new Date().toISOString(),
+      }));
+
+      const { data: insertedClients, error: clientsError } = await supabase
+        .from("clients")
+        .insert(clientPayload)
+        .select("*");
+
+      if (clientsError) {
+        throw clientsError;
+      }
+
+      const insertedClientRowsById = new Map(
+        (Array.isArray(insertedClients) ? insertedClients : []).map((client) => [
+          client.id,
+          client,
+        ]),
+      );
+      const persistedClients = cleanClients.map((client) => {
+        const insertedClient = insertedClientRowsById.get(client.id);
+
+        return mergeReturnedCloudClient(client, insertedClient);
+      });
+
+      const notesPayload = cleanClients.flatMap((client) =>
+        (Array.isArray(client.notes) ? client.notes : []).map((note) => ({
+          id: note.id,
+          client_id: client.id,
+          cabinet_id: currentCabinet.id,
+          content: note.text,
+          created_by: currentUser?.id || null,
+          created_at: note.createdAt || note.date || new Date().toISOString(),
+        })),
+      );
+      const actionsPayload = cleanClients.flatMap((client) =>
+        (Array.isArray(client.actions) ? client.actions : []).map((action) => ({
+          id: action.id,
+          client_id: client.id,
+          cabinet_id: currentCabinet.id,
+          text: action.text,
+          status: action.status || "todo",
+          done_at: action.doneAt || null,
+          created_by: currentUser?.id || null,
+          created_at: action.createdAt || new Date().toISOString(),
+        })),
+      );
+      const historyPayload = cleanClients.flatMap((client) =>
+        (Array.isArray(client.history) ? client.history : []).map((entry) => ({
+          id: entry.id,
+          client_id: client.id,
+          cabinet_id: currentCabinet.id,
+          type: entry.type || "update",
+          label: entry.label,
+          created_by: currentUser?.id || null,
+          created_at: entry.date || new Date().toISOString(),
+        })),
+      );
+
+      if (notesPayload.length > 0) {
+        const { error } = await supabase.from("client_notes").insert(notesPayload);
+        if (error) throw error;
+      }
+
+      if (actionsPayload.length > 0) {
+        const { error } = await supabase
+          .from("client_actions")
+          .insert(actionsPayload);
+        if (error) throw error;
+      }
+
+      if (historyPayload.length > 0) {
+        const { error } = await supabase
+          .from("client_history")
+          .insert(historyPayload);
+        if (error) throw error;
+      }
+
+      replaceStoredDemoClients(persistedClients);
+      setDevDataMessage("Données cloud de démonstration réinitialisées.");
+    } catch (error) {
+      logDevError("Cloud demo reset failed:", error);
+      setDevDataMessage("Impossible de réinitialiser les données cloud.");
+    }
+  }
+
+  async function handleAuthSuccess(data) {
     const user = data?.user || data?.session?.user || null;
 
     if (user?.email) {
-      setCurrentUser({ email: user.email });
+      setCurrentUser({ id: user.id, email: user.email });
     }
 
-    console.log("User logged in");
-    setAuthToast("Connexion réussie");
     setShowAuthModal(false);
+
+    if (user) {
+      try {
+        const cabinet = await ensureExpertCabinet(user);
+
+        if (cabinet) {
+          setCurrentCabinet(cabinet);
+        }
+
+        setAuthToast("Connexion réussie");
+      } catch {
+        setAuthToast("Session connectée, cabinet à configurer");
+      }
+      return;
+    }
+
+    setAuthToast("Connexion réussie");
   }
 
   async function handleSignOut() {
     await signOutExpert();
     setCurrentUser(null);
+    setCurrentCabinet(null);
     setAuthToast("Déconnexion réussie");
   }
 
@@ -174,6 +491,11 @@ function App() {
             </span>
             {currentUser ? (
               <>
+                {currentCabinet && (
+                  <span className="appCabinetBadge">
+                    Cabinet : {currentCabinet.name}
+                  </span>
+                )}
                 <span className="appUserBadge">
                   Connecté : {currentUser.email}
                 </span>
@@ -203,6 +525,8 @@ function App() {
             <ExpertDashboard
               view={activeSection}
               onOpenClient={() => setActiveSection("clients")}
+              currentUser={currentUser}
+              currentCabinet={currentCabinet}
             />
           ) : activeSection === "parametres" ? (
             <section className="settingsPage">
@@ -287,15 +611,60 @@ function App() {
                   <ul>
                     <li>Mode prototype</li>
                     <li>Données enregistrées localement</li>
-                    <li>Version B2B en test</li>
+                    <li>Version B2B en démonstration</li>
                   </ul>
                   <p className="settingsSafetyNote">
                     Les données sont enregistrées localement dans ce prototype.
                   </p>
                 </section>
 
+                <section className="settingsCard settingsDemoCard">
+                  <h3>Sécurité et données</h3>
+                  <ul className="settingsInfoList">
+                    <li>Version de démonstration</li>
+                    <li>Aucune donnée réelle de client ne doit être utilisée.</li>
+                    <li>Aucun téléchargement n’est nécessaire.</li>
+                    <li>L’utilisation du prototype peut se faire sans inscription.</li>
+                    <li>Les données de démonstration peuvent être supprimées à tout moment.</li>
+                  </ul>
+
+                  <div className="settingsTechInfo">
+                    <p>
+                      <strong>Mode actuel :</strong>{" "}
+                      {currentUser && currentCabinet ? "cloud" : "local"}
+                    </p>
+                    <p>
+                      <strong>Cabinet :</strong>{" "}
+                      {currentCabinet?.name || "Non configuré"}
+                    </p>
+                    <p>
+                      <strong>Utilisateur connecté :</strong>{" "}
+                      {currentUser?.email || "Non connecté"}
+                    </p>
+                  </div>
+
+                  <div className="settingsActions">
+                    <button
+                      type="button"
+                      className="btn btnGhost btnSmall settingsDangerButton"
+                      onClick={resetDemoClientData}
+                    >
+                      Réinitialiser les données locales
+                    </button>
+                    {currentUser && currentCabinet && supabase && (
+                      <button
+                        type="button"
+                        className="btn btnGhost btnSmall settingsDangerButton"
+                        onClick={resetCloudDemoData}
+                      >
+                        Réinitialiser les données cloud de démonstration
+                      </button>
+                    )}
+                  </div>
+                </section>
+
                 {isDevelopment && (
-                  <section className="settingsCard settingsTestCard">
+                  <section className="settingsCard settingsDevCard">
                     <h3>Outils de développement</h3>
                     <p>
                       Ces actions servent uniquement à tester le prototype en local.
@@ -306,7 +675,7 @@ function App() {
                         className="btn btnPrimary btnSmall"
                         onClick={loadSeedClients}
                       >
-                        Charger données test
+                        Charger données démo
                       </button>
                       <button
                         type="button"
