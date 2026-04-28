@@ -16,6 +16,7 @@ import {
 import { supabase } from "./lib/supabase";
 
 const CABINET_SETTINGS_STORAGE_KEY = "microassist_expert_cabinet_settings";
+const DEMO_CABINET_STORAGE_KEY = "microassist_expert_demo_cabinet";
 
 const sections = [
   { id: "dashboard", label: "Dashboard" },
@@ -130,6 +131,42 @@ function replaceStoredDemoClients(cleanClients) {
   );
 }
 
+async function ensureDemoCabinet() {
+  if (!supabase) {
+    return null;
+  }
+
+  try {
+    const rawCabinet = localStorage.getItem(DEMO_CABINET_STORAGE_KEY);
+
+    if (rawCabinet) {
+      return JSON.parse(rawCabinet);
+    }
+
+    const { data, error } = await supabase
+      .from("cabinets")
+      .insert({
+        name: "Cabinet Microassist Démo",
+        contact_email: "demo@microassist.fr",
+        structure_type: "Expert-comptable",
+        max_clients: 50,
+      })
+      .select("*")
+      .single();
+
+    if (error) {
+      logDevError("Demo cabinet bootstrap failed:", error);
+      return null;
+    }
+
+    localStorage.setItem(DEMO_CABINET_STORAGE_KEY, JSON.stringify(data));
+    return data;
+  } catch (error) {
+    logDevError("Demo cabinet bootstrap failed:", error);
+    return null;
+  }
+}
+
 function App() {
   const [activeSection, setActiveSection] = useState("dashboard");
   const [cabinetSettings, setCabinetSettings] = useState(() => {
@@ -168,11 +205,23 @@ function App() {
 
           if (isMounted && cabinet) {
             setCurrentCabinet(cabinet);
+          } else if (isMounted) {
+            const demoCabinet = await ensureDemoCabinet();
+
+            if (demoCabinet) {
+              setCurrentCabinet(demoCabinet);
+            }
           }
         } catch {
           if (isMounted) {
             setAuthToast("Session connectée, cabinet à configurer");
           }
+        }
+      } else {
+        const demoCabinet = await ensureDemoCabinet();
+
+        if (isMounted && demoCabinet) {
+          setCurrentCabinet(demoCabinet);
         }
       }
 
@@ -441,8 +490,9 @@ function App() {
 
   async function handleSignOut() {
     await signOutExpert();
+    const demoCabinet = await ensureDemoCabinet();
     setCurrentUser(null);
-    setCurrentCabinet(null);
+    setCurrentCabinet(demoCabinet);
     setAuthToast("Déconnexion réussie");
   }
 

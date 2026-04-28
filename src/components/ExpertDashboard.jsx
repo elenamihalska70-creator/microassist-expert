@@ -68,6 +68,23 @@ const DEFAULT_CLIENT_FORM = {
   tva: "Inconnue",
   acre: "Inconnue",
   note: "",
+  siret: "",
+  regime: "inconnu",
+  activityType: "",
+  tvaThresholdMode: "auto",
+  chargeRate: "",
+  assignedTo: "Non assigné",
+  dataSource: "manual",
+};
+
+function getTodayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+const DEFAULT_INVOICE_FORM = {
+  amount: "",
+  status: "draft",
+  issuedAt: getTodayIsoDate(),
 };
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -369,12 +386,22 @@ function getChargeRate(activity) {
   return CHARGE_RATES[normalizeActivity(activity)] || CHARGE_RATES.Autre;
 }
 
+function getClientChargeRate(client) {
+  const manualRate = Number(client?.chargeRate);
+
+  if (!Number.isNaN(manualRate) && manualRate > 0) {
+    return manualRate / 100;
+  }
+
+  return getChargeRate(client?.activity);
+}
+
 function getEstimatedCharges(client) {
   if (typeof client?.estimatedCharges === "number") {
     return client.estimatedCharges;
   }
 
-  return Math.round(parseRevenueValue(client?.revenue) * getChargeRate(client?.activity));
+  return Math.round(parseRevenueValue(client?.revenue) * getClientChargeRate(client));
 }
 
 function formatCurrency(value) {
@@ -514,8 +541,15 @@ function buildClientFromForm(formData) {
     lastDeclarationDate: getIsoDateValue(formData.lastDeclarationDate),
     tva: formData.tva || "Inconnue",
     acre: formData.acre || "Inconnue",
+    siret: formData.siret?.trim() || "",
+    regime: formData.regime || "inconnu",
+    activityType: formData.activityType || "",
+    tvaThresholdMode: formData.tvaThresholdMode || "auto",
+    chargeRate: formData.chargeRate === "" ? "" : Number(formData.chargeRate),
+    assignedTo: formData.assignedTo || "Non assigné",
+    dataSource: "manual",
   };
-  const estimatedCharges = Math.round(revenue * getChargeRate(activity));
+  const estimatedCharges = Math.round(revenue * getClientChargeRate(clientDraft));
   const status = getComputedClientStatus(clientDraft);
   const nextAction = getComputedNextAction(clientDraft, status);
   const priorities = getComputedPriorities(clientDraft, status);
@@ -1058,6 +1092,59 @@ function getClientNoteEntries(client) {
   return client.notes ? [{ date: null, text: client.notes }] : [];
 }
 
+function normalizeInvoiceEntry(invoice, index = 0) {
+  if (!invoice || typeof invoice !== "object") {
+    return null;
+  }
+
+  const amount = Number(invoice.amount ?? invoice.total ?? invoice.totalAmount ?? 0);
+  const statusValue = invoice.status || invoice.state || "non_transmis";
+  const statusLabels = {
+    draft: "Brouillon",
+    brouillon: "Brouillon",
+    pdf_generated: "PDF généré",
+    pdf: "PDF généré",
+    facturx_ready: "Factur-X prêt",
+    factur_x_ready: "Factur-X prêt",
+    sent: "Factur-X prêt",
+    not_sent: "non transmis",
+    non_transmis: "non transmis",
+  };
+  const hasTva =
+    invoice.hasTva === true ||
+    invoice.tvaIncluded === true ||
+    Number(invoice.tvaAmount || 0) > 0;
+
+  return {
+    id: invoice.id || `invoice-${index}`,
+    clientName: invoice.clientName || invoice.client_name || "",
+    date: invoice.date || invoice.invoiceDate || invoice.issuedAt || invoice.issued_at || invoice.createdAt || null,
+    issuedAt: invoice.issuedAt || invoice.issued_at || invoice.date || invoice.invoiceDate || null,
+    amount: Number.isNaN(amount) ? 0 : amount,
+    status: statusLabels[statusValue] || statusValue || "non transmis",
+    rawStatus: statusValue,
+    tvaLabel: hasTva ? "TVA incluse" : "TVA non applicable",
+    pdfUrl: invoice.pdfUrl || invoice.pdf_url || invoice.url || "",
+    downloadUrl: invoice.downloadUrl || invoice.download_url || invoice.pdfUrl || invoice.pdf_url || "",
+  };
+}
+
+function getClientInvoiceEntries(client) {
+  if (!client || !Array.isArray(client.invoices)) {
+    return [];
+  }
+
+  return client.invoices
+    .map(normalizeInvoiceEntry)
+    .filter(Boolean)
+    .sort((firstInvoice, secondInvoice) => {
+      const firstTime = firstInvoice.date ? new Date(firstInvoice.date).getTime() : 0;
+      const secondTime = secondInvoice.date ? new Date(secondInvoice.date).getTime() : 0;
+
+      return secondTime - firstTime;
+    });
+}
+
 function formatNoteDate(dateValue) {
   if (!dateValue) return "Note existante";
 
@@ -1194,6 +1281,16 @@ function getClientFormState(client) {
     tva: client?.tva || "Inconnue",
     acre: client?.acre || "Inconnue",
     note: "",
+    siret: client?.siret || "",
+    regime: client?.regime || "inconnu",
+    activityType: client?.activityType || "",
+    tvaThresholdMode: client?.tvaThresholdMode || "auto",
+    chargeRate:
+      client?.chargeRate === undefined || client?.chargeRate === null
+        ? ""
+        : String(client.chargeRate),
+    assignedTo: client?.assignedTo || "Non assigné",
+    dataSource: client?.dataSource || "manual",
   };
 }
 
@@ -1248,6 +1345,7 @@ function toCloudClientPayload(client, cabinetId) {
     acre_status: client.acre || client.acreStatus || null,
     status: risk.status,
     next_action: client.nextAction || risk.recommendedAction || null,
+    // FUTURE: persist advanced client fields after schema migration.
   };
 }
 
@@ -1262,6 +1360,13 @@ function fromCloudClientRow(row) {
     acre: row.acre_status || "Inconnue",
     status: row.status || "ok",
     nextAction: row.next_action || "",
+    siret: "",
+    regime: "inconnu",
+    activityType: "",
+    tvaThresholdMode: "auto",
+    chargeRate: "",
+    assignedTo: "Non assigné",
+    dataSource: "manual",
   };
   const riskScore = getClientRiskScore(client);
   const risk = getClientRisk(client);
@@ -1393,6 +1498,9 @@ export default function ExpertDashboard({
   const [detailNoteError, setDetailNoteError] = useState("");
   const [detailActionDraft, setDetailActionDraft] = useState("");
   const [detailActionError, setDetailActionError] = useState("");
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [invoiceForm, setInvoiceForm] = useState(DEFAULT_INVOICE_FORM);
+  const [invoiceError, setInvoiceError] = useState("");
   const [newClientForm, setNewClientForm] = useState(DEFAULT_CLIENT_FORM);
   const [isDashboardLoading, setIsDashboardLoading] = useState(false);
   const isCloudEnabled = !!currentUser && !!currentCabinet;
@@ -1427,6 +1535,10 @@ export default function ExpertDashboard({
   }, [selectedClient]);
   const selectedClientActions = useMemo(
     () => getClientActions(selectedClient),
+    [selectedClient],
+  );
+  const selectedClientInvoices = useMemo(
+    () => getClientInvoiceEntries(selectedClient),
     [selectedClient],
   );
   const selectedClientSummary = useMemo(
@@ -2064,6 +2176,161 @@ export default function ExpertDashboard({
     }
   }
 
+  function getInvoiceCloudClientId(client) {
+    if (client?.cloudClientId) {
+      return client.cloudClientId;
+    }
+
+    return UUID_PATTERN.test(String(client?.id)) ? client.id : null;
+  }
+
+  async function ensureInvoiceClientInCloud(client) {
+    if (!supabase || !currentCabinet?.id || !client) {
+      return null;
+    }
+
+    const cloudClientId = getInvoiceCloudClientId(client) || createUuid();
+
+    if (!cloudClientId) {
+      return null;
+    }
+
+    const payload = {
+      id: cloudClientId,
+      cabinet_id: currentCabinet.id,
+      name: client.name,
+      activity: client.activity || null,
+      revenue: Number(client.revenue || 0),
+      periodicity: client.periodicity || null,
+      last_declaration_date: client.lastDeclarationDate || null,
+      tva_status: client.tva || client.tvaStatus || null,
+      acre_status: client.acre || client.acreStatus || null,
+    };
+
+    const { error } = await runSupabaseRequest(
+      "Invoice client cloud upsert failed:",
+      () =>
+        supabase.from("clients").upsert(payload, {
+          onConflict: "id",
+          ignoreDuplicates: false,
+        }),
+      { notify: false },
+    );
+
+    if (error) {
+      handleCloudError("Invoice client cloud upsert failed:", error, { notify: false });
+      return null;
+    }
+
+    setClients((currentClients) =>
+      currentClients.map((currentClient) =>
+        currentClient.id === client.id
+          ? { ...currentClient, cloudClientId }
+          : currentClient,
+      ),
+    );
+
+    return cloudClientId;
+  }
+
+  async function fetchClientInvoicesFromCloud(client) {
+    const cloudClientId = getInvoiceCloudClientId(client);
+
+    if (!supabase || !currentCabinet?.id || !client?.id || !cloudClientId) {
+      return;
+    }
+
+    const { data, error } = await runSupabaseRequest(
+      "Invoice cloud fetch failed:",
+      () =>
+        supabase
+          .from("invoices")
+          .select("*")
+          .eq("cabinet_id", currentCabinet.id)
+          .eq("client_id", cloudClientId)
+          .order("issued_at", { ascending: false }),
+      { notify: false },
+    );
+
+    if (error) {
+      handleCloudError("Invoice cloud fetch failed:", error, { notify: false });
+      return;
+    }
+
+    const cloudInvoices = Array.isArray(data)
+      ? data.map(normalizeInvoiceEntry).filter(Boolean)
+      : [];
+
+    if (cloudInvoices.length === 0) {
+      return;
+    }
+
+    setClients((currentClients) =>
+      currentClients.map((currentClient) => {
+        if (currentClient.id !== client.id) {
+          return currentClient;
+        }
+
+        const invoicesById = new Map(
+          getClientInvoiceEntries(currentClient).map((invoice) => [invoice.id, invoice]),
+        );
+
+        cloudInvoices.forEach((invoice) => {
+          invoicesById.set(invoice.id, invoice);
+        });
+
+        return {
+          ...currentClient,
+          invoices: Array.from(invoicesById.values()),
+        };
+      }),
+    );
+  }
+
+  async function insertClientInvoiceToCloud(client, invoice) {
+    if (!supabase || !currentCabinet?.id || !client?.id) {
+      return { skipped: true };
+    }
+
+    console.log("Cloud mode active", currentCabinet);
+
+    const cloudClientId = await ensureInvoiceClientInCloud(client);
+
+    if (!cloudClientId) {
+      return { skipped: true };
+    }
+
+    const payload = {
+      id: invoice.id,
+      client_id: cloudClientId,
+      cabinet_id: currentCabinet.id,
+      client_name: client.name,
+      amount: invoice.amount,
+      status: invoice.rawStatus || "draft",
+      issued_at: invoice.issuedAt || invoice.date || new Date().toISOString(),
+    };
+
+    console.log("Invoice insert payload", payload);
+
+    const { data, error } = await runSupabaseRequest(
+      "Invoice cloud insert failed:",
+      () =>
+        supabase
+          .from("invoices")
+          .insert(payload)
+          .select("*"),
+      { notify: false },
+    );
+
+    console.log("Invoice insert result", { data, error });
+
+    if (error) {
+      handleCloudError("Invoice cloud insert failed:", error, { notify: false });
+    }
+
+    return { data, error, skipped: false };
+  }
+
   useEffect(() => {
     if (!isCloudEnabled || !supabase || !currentCabinet?.id) return undefined;
 
@@ -2117,6 +2384,14 @@ export default function ExpertDashboard({
   }, [isCloudEnabled, currentCabinet?.id]);
 
   useEffect(() => {
+    if (!selectedClient) {
+      return;
+    }
+
+    void fetchClientInvoicesFromCloud(selectedClient);
+  }, [selectedClient?.id, selectedClient?.cloudClientId, currentCabinet?.id]);
+
+  useEffect(() => {
     function handleClientsReplaced(event) {
       const nextClients = event.detail?.clients;
 
@@ -2141,6 +2416,9 @@ export default function ExpertDashboard({
       setDetailNoteError("");
       setDetailActionDraft("");
       setDetailActionError("");
+      setShowInvoiceModal(false);
+      setInvoiceForm(DEFAULT_INVOICE_FORM);
+      setInvoiceError("");
       setNewClientForm(DEFAULT_CLIENT_FORM);
     }
 
@@ -2544,6 +2822,7 @@ export default function ExpertDashboard({
                 ...computedClient,
                 notes: client.notes,
                 notesList: client.notesList,
+                actions: client.actions,
                 history: Array.isArray(client.history) ? client.history : [],
                 updatedAt: new Date().toISOString(),
               }
@@ -2595,6 +2874,73 @@ export default function ExpertDashboard({
     });
     closeReminderModal();
     setSuccessMessage("Rappel envoyé au client (simulation).");
+  }
+
+  function openInvoiceModal() {
+    setInvoiceForm(DEFAULT_INVOICE_FORM);
+    setInvoiceError("");
+    setShowInvoiceModal(true);
+  }
+
+  function closeInvoiceModal() {
+    setShowInvoiceModal(false);
+    setInvoiceForm(DEFAULT_INVOICE_FORM);
+    setInvoiceError("");
+  }
+
+  function handleInvoiceFormChange(field, value) {
+    setInvoiceForm((currentForm) => ({
+      ...currentForm,
+      [field]: value,
+    }));
+    setInvoiceError("");
+  }
+
+  function handleCreateInvoice() {
+    if (!selectedClient) return;
+
+    const amount = parseRevenueValue(invoiceForm.amount);
+
+    if (!amount || amount <= 0) {
+      setInvoiceError("Le montant de la facture doit être positif.");
+      return;
+    }
+
+    const issuedAt = invoiceForm.issuedAt || getTodayIsoDate();
+    const nextInvoice = normalizeInvoiceEntry({
+      id: createUuid() || `invoice-${Date.now()}`,
+      clientName: selectedClient.name,
+      amount,
+      status: invoiceForm.status || "draft",
+      issuedAt,
+      date: issuedAt,
+    });
+
+    if (!nextInvoice) return;
+
+    setClients((currentClients) =>
+      currentClients.map((client) =>
+        client.id === selectedClient.id
+          ? {
+              ...client,
+              invoices: [nextInvoice, ...getClientInvoiceEntries(client)],
+            }
+          : client,
+      ),
+    );
+
+    if (!supabase || !currentCabinet?.id) {
+      setSuccessMessage("Facture enregistrée localement. Connexion cloud non active.");
+    } else {
+      void insertClientInvoiceToCloud(selectedClient, nextInvoice);
+      setSuccessMessage(`Facture créée : ${formatCurrency(amount)}`);
+    }
+
+    addClientHistory(selectedClient.id, {
+      type: "create",
+      label: `Facture créée : ${formatCurrency(amount)}`,
+    });
+    closeInvoiceModal();
   }
 
   function handleAddNote() {
@@ -2923,6 +3269,10 @@ export default function ExpertDashboard({
           <div className="expertModalHeader">
             <div>
               <h3 id="expert-add-client-title">{modalTitle}</h3>
+              <p className="expertModalSubtitle">
+                Ajoutez un client en quelques secondes. Vous pourrez compléter
+                les informations plus tard.
+              </p>
             </div>
             <button
               type="button"
@@ -2934,6 +3284,34 @@ export default function ExpertDashboard({
           </div>
 
           <div className="expertModalBody">
+            <section className="expertDataModeBox" aria-label="Mode données">
+              <div className="expertDataModeHeader">
+                <span>Mode données</span>
+                <small>Connexion automatique (URSSAF/API) prévue dans une prochaine version.</small>
+              </div>
+              <div className="expertDataModeOptions">
+                <label className="expertDataModeOption expertDataModeOption--active">
+                  <input
+                    type="radio"
+                    name="client-data-source"
+                    value="manual"
+                    checked={newClientForm.dataSource === "manual"}
+                    onChange={() => handleNewClientChange("dataSource", "manual")}
+                  />
+                  Saisie manuelle (démo)
+                </label>
+                <label className="expertDataModeOption expertDataModeOption--disabled">
+                  <input
+                    type="radio"
+                    name="client-data-source"
+                    value="connected"
+                    disabled
+                  />
+                  Données connectées (bientôt)
+                </label>
+              </div>
+            </section>
+
             <div className="expertModalField">
               <label htmlFor="expert-client-name">Nom du client</label>
               <input
@@ -2948,7 +3326,7 @@ export default function ExpertDashboard({
             </div>
 
             <div className="expertModalField">
-              <label htmlFor="expert-client-activity">Type d’activité</label>
+              <label htmlFor="expert-client-activity">Activité</label>
               <select
                 id="expert-client-activity"
                 className="expertModalSelect"
@@ -2967,28 +3345,8 @@ export default function ExpertDashboard({
             </div>
 
             <div className="expertModalField">
-              <label htmlFor="expert-client-periodicity">
-                Périodicité de déclaration
-              </label>
-              <select
-                id="expert-client-periodicity"
-                className="expertModalSelect"
-                value={newClientForm.periodicity}
-                onChange={(event) =>
-                  handleNewClientChange("periodicity", event.target.value)
-                }
-              >
-                {PERIODICITY_OPTIONS.map((periodicity) => (
-                  <option key={periodicity} value={periodicity}>
-                    {periodicity}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="expertModalField">
               <label htmlFor="expert-client-revenue">
-                Chiffre d’affaires encaissé
+                Chiffre d’affaires estimé
               </label>
               <input
                 id="expert-client-revenue"
@@ -3004,56 +3362,180 @@ export default function ExpertDashboard({
               />
             </div>
 
-            <div className="expertModalField">
-              <label htmlFor="expert-client-last-declaration">
-                Dernière déclaration
-              </label>
-              <input
-                id="expert-client-last-declaration"
-                type="date"
-                className="expertModalInput"
-                value={newClientForm.lastDeclarationDate}
-                onChange={(event) =>
-                  handleNewClientChange("lastDeclarationDate", event.target.value)
-                }
-              />
-            </div>
+            <details className="expertAdvancedOptions">
+              <summary>+ Options avancées</summary>
+              <p>Ces champs ne sont pas nécessaires pour tester le prototype.</p>
 
-            <div className="expertModalField">
-              <label htmlFor="expert-client-tva">TVA</label>
-              <select
-                id="expert-client-tva"
-                className="expertModalSelect"
-                value={newClientForm.tva}
-                onChange={(event) =>
-                  handleNewClientChange("tva", event.target.value)
-                }
-              >
-                {TVA_OPTIONS.map((tva) => (
-                  <option key={tva} value={tva}>
-                    {tva}
-                  </option>
-                ))}
-              </select>
-            </div>
+              <div className="expertAdvancedGrid">
+                <div className="expertModalField">
+                  <label htmlFor="expert-client-siret">SIRET (optionnel)</label>
+                  <input
+                    id="expert-client-siret"
+                    type="text"
+                    className="expertModalInput"
+                    value={newClientForm.siret}
+                    onChange={(event) =>
+                      handleNewClientChange("siret", event.target.value)
+                    }
+                    placeholder="Ex : 123 456 789 00012"
+                  />
+                </div>
 
-            <div className="expertModalField">
-              <label htmlFor="expert-client-acre">ACRE</label>
-              <select
-                id="expert-client-acre"
-                className="expertModalSelect"
-                value={newClientForm.acre}
-                onChange={(event) =>
-                  handleNewClientChange("acre", event.target.value)
-                }
-              >
-                {ACRE_OPTIONS.map((acre) => (
-                  <option key={acre} value={acre}>
-                    {acre}
-                  </option>
-                ))}
-              </select>
-            </div>
+                <div className="expertModalField">
+                  <label htmlFor="expert-client-regime">Régime</label>
+                  <select
+                    id="expert-client-regime"
+                    className="expertModalSelect"
+                    value={newClientForm.regime}
+                    onChange={(event) =>
+                      handleNewClientChange("regime", event.target.value)
+                    }
+                  >
+                    <option value="micro">Micro</option>
+                    <option value="reel">Réel</option>
+                    <option value="inconnu">Inconnu</option>
+                  </select>
+                </div>
+
+                <div className="expertModalField">
+                  <label htmlFor="expert-client-activity-type">Type d’activité</label>
+                  <select
+                    id="expert-client-activity-type"
+                    className="expertModalSelect"
+                    value={newClientForm.activityType}
+                    onChange={(event) =>
+                      handleNewClientChange("activityType", event.target.value)
+                    }
+                  >
+                    <option value="">À déterminer</option>
+                    <option value="prestation_services">Prestation de services</option>
+                    <option value="vente_commerce">Vente-commerce</option>
+                    <option value="mixte">Mixte</option>
+                    <option value="profession_liberale">Profession libérale</option>
+                  </select>
+                </div>
+
+                <div className="expertModalField">
+                  <label htmlFor="expert-client-tva-threshold">Seuil TVA</label>
+                  <select
+                    id="expert-client-tva-threshold"
+                    className="expertModalSelect"
+                    value={newClientForm.tvaThresholdMode}
+                    onChange={(event) =>
+                      handleNewClientChange("tvaThresholdMode", event.target.value)
+                    }
+                  >
+                    <option value="auto">Auto</option>
+                    <option value="manual">Manuel</option>
+                  </select>
+                </div>
+
+                <div className="expertModalField">
+                  <label htmlFor="expert-client-charge-rate">
+                    Taux de charges estimé (%)
+                  </label>
+                  <input
+                    id="expert-client-charge-rate"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    inputMode="decimal"
+                    className="expertModalInput"
+                    value={newClientForm.chargeRate}
+                    onChange={(event) =>
+                      handleNewClientChange("chargeRate", event.target.value)
+                    }
+                    placeholder="Auto"
+                  />
+                </div>
+
+                <div className="expertModalField">
+                  <label htmlFor="expert-client-assigned-to">Assignation</label>
+                  <select
+                    id="expert-client-assigned-to"
+                    className="expertModalSelect"
+                    value={newClientForm.assignedTo}
+                    onChange={(event) =>
+                      handleNewClientChange("assignedTo", event.target.value)
+                    }
+                  >
+                    <option>Non assigné</option>
+                  </select>
+                </div>
+
+                <div className="expertModalField">
+                  <label htmlFor="expert-client-periodicity">
+                    Périodicité de déclaration
+                  </label>
+                  <select
+                    id="expert-client-periodicity"
+                    className="expertModalSelect"
+                    value={newClientForm.periodicity}
+                    onChange={(event) =>
+                      handleNewClientChange("periodicity", event.target.value)
+                    }
+                  >
+                    {PERIODICITY_OPTIONS.map((periodicity) => (
+                      <option key={periodicity} value={periodicity}>
+                        {periodicity}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="expertModalField">
+                  <label htmlFor="expert-client-last-declaration">
+                    Dernière déclaration
+                  </label>
+                  <input
+                    id="expert-client-last-declaration"
+                    type="date"
+                    className="expertModalInput"
+                    value={newClientForm.lastDeclarationDate}
+                    onChange={(event) =>
+                      handleNewClientChange("lastDeclarationDate", event.target.value)
+                    }
+                  />
+                </div>
+
+                <div className="expertModalField">
+                  <label htmlFor="expert-client-tva">TVA</label>
+                  <select
+                    id="expert-client-tva"
+                    className="expertModalSelect"
+                    value={newClientForm.tva}
+                    onChange={(event) =>
+                      handleNewClientChange("tva", event.target.value)
+                    }
+                  >
+                    {TVA_OPTIONS.map((tva) => (
+                      <option key={tva} value={tva}>
+                        {tva}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="expertModalField">
+                  <label htmlFor="expert-client-acre">ACRE</label>
+                  <select
+                    id="expert-client-acre"
+                    className="expertModalSelect"
+                    value={newClientForm.acre}
+                    onChange={(event) =>
+                      handleNewClientChange("acre", event.target.value)
+                    }
+                  >
+                    {ACRE_OPTIONS.map((acre) => (
+                      <option key={acre} value={acre}>
+                        {acre}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </details>
 
             <div className="expertModalField">
               <label htmlFor="expert-client-note">Note optionnelle</label>
@@ -3149,6 +3631,117 @@ export default function ExpertDashboard({
               onClick={handleSendReminderSimulation}
             >
               Envoyer le rappel
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderInvoiceModal() {
+    if (!showInvoiceModal || !selectedClient) {
+      return null;
+    }
+
+    return (
+      <div className="expertModalOverlay" role="presentation">
+        <div
+          className="expertModalCard"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="expert-invoice-title"
+        >
+          <div className="expertModalHeader">
+            <div>
+              <h3 id="expert-invoice-title">Créer une facture</h3>
+              <p className="expertModalSubtitle">{selectedClient.name}</p>
+            </div>
+            <button
+              type="button"
+              className="btn btnGhost btnSmall"
+              onClick={closeInvoiceModal}
+            >
+              Fermer
+            </button>
+          </div>
+
+          <div className="expertModalField">
+            <label htmlFor="expert-invoice-client">Client</label>
+            <input
+              id="expert-invoice-client"
+              type="text"
+              className="expertModalInput"
+              value={selectedClient.name}
+              readOnly
+            />
+          </div>
+
+          <div className="expertModalField">
+            <label htmlFor="expert-invoice-amount">Montant</label>
+            <input
+              id="expert-invoice-amount"
+              type="number"
+              min="0.01"
+              step="0.01"
+              inputMode="decimal"
+              className="expertModalInput"
+              value={invoiceForm.amount}
+              onChange={(event) =>
+                handleInvoiceFormChange("amount", event.target.value)
+              }
+            />
+          </div>
+
+          <div className="expertModalField">
+            <label htmlFor="expert-invoice-status">Statut</label>
+            <select
+              id="expert-invoice-status"
+              className="expertModalSelect"
+              value={invoiceForm.status}
+              onChange={(event) =>
+                handleInvoiceFormChange("status", event.target.value)
+              }
+            >
+              <option value="draft">Brouillon</option>
+              <option value="pdf_generated">PDF généré</option>
+              <option value="facturx_ready">Factur-X prêt</option>
+              <option value="non_transmis">non transmis</option>
+            </select>
+          </div>
+
+          <div className="expertModalField">
+            <label htmlFor="expert-invoice-issued-at">Date d’émission</label>
+            <input
+              id="expert-invoice-issued-at"
+              type="date"
+              className="expertModalInput"
+              value={invoiceForm.issuedAt}
+              onChange={(event) =>
+                handleInvoiceFormChange("issuedAt", event.target.value)
+              }
+            />
+          </div>
+
+          {invoiceError && (
+            <div className="expertModalError" role="alert">
+              {invoiceError}
+            </div>
+          )}
+
+          <div className="expertModalActions">
+            <button
+              type="button"
+              className="btn btnGhost btnSmall"
+              onClick={closeInvoiceModal}
+            >
+              Annuler
+            </button>
+            <button
+              type="button"
+              className="btn btnPrimary btnSmall"
+              onClick={handleCreateInvoice}
+            >
+              Créer la facture
             </button>
           </div>
         </div>
@@ -3700,6 +4293,78 @@ export default function ExpertDashboard({
             </div>
 
             <div className="expertPanelBlock">
+              <div className="expertPanelHeader">
+                <div>
+                  <h3>Factures</h3>
+                  {selectedClientInvoices.length > 0 && (
+                    <span>{selectedClientInvoices.length} facture(s)</span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="btn btnPrimary btnSmall"
+                  onClick={openInvoiceModal}
+                >
+                  Créer une facture
+                </button>
+              </div>
+              <p className="expertInvoiceNote">
+                Préparation Factur-X — transmission PDP prévue dans une prochaine version.
+              </p>
+              {selectedClientInvoices.length > 0 ? (
+                <>
+                  {selectedClientInvoices.reduce(
+                    (total, invoice) => total + invoice.amount,
+                    0,
+                  ) > 12000 && (
+                    <p className="expertInvoiceInsight">
+                      Attention : seuil TVA à surveiller
+                    </p>
+                  )}
+                  <div className="expertInvoiceList">
+                    {selectedClientInvoices.map((invoice) => (
+                      <article className="expertInvoiceItem" key={invoice.id}>
+                        <div>
+                          <strong>{formatCurrency(invoice.amount)}</strong>
+                          <span>
+                            {invoice.date
+                              ? formatLongDateTimeFr(invoice.date)
+                              : "Date inconnue"}
+                          </span>
+                          <small>{invoice.clientName || selectedClient.name}</small>
+                        </div>
+                        <div className="expertInvoiceMeta">
+                          <span className="expertBadge expertBadge--ok">
+                            {invoice.status}
+                          </span>
+                          <small>{invoice.tvaLabel}</small>
+                        </div>
+                        <div className="expertInvoiceActions">
+                          <button
+                            type="button"
+                            className="btn btnGhost btnSmall"
+                            disabled
+                          >
+                            Voir PDF · bientôt
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btnGhost btnSmall"
+                            disabled
+                          >
+                            Télécharger · bientôt
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="expertHistoryEmpty">Aucune facture pour ce client</p>
+              )}
+            </div>
+
+            <div className="expertPanelBlock">
               <h3>Notes expert</h3>
               <div className="expertDetailNoteForm">
                 <textarea
@@ -3880,6 +4545,7 @@ export default function ExpertDashboard({
 
         {renderAddClientModal()}
         {renderReminderModal()}
+        {renderInvoiceModal()}
       </section>
     );
   }

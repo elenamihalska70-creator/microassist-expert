@@ -722,6 +722,92 @@
   text-decoration: underline;
 }
 
+.expertDataModeBox,
+.expertAdvancedOptions {
+  margin-bottom: 16px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.expertDataModeHeader {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.expertDataModeHeader span {
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.expertDataModeHeader small,
+.expertAdvancedOptions p {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.expertDataModeOptions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.expertDataModeOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid #dbe4ee;
+  background: #ffffff;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.expertDataModeOption--active {
+  border-color: #7dd3fc;
+  background: #f0f9ff;
+  color: #075985;
+}
+
+.expertDataModeOption--disabled {
+  color: #94a3b8;
+  background: #f1f5f9;
+}
+
+.expertAdvancedOptions {
+  background: #ffffff;
+}
+
+.expertAdvancedOptions summary {
+  cursor: pointer;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.expertAdvancedOptions > p {
+  margin-top: 8px;
+}
+
+.expertAdvancedGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.expertAdvancedGrid .expertModalField {
+  margin-bottom: 0;
+}
+
 .expertModalSelect,
 .expertModalInput,
 .expertModalTextarea {
@@ -1059,6 +1145,24 @@
   color: #0f172a;
 }
 
+.expertPanelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.expertPanelHeader h3 {
+  margin: 0;
+}
+
+.expertPanelHeader span {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .expertPanelBlock p {
   margin: 0;
   color: #334155;
@@ -1094,6 +1198,80 @@
 .expertFileSummary p {
   font-size: 14px;
   line-height: 1.45;
+}
+
+.expertInvoiceInsight {
+  margin-bottom: 10px !important;
+  color: #92400e !important;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.expertInvoiceNote {
+  margin-bottom: 10px !important;
+  color: #64748b !important;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.expertInvoiceList {
+  display: grid;
+  gap: 10px;
+}
+
+.expertInvoiceItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+}
+
+.expertInvoiceItem strong {
+  display: block;
+  color: #0f172a;
+  font-size: 15px;
+}
+
+.expertInvoiceItem span {
+  display: block;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.expertInvoiceItem > div > small {
+  display: block;
+  margin-top: 4px;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.expertInvoiceMeta,
+.expertInvoiceActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.expertInvoiceMeta {
+  justify-content: flex-end;
+}
+
+.expertInvoiceMeta small {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.expertDisabledLink {
+  opacity: 0.55;
+  pointer-events: none;
 }
 
 .expertPriorityList {
@@ -1444,8 +1622,18 @@
 
   .expertAlertItem,
   .expertAlertItemMain,
-  .expertScheduleItem {
+  .expertScheduleItem,
+  .expertInvoiceItem {
     display: grid;
+  }
+
+  .expertInvoiceItem {
+    grid-template-columns: 1fr;
+  }
+
+  .expertInvoiceMeta,
+  .expertInvoiceActions {
+    justify-content: flex-start;
   }
 
   .expertPriorityBoard li {
@@ -1453,6 +1641,11 @@
   }
 
   .expertDemoGuide ol {
+    grid-template-columns: 1fr;
+  }
+
+  .expertDataModeOptions,
+  .expertAdvancedGrid {
     grid-template-columns: 1fr;
   }
 }
