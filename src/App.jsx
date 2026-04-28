@@ -131,17 +131,39 @@ function replaceStoredDemoClients(cleanClients) {
   );
 }
 
-async function ensureDemoCabinet() {
-  if (!supabase) {
-    return null;
+function getOrCreateLocalDemoCabinet() {
+  console.log("Demo cabinet bootstrap start");
+
+  const rawCabinet = localStorage.getItem(DEMO_CABINET_STORAGE_KEY);
+
+  if (rawCabinet) {
+    const storedCabinet = JSON.parse(rawCabinet);
+    console.log("Demo cabinet bootstrap result", storedCabinet);
+    return storedCabinet;
   }
 
+  const localDemoCabinet = {
+    id: createUuid(),
+    name: "Cabinet Microassist Démo",
+    contact_email: "demo@microassist.fr",
+    structure_type: "Expert-comptable",
+    max_clients: 50,
+  };
+
+  localStorage.setItem(DEMO_CABINET_STORAGE_KEY, JSON.stringify(localDemoCabinet));
+  console.log("Demo cabinet bootstrap result", localDemoCabinet);
+  return localDemoCabinet;
+}
+
+async function ensureDemoCabinet() {
   try {
     const rawCabinet = localStorage.getItem(DEMO_CABINET_STORAGE_KEY);
 
     if (rawCabinet) {
       return JSON.parse(rawCabinet);
     }
+
+    const fallbackCabinet = getOrCreateLocalDemoCabinet();
 
     const { data, error } = await supabase
       .from("cabinets")
@@ -156,14 +178,15 @@ async function ensureDemoCabinet() {
 
     if (error) {
       logDevError("Demo cabinet bootstrap failed:", error);
-      return null;
+      return fallbackCabinet;
     }
 
-    localStorage.setItem(DEMO_CABINET_STORAGE_KEY, JSON.stringify(data));
-    return data;
+    const cabinet = data || fallbackCabinet;
+    localStorage.setItem(DEMO_CABINET_STORAGE_KEY, JSON.stringify(cabinet));
+    return cabinet;
   } catch (error) {
     logDevError("Demo cabinet bootstrap failed:", error);
-    return null;
+    return getOrCreateLocalDemoCabinet();
   }
 }
 
@@ -189,6 +212,12 @@ function App() {
     "Dashboard";
 
   useEffect(() => {
+    const localDemoCabinet = getOrCreateLocalDemoCabinet();
+    setCurrentCabinet(localDemoCabinet);
+    console.log("Current cabinet set", localDemoCabinet);
+  }, []);
+
+  useEffect(() => {
     let isMounted = true;
 
     async function loadSession() {
@@ -205,11 +234,13 @@ function App() {
 
           if (isMounted && cabinet) {
             setCurrentCabinet(cabinet);
+            console.log("Current cabinet set", cabinet);
           } else if (isMounted) {
             const demoCabinet = await ensureDemoCabinet();
 
             if (demoCabinet) {
               setCurrentCabinet(demoCabinet);
+              console.log("Current cabinet set", demoCabinet);
             }
           }
         } catch {
@@ -222,6 +253,7 @@ function App() {
 
         if (isMounted && demoCabinet) {
           setCurrentCabinet(demoCabinet);
+          console.log("Current cabinet set", demoCabinet);
         }
       }
 
@@ -474,9 +506,10 @@ function App() {
       try {
         const cabinet = await ensureExpertCabinet(user);
 
-        if (cabinet) {
-          setCurrentCabinet(cabinet);
-        }
+    if (cabinet) {
+      setCurrentCabinet(cabinet);
+      console.log("Current cabinet set", cabinet);
+    }
 
         setAuthToast("Connexion réussie");
       } catch {
@@ -493,6 +526,7 @@ function App() {
     const demoCabinet = await ensureDemoCabinet();
     setCurrentUser(null);
     setCurrentCabinet(demoCabinet);
+    console.log("Current cabinet set", demoCabinet);
     setAuthToast("Déconnexion réussie");
   }
 
@@ -681,7 +715,7 @@ function App() {
                   <div className="settingsTechInfo">
                     <p>
                       <strong>Mode actuel :</strong>{" "}
-                      {currentUser && currentCabinet ? "cloud" : "local"}
+                      {currentCabinet?.id ? "cloud" : "local"}
                     </p>
                     <p>
                       <strong>Cabinet :</strong>{" "}
