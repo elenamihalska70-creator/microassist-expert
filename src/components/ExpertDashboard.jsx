@@ -2288,7 +2288,18 @@ export default function ExpertDashboard({
   }
 
   async function insertClientInvoiceToCloud(client, invoice) {
-    if (!supabase || !currentCabinet?.id || !client?.id) {
+    if (!currentCabinet?.id || !client?.id) {
+      return { skipped: true };
+    }
+
+    if (!supabase) {
+      return {
+        skipped: false,
+        error: new Error("Supabase non configuré"),
+      };
+    }
+
+    if (!client?.id) {
       return { skipped: true };
     }
 
@@ -2896,8 +2907,11 @@ export default function ExpertDashboard({
     setInvoiceError("");
   }
 
-  function handleCreateInvoice() {
+  async function handleCreateInvoice() {
     if (!selectedClient) return;
+
+    console.log("Invoice submit currentCabinet", currentCabinet);
+    console.log("Invoice submit cloud enabled", Boolean(currentCabinet?.id));
 
     const amount = parseRevenueValue(invoiceForm.amount);
 
@@ -2929,11 +2943,20 @@ export default function ExpertDashboard({
       ),
     );
 
-    if (!supabase || !currentCabinet?.id) {
+    if (!currentCabinet?.id) {
       setSuccessMessage("Facture enregistrée localement. Connexion cloud non active.");
     } else {
-      void insertClientInvoiceToCloud(selectedClient, nextInvoice);
-      setSuccessMessage(`Facture créée : ${formatCurrency(amount)}`);
+      const insertResult = await insertClientInvoiceToCloud(selectedClient, nextInvoice);
+
+      if (insertResult?.error) {
+        setSuccessMessage(
+          `Facture enregistrée localement. Erreur cloud : ${insertResult.error.message || "erreur inconnue"}`,
+        );
+      } else if (insertResult?.skipped) {
+        setSuccessMessage("Facture enregistrée localement. Erreur cloud : insertion non exécutée");
+      } else {
+        setSuccessMessage(`Facture créée : ${formatCurrency(amount)}`);
+      }
     }
 
     addClientHistory(selectedClient.id, {
