@@ -87,6 +87,17 @@ const DEFAULT_INVOICE_FORM = {
   issuedAt: getTodayIsoDate(),
 };
 
+const CSV_TEMPLATE_COLUMNS = [
+  "name",
+  "activity",
+  "revenue",
+  "periodicity",
+  "tva_status",
+  "acre_status",
+  "next_action",
+  "risk_score",
+];
+
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -751,6 +762,108 @@ function getClientFileSummary(client) {
       text: nextAction,
     },
   ];
+}
+
+function normalizeClientName(name) {
+  return String(name || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function parseCsvLine(line, separator) {
+  const values = [];
+  let currentValue = "";
+  let isQuoted = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    const nextCharacter = line[index + 1];
+
+    if (character === '"' && nextCharacter === '"') {
+      currentValue += '"';
+      index += 1;
+    } else if (character === '"') {
+      isQuoted = !isQuoted;
+    } else if (character === separator && !isQuoted) {
+      values.push(currentValue.trim());
+      currentValue = "";
+    } else {
+      currentValue += character;
+    }
+  }
+
+  values.push(currentValue.trim());
+  return values;
+}
+
+function parseClientsCsv(csvText) {
+  const lines = String(csvText || "")
+    .replace(/^\uFEFF/, "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) {
+    return {
+      validRows: [],
+      invalidRows: [{ rowNumber: 1, reason: "Fichier vide." }],
+      missingColumns: CSV_TEMPLATE_COLUMNS.slice(0, 3),
+    };
+  }
+
+  const headerLine = lines[0];
+  const separator =
+    (headerLine.match(/;/g) || []).length > (headerLine.match(/,/g) || []).length
+      ? ";"
+      : ",";
+  const headers = parseCsvLine(headerLine, separator).map((header) =>
+    header.trim().toLowerCase(),
+  );
+  const missingColumns = ["name", "activity", "revenue"].filter(
+    (column) => !headers.includes(column),
+  );
+
+  if (missingColumns.length > 0) {
+    return { validRows: [], invalidRows: [], missingColumns };
+  }
+
+  const validRows = [];
+  const invalidRows = [];
+
+  lines.slice(1).forEach((line, index) => {
+    const rowNumber = index + 2;
+    const values = parseCsvLine(line, separator);
+    const row = headers.reduce((entry, header, valueIndex) => {
+      entry[header] = values[valueIndex]?.trim() || "";
+      return entry;
+    }, {});
+    const revenue = parseRevenueValue(row.revenue);
+
+    if (!row.name || !row.activity || !revenue || revenue <= 0) {
+      invalidRows.push({
+        rowNumber,
+        reason: "name, activity et revenue sont requis.",
+      });
+      return;
+    }
+
+    validRows.push({
+      rowNumber,
+      name: row.name,
+      activity: row.activity,
+      revenue,
+      periodicity: row.periodicity || "Inconnue",
+      tva: row.tva_status || "Inconnue",
+      acre: row.acre_status || "Inconnue",
+      nextAction: row.next_action || "Aucune action urgente",
+      riskScore: row.risk_score ? Number(row.risk_score) : null,
+    });
+  });
+
+  return { validRows, invalidRows, missingColumns: [] };
 }
 
 function createClientHistoryEntry(entry) {
@@ -1501,6 +1614,9 @@ export default function ExpertDashboard({
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [invoiceForm, setInvoiceForm] = useState(DEFAULT_INVOICE_FORM);
   const [invoiceError, setInvoiceError] = useState("");
+  const [showCsvImportModal, setShowCsvImportModal] = useState(false);
+  const [csvImportError, setCsvImportError] = useState("");
+  const [csvImportPreview, setCsvImportPreview] = useState(null);
   const [newClientForm, setNewClientForm] = useState(DEFAULT_CLIENT_FORM);
   const [isDashboardLoading, setIsDashboardLoading] = useState(false);
   const isCloudEnabled = !!currentUser && !!currentCabinet;
@@ -2430,6 +2546,9 @@ export default function ExpertDashboard({
       setShowInvoiceModal(false);
       setInvoiceForm(DEFAULT_INVOICE_FORM);
       setInvoiceError("");
+      setShowCsvImportModal(false);
+      setCsvImportError("");
+      setCsvImportPreview(null);
       setNewClientForm(DEFAULT_CLIENT_FORM);
     }
 
@@ -2785,6 +2904,156 @@ export default function ExpertDashboard({
     setEditingClientId(null);
     setAddClientError("");
     setShowAddClientModal(false);
+  }
+
+  function openCsvImportModal() {
+    setCsvImportError("");
+    setCsvImportPreview(null);
+    setShowCsvImportModal(true);
+  }
+
+  function closeCsvImportModal() {
+    setCsvImportError("");
+    setCsvImportPreview(null);
+    setShowCsvImportModal(false);
+  }
+
+  function downloadCsvTemplate() {
+    const templateRows = [
+      CSV_TEMPLATE_COLUMNS.join(","),
+      "Sophie Martin,Prestations de services,4850,Mensuelle,Non applicable,Non,Aucune action urgente,30",
+    ];
+    const blob = new Blob([templateRows.join("\n")], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "modele-import-clients-microassist.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleCsvFileChange(event) {
+    const file = event.target.files?.[0];
+
+    setCsvImportError("");
+    setCsvImportPreview(null);
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      const parsedCsv = parseClientsCsv(text);
+
+      if (parsedCsv.missingColumns.length > 0) {
+        setCsvImportError(
+          `Colonnes manquantes : ${parsedCsv.missingColumns.join(", ")}.`,
+        );
+        return;
+      }
+
+      setCsvImportPreview(parsedCsv);
+    } catch {
+      setCsvImportError("Impossible de lire le fichier CSV.");
+    }
+  }
+
+  async function handleConfirmCsvImport() {
+    if (!csvImportPreview) return;
+
+    const existingNames = new Set(clients.map((client) => normalizeClientName(client.name)));
+    let skippedDuplicates = 0;
+    const importedClients = csvImportPreview.validRows
+      .filter((row) => {
+        const normalizedName = normalizeClientName(row.name);
+
+        if (existingNames.has(normalizedName)) {
+          skippedDuplicates += 1;
+          return false;
+        }
+
+        existingNames.add(normalizedName);
+        return true;
+      })
+      .map((row) => {
+        const clientDraft = buildClientFromForm({
+          ...DEFAULT_CLIENT_FORM,
+          name: row.name,
+          activity: row.activity,
+          revenue: row.revenue,
+          periodicity: row.periodicity,
+          tva: row.tva,
+          acre: row.acre,
+        });
+        const providedRiskScore = Number(row.riskScore);
+        const riskScore =
+          !Number.isNaN(providedRiskScore) && providedRiskScore > 0
+            ? Math.min(100, Math.max(0, providedRiskScore))
+            : clientDraft.riskScore;
+
+        return {
+          id: createUuid() || `client-${Date.now()}-${row.rowNumber}`,
+          ...clientDraft,
+          riskScore,
+          riskLabel:
+            riskScore >= 80 ? "Risque TVA" : riskScore >= 55 ? "Alerte" : "OK",
+          nextAction: row.nextAction || clientDraft.nextAction || "Aucune action urgente",
+          history: [
+            createClientHistoryEntry({
+              type: "create",
+              label: "Client importé depuis CSV",
+            }),
+          ],
+          updatedAt: new Date().toISOString(),
+        };
+      });
+
+    if (importedClients.length === 0) {
+      setCsvImportError("Aucun nouveau client à importer.");
+      return;
+    }
+
+    setClients((currentClients) => [...importedClients, ...currentClients]);
+
+    let cloudError = null;
+
+    if (supabase && currentCabinet?.id) {
+      const payload = importedClients
+        .map((client) => toCloudClientPayload(client, currentCabinet.id))
+        .filter(Boolean);
+
+      if (payload.length > 0) {
+        const { error } = await runSupabaseRequest(
+          "CSV client cloud insert failed:",
+          () =>
+            supabase.from("clients").upsert(payload, {
+              onConflict: "id",
+              ignoreDuplicates: false,
+            }),
+          { notify: false },
+        );
+
+        cloudError = error;
+      }
+    }
+
+    const duplicateMessage =
+      skippedDuplicates > 0
+        ? ` ${skippedDuplicates} client(s) ignoré(s) car déjà existant(s).`
+        : "";
+
+    if (cloudError) {
+      setSuccessMessage(
+        `Clients importés localement. Erreur cloud : ${cloudError.message}.${duplicateMessage}`,
+      );
+    } else {
+      setSuccessMessage(`Clients importés avec succès.${duplicateMessage}`);
+    }
+
+    closeCsvImportModal();
   }
 
   function handleNewClientChange(field, value) {
@@ -3772,6 +4041,97 @@ export default function ExpertDashboard({
     );
   }
 
+  function renderCsvImportModal() {
+    if (!showCsvImportModal) {
+      return null;
+    }
+
+    return (
+      <div className="expertModalOverlay" role="presentation">
+        <div
+          className="expertModalCard expertModalCard--clientForm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="expert-csv-import-title"
+        >
+          <div className="expertModalHeader">
+            <div>
+              <h3 id="expert-csv-import-title">Importer des clients</h3>
+              <p className="expertModalSubtitle">
+                Les colonnes minimales sont : name, activity, revenue.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn btnGhost btnSmall"
+              onClick={closeCsvImportModal}
+            >
+              Fermer
+            </button>
+          </div>
+
+          <div className="expertModalBody">
+            <div className="expertModalField">
+              <label htmlFor="expert-csv-file">Fichier CSV</label>
+              <input
+                id="expert-csv-file"
+                type="file"
+                accept=".csv,text/csv"
+                className="expertModalInput"
+                onChange={handleCsvFileChange}
+              />
+            </div>
+
+            {csvImportError && (
+              <div className="expertModalError" role="alert">
+                {csvImportError}
+              </div>
+            )}
+
+            {csvImportPreview && (
+              <div className="expertCsvPreview">
+                <h4>{csvImportPreview.validRows.length} client(s) détecté(s)</h4>
+                {csvImportPreview.invalidRows.length > 0 && (
+                  <p className="expertCsvWarning">
+                    {csvImportPreview.invalidRows.length} ligne(s) invalide(s)
+                    ignorée(s).
+                  </p>
+                )}
+                <div className="expertCsvPreviewList">
+                  {csvImportPreview.validRows.slice(0, 5).map((row) => (
+                    <div key={`${row.rowNumber}-${row.name}`}>
+                      <strong>{row.name}</strong>
+                      <span>{row.activity}</span>
+                      <span>{formatCurrency(row.revenue)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="expertModalActions expertModalActions--sticky">
+            <button
+              type="button"
+              className="btn btnGhost btnSmall"
+              onClick={closeCsvImportModal}
+            >
+              Annuler
+            </button>
+            <button
+              type="button"
+              className="btn btnPrimary btnSmall"
+              onClick={handleConfirmCsvImport}
+              disabled={!csvImportPreview || csvImportPreview.validRows.length === 0}
+            >
+              Importer les clients
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (view === "dashboard") {
     return (
       <section className="expertDashboard">
@@ -4592,14 +4952,33 @@ export default function ExpertDashboard({
           <p className="expertDashboard__subtitle">
             Suivi des dossiers micro-entrepreneurs
           </p>
+          <p className="expertDashboard__subtitle expertImportHelper">
+            Vous pouvez importer un fichier CSV exporté depuis Excel, Google Sheets ou un outil métier.
+          </p>
         </div>
-        <button
-          type="button"
-          className="btn btnPrimary btnSmall"
-          onClick={openAddClientModal}
-        >
-          + Ajouter client
-        </button>
+        <div className="expertHeaderActions">
+          <button
+            type="button"
+            className="btn btnGhost btnSmall"
+            onClick={downloadCsvTemplate}
+          >
+            Télécharger un modèle CSV
+          </button>
+          <button
+            type="button"
+            className="btn btnGhost btnSmall"
+            onClick={openCsvImportModal}
+          >
+            Importer CSV
+          </button>
+          <button
+            type="button"
+            className="btn btnPrimary btnSmall"
+            onClick={openAddClientModal}
+          >
+            + Ajouter client
+          </button>
+        </div>
       </div>
 
       {clients.length === 0 ? (
@@ -4755,6 +5134,7 @@ export default function ExpertDashboard({
       {renderReminderModal()}
 
       {renderAddClientModal()}
+      {renderCsvImportModal()}
 
       {noteClient && (
         <div className="expertModalOverlay" role="presentation">

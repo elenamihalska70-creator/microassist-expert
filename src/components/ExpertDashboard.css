@@ -48,6 +48,19 @@
   color: #475569;
 }
 
+.expertImportHelper {
+  max-width: 640px;
+  font-size: 13px;
+}
+
+.expertHeaderActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .expertDemoGuide {
   display: grid;
   grid-template-columns: minmax(0, 0.9fr) minmax(260px, 1.1fr);
@@ -806,6 +819,60 @@
 
 .expertAdvancedGrid .expertModalField {
   margin-bottom: 0;
+}
+
+.expertCsvPreview {
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.expertCsvPreview h4 {
+  margin: 0 0 8px;
+  color: #0f172a;
+  font-size: 15px;
+}
+
+.expertCsvWarning {
+  margin: 0 0 10px !important;
+  color: #92400e !important;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.expertCsvPreviewList {
+  display: grid;
+  gap: 8px;
+}
+
+.expertCsvPreviewList div {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+}
+
+.expertCsvPreviewList strong,
+.expertCsvPreviewList span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.expertCsvPreviewList strong {
+  color: #0f172a;
+}
+
+.expertCsvPreviewList span {
+  color: #64748b;
+  font-weight: 700;
 }
 
 .expertModalSelect,
@@ -1645,7 +1712,8 @@
   }
 
   .expertDataModeOptions,
-  .expertAdvancedGrid {
+  .expertAdvancedGrid,
+  .expertCsvPreviewList div {
     grid-template-columns: 1fr;
   }
 }
