@@ -19,6 +19,8 @@ let pdfFontCache = null;
 
 const FILTERS = [
   { key: "all", label: "Tous" },
+  { key: "priority", label: "Prioritaire" },
+  { key: "watch", label: "À surveiller" },
   { key: "late", label: "En retard" },
   { key: "tva", label: "Risque TVA" },
   { key: "warning", label: "Alertes" },
@@ -38,6 +40,12 @@ const ACTIVITY_OPTIONS = [
 const PERIODICITY_OPTIONS = ["Mensuelle", "Trimestrielle", "Inconnue"];
 const TVA_OPTIONS = ["Non applicable", "Applicable", "Inconnue"];
 const ACRE_OPTIONS = ["Oui", "Non", "Inconnue"];
+const CLIENT_TYPE_OPTIONS = [
+  "Standard",
+  "À surveiller",
+  "Prioritaire",
+  "Nouveau client",
+];
 
 const CHARGE_RATES = {
   "Vente / commerce": 0.123,
@@ -67,6 +75,8 @@ const DEFAULT_CLIENT_FORM = {
   lastDeclarationDate: "",
   tva: "Inconnue",
   acre: "Inconnue",
+  region: "Non renseignée",
+  clientType: "Standard",
   note: "",
   siret: "",
   regime: "inconnu",
@@ -91,6 +101,8 @@ const CSV_TEMPLATE_COLUMNS = [
   "name",
   "activity",
   "revenue",
+  "region",
+  "client_type",
   "periodicity",
   "tva_status",
   "acre_status",
@@ -552,6 +564,9 @@ function buildClientFromForm(formData) {
     lastDeclarationDate: getIsoDateValue(formData.lastDeclarationDate),
     tva: formData.tva || "Inconnue",
     acre: formData.acre || "Inconnue",
+    region: formData.region?.trim() || "Non renseignée",
+    clientType: formData.clientType || formData.client_type || "Standard",
+    client_type: formData.clientType || formData.client_type || "Standard",
     siret: formData.siret?.trim() || "",
     regime: formData.regime || "inconnu",
     activityType: formData.activityType || "",
@@ -773,6 +788,14 @@ function normalizeClientName(name) {
     .replace(/\s+/g, " ");
 }
 
+function getClientRegion(client) {
+  return client?.region || "Non renseignée";
+}
+
+function getClientType(client) {
+  return client?.clientType || client?.client_type || "Standard";
+}
+
 function parseCsvLine(line, separator) {
   const values = [];
   let currentValue = "";
@@ -855,6 +878,9 @@ function parseClientsCsv(csvText) {
       name: row.name,
       activity: row.activity,
       revenue,
+      region: row.region || "Non renseignée",
+      clientType: row.client_type || "Standard",
+      client_type: row.client_type || "Standard",
       periodicity: row.periodicity || "Inconnue",
       tva: row.tva_status || "Inconnue",
       acre: row.acre_status || "Inconnue",
@@ -1393,6 +1419,8 @@ function getClientFormState(client) {
     lastDeclarationDate: getIsoDateValue(client?.lastDeclarationDate),
     tva: client?.tva || "Inconnue",
     acre: client?.acre || "Inconnue",
+    region: getClientRegion(client),
+    clientType: getClientType(client),
     note: "",
     siret: client?.siret || "",
     regime: client?.regime || "inconnu",
@@ -1471,6 +1499,9 @@ function fromCloudClientRow(row) {
     lastDeclarationDate: row.last_declaration_date || "",
     tva: row.tva_status || "Inconnue",
     acre: row.acre_status || "Inconnue",
+    region: "Non renseignée",
+    clientType: "Standard",
+    client_type: "Standard",
     status: row.status || "ok",
     nextAction: row.next_action || "",
     siret: "",
@@ -1850,9 +1881,14 @@ export default function ExpertDashboard({
     const normalizedQuery = searchQuery.trim().toLowerCase();
 
     return clients.filter((client) => {
+      const clientType = getClientType(client);
       const matchesFilter =
         activeFilter === "all"
           ? true
+          : activeFilter === "priority"
+            ? clientType === "Prioritaire"
+            : activeFilter === "watch"
+              ? clientType === "À surveiller"
           : getClientRisk(client).status === activeFilter;
       const matchesSearch = normalizedQuery
         ? client.name.toLowerCase().includes(normalizedQuery)
@@ -2485,7 +2521,26 @@ export default function ExpertDashboard({
         }
 
         if (Array.isArray(data) && data.length > 0) {
-          const cloudClients = await loadClientRelatedData(data.map(fromCloudClientRow));
+          const localStoredClients = getLocalStoredClients();
+          const cloudClients = await loadClientRelatedData(
+            data.map((row) => {
+              const cloudClient = fromCloudClientRow(row);
+              const localClient = localStoredClients.find(
+                (client) =>
+                  client.id === row.id ||
+                  client.cloudClientId === row.id ||
+                  normalizeClientName(client.name) === normalizeClientName(row.name),
+              );
+              const clientType = getClientType(localClient);
+
+              return {
+                ...cloudClient,
+                region: getClientRegion(localClient),
+                clientType,
+                client_type: clientType,
+              };
+            }),
+          );
           if (!isCancelled) {
             setClients(cloudClients);
           }
@@ -2921,7 +2976,7 @@ export default function ExpertDashboard({
   function downloadCsvTemplate() {
     const templateRows = [
       CSV_TEMPLATE_COLUMNS.join(","),
-      "Sophie Martin,Prestations de services,4850,Mensuelle,Non applicable,Non,Aucune action urgente,30",
+      "Sophie Martin,Prestations de services,4850,Île-de-France,Standard,Mensuelle,Non applicable,Non,Aucune action urgente,30",
     ];
     const blob = new Blob([templateRows.join("\n")], {
       type: "text/csv;charset=utf-8",
@@ -2955,7 +3010,30 @@ export default function ExpertDashboard({
         return;
       }
 
-      setCsvImportPreview(parsedCsv);
+      const seenNames = new Set(
+        clients.map((client) => normalizeClientName(client.name)),
+      );
+      const previewRows = parsedCsv.validRows.map((row) => {
+        const normalizedName = normalizeClientName(row.name);
+        const isDuplicate = seenNames.has(normalizedName);
+
+        if (!isDuplicate) {
+          seenNames.add(normalizedName);
+        }
+
+        return {
+          ...row,
+          isDuplicate,
+        };
+      });
+      const importableRows = previewRows.filter((row) => !row.isDuplicate);
+
+      setCsvImportPreview({
+        ...parsedCsv,
+        validRows: previewRows,
+        importableRows,
+        duplicateCount: previewRows.length - importableRows.length,
+      });
     } catch {
       setCsvImportError("Impossible de lire le fichier CSV.");
     }
@@ -2964,9 +3042,11 @@ export default function ExpertDashboard({
   async function handleConfirmCsvImport() {
     if (!csvImportPreview) return;
 
+    const importableRows =
+      csvImportPreview.importableRows || csvImportPreview.validRows || [];
     const existingNames = new Set(clients.map((client) => normalizeClientName(client.name)));
-    let skippedDuplicates = 0;
-    const importedClients = csvImportPreview.validRows
+    let skippedDuplicates = Number(csvImportPreview.duplicateCount || 0);
+    const importedClients = importableRows
       .filter((row) => {
         const normalizedName = normalizeClientName(row.name);
 
@@ -2984,6 +3064,8 @@ export default function ExpertDashboard({
           name: row.name,
           activity: row.activity,
           revenue: row.revenue,
+          region: row.region,
+          clientType: row.clientType,
           periodicity: row.periodicity,
           tva: row.tva,
           acre: row.acre,
@@ -3654,6 +3736,38 @@ export default function ExpertDashboard({
               />
             </div>
 
+            <div className="expertModalField">
+              <label htmlFor="expert-client-region">Région</label>
+              <input
+                id="expert-client-region"
+                type="text"
+                className="expertModalInput"
+                value={newClientForm.region}
+                onChange={(event) =>
+                  handleNewClientChange("region", event.target.value)
+                }
+                placeholder="Non renseignée"
+              />
+            </div>
+
+            <div className="expertModalField">
+              <label htmlFor="expert-client-type">Type client</label>
+              <select
+                id="expert-client-type"
+                className="expertModalSelect"
+                value={newClientForm.clientType}
+                onChange={(event) =>
+                  handleNewClientChange("clientType", event.target.value)
+                }
+              >
+                {CLIENT_TYPE_OPTIONS.map((clientType) => (
+                  <option key={clientType} value={clientType}>
+                    {clientType}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <details className="expertAdvancedOptions">
               <summary>+ Options avancées</summary>
               <p>Ces champs ne sont pas nécessaires pour tester le prototype.</p>
@@ -4093,18 +4207,28 @@ export default function ExpertDashboard({
                 <h4>{csvImportPreview.validRows.length} client(s) détecté(s)</h4>
                 {csvImportPreview.invalidRows.length > 0 && (
                   <p className="expertCsvWarning">
-                    {csvImportPreview.invalidRows.length} ligne(s) invalide(s)
-                    ignorée(s).
+                    {csvImportPreview.invalidRows.length} ligne(s) ignorée(s)
+                    car incomplète(s)
+                  </p>
+                )}
+                {csvImportPreview.duplicateCount > 0 && (
+                  <p className="expertCsvWarning">
+                    {csvImportPreview.duplicateCount} client(s) ignoré(s) car déjà existant(s).
                   </p>
                 )}
                 <div className="expertCsvPreviewList">
-                  {csvImportPreview.validRows.slice(0, 5).map((row) => (
-                    <div key={`${row.rowNumber}-${row.name}`}>
+                  {(csvImportPreview.importableRows || csvImportPreview.validRows)
+                    .slice(0, 5)
+                    .map((row) => (
+                    <div
+                      key={`${row.rowNumber}-${row.name}`}
+                      className={row.isDuplicate ? "expertCsvDuplicateRow" : ""}
+                    >
                       <strong>{row.name}</strong>
                       <span>{row.activity}</span>
                       <span>{formatCurrency(row.revenue)}</span>
                     </div>
-                  ))}
+                    ))}
                 </div>
               </div>
             )}
@@ -4122,7 +4246,10 @@ export default function ExpertDashboard({
               type="button"
               className="btn btnPrimary btnSmall"
               onClick={handleConfirmCsvImport}
-              disabled={!csvImportPreview || csvImportPreview.validRows.length === 0}
+              disabled={
+                !csvImportPreview ||
+                (csvImportPreview.importableRows || csvImportPreview.validRows).length === 0
+              }
             >
               Importer les clients
             </button>
@@ -4645,6 +4772,14 @@ export default function ExpertDashboard({
                 <strong>{selectedClient.acre || "Inconnue"}</strong>
               </div>
               <div className="expertInfoBlock">
+                <span>Région</span>
+                <strong>{getClientRegion(selectedClient)}</strong>
+              </div>
+              <div className="expertInfoBlock">
+                <span>Type client</span>
+                <strong>{getClientType(selectedClient)}</strong>
+              </div>
+              <div className="expertInfoBlock">
                 <span>Prochaine action</span>
                 <strong>
                   {getClientNextAction(selectedClient)}
@@ -5051,6 +5186,10 @@ export default function ExpertDashboard({
               <div>
                 <h3>{client.name}</h3>
                 <p>{client.activity}</p>
+                <div className="expertClientTags">
+                  <span>{getClientRegion(client)}</span>
+                  <span>{getClientType(client)}</span>
+                </div>
               </div>
               <div className="expertCardRisk">
                 <span className={`expertBadge expertBadge--${getClientRisk(client).status}`}>
