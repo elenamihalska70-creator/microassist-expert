@@ -1310,6 +1310,49 @@
   line-height: 1.45;
 }
 
+.expertInvoiceReadinessBadge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 24px;
+  margin-top: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #eef6ff;
+  color: #075985;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.expertInvoiceReadiness {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0 14px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid #dbeafe;
+  background: #f8fbff;
+}
+
+.expertInvoiceReadiness h4 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.expertInvoiceReadiness p,
+.expertInvoiceReadiness strong {
+  margin: 0;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.expertInvoiceReadiness strong {
+  color: #1e3a8a;
+  font-weight: 800;
+}
+
 .expertInvoiceList {
   display: grid;
   gap: 10px;

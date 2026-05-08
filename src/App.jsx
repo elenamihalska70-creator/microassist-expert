@@ -132,13 +132,10 @@ function replaceStoredDemoClients(cleanClients) {
 }
 
 function getOrCreateLocalDemoCabinet() {
-  console.log("Demo cabinet bootstrap start");
-
   const rawCabinet = localStorage.getItem(DEMO_CABINET_STORAGE_KEY);
 
   if (rawCabinet) {
     const storedCabinet = JSON.parse(rawCabinet);
-    console.log("Demo cabinet bootstrap result", storedCabinet);
     return storedCabinet;
   }
 
@@ -151,7 +148,6 @@ function getOrCreateLocalDemoCabinet() {
   };
 
   localStorage.setItem(DEMO_CABINET_STORAGE_KEY, JSON.stringify(localDemoCabinet));
-  console.log("Demo cabinet bootstrap result", localDemoCabinet);
   return localDemoCabinet;
 }
 
@@ -214,7 +210,6 @@ function App() {
   useEffect(() => {
     const localDemoCabinet = getOrCreateLocalDemoCabinet();
     setCurrentCabinet(localDemoCabinet);
-    console.log("Current cabinet set", localDemoCabinet);
   }, []);
 
   useEffect(() => {
@@ -234,13 +229,11 @@ function App() {
 
           if (isMounted && cabinet) {
             setCurrentCabinet(cabinet);
-            console.log("Current cabinet set", cabinet);
           } else if (isMounted) {
             const demoCabinet = await ensureDemoCabinet();
 
             if (demoCabinet) {
               setCurrentCabinet(demoCabinet);
-              console.log("Current cabinet set", demoCabinet);
             }
           }
         } catch {
@@ -253,7 +246,6 @@ function App() {
 
         if (isMounted && demoCabinet) {
           setCurrentCabinet(demoCabinet);
-          console.log("Current cabinet set", demoCabinet);
         }
       }
 
@@ -508,7 +500,6 @@ function App() {
 
     if (cabinet) {
       setCurrentCabinet(cabinet);
-      console.log("Current cabinet set", cabinet);
     }
 
         setAuthToast("Connexion réussie");
@@ -526,7 +517,6 @@ function App() {
     const demoCabinet = await ensureDemoCabinet();
     setCurrentUser(null);
     setCurrentCabinet(demoCabinet);
-    console.log("Current cabinet set", demoCabinet);
     setAuthToast("Déconnexion réussie");
   }
 

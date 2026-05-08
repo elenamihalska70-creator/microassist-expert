@@ -2092,7 +2092,10 @@ export default function ExpertDashboard({
     if (!payload) return;
 
     const { error } = await runSupabaseRequest("Client cloud insert failed:", () =>
-      supabase.from("clients").insert(payload),
+      supabase.from("clients").upsert(payload, {
+        onConflict: "id",
+        ignoreDuplicates: false,
+      }),
     );
 
     if (error) {
