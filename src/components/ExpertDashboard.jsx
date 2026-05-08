@@ -1452,6 +1452,16 @@ function getLocalStoredClients() {
   }
 }
 
+function saveClientsToLocalStorage(nextClients) {
+  if (!Array.isArray(nextClients) || nextClients.length === 0) return;
+
+  try {
+    localStorage.setItem(EXPERT_CLIENTS_STORAGE_KEY, JSON.stringify(nextClients));
+  } catch {
+    // Ignore localStorage issues in the expert prototype.
+  }
+}
+
 function getCloudClientId(clientId) {
   if (typeof clientId === "string" && UUID_PATTERN.test(clientId)) {
     return clientId;
@@ -1594,52 +1604,29 @@ export default function ExpertDashboard({
 }) {
   const [clients, setClients] = useState([]);
   const [clientsLoaded, setClientsLoaded] = useState(false);
+  const isCloudEnabled = !!currentUser && !!currentCabinet?.id;
     
   useEffect(() => {
-    async function loadClients() {
+    if (isCloudEnabled) return;
+
+    function loadClients() {
       try {
-        const { data, error } = await supabase.from("clients").select("*");
+        const localStoredClients = getLocalStoredClients();
 
-        if (error) throw error;
-
-        if (data && data.length > 0) {
-          setClients(data);
+        if (localStoredClients.length > 0) {
+          setClients(localStoredClients);
         } else {
-          const raw =
-            localStorage.getItem(EXPERT_CLIENTS_STORAGE_KEY) ||
-            localStorage.getItem(LEGACY_EXPERT_CLIENTS_STORAGE_KEY);
-
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            setClients(Array.isArray(parsed) ? parsed : demoClients);
-          } else {
-            setClients(demoClients);
-          }
-        }
-      } catch (error) {
-        console.error("Cloud load failed:", error);
-
-        try {
-          const raw =
-            localStorage.getItem(EXPERT_CLIENTS_STORAGE_KEY) ||
-            localStorage.getItem(LEGACY_EXPERT_CLIENTS_STORAGE_KEY);
-
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            setClients(Array.isArray(parsed) ? parsed : demoClients);
-          } else {
-            setClients(demoClients);
-          }
-        } catch {
           setClients(demoClients);
         }
+      } catch {
+        setClients(demoClients);
       } finally {
         setClientsLoaded(true);
       }
     }
 
     loadClients();
-  }, []);
+  }, [isCloudEnabled]);
   const [selectedClientId, setSelectedClientId] = useState(null);
   const [activeFilter, setActiveFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -1683,7 +1670,6 @@ export default function ExpertDashboard({
   const [csvImportPreview, setCsvImportPreview] = useState(null);
   const [newClientForm, setNewClientForm] = useState(DEFAULT_CLIENT_FORM);
   const [isDashboardLoading, setIsDashboardLoading] = useState(false);
-  const isCloudEnabled = !!currentUser && !!currentCabinet;
 
   const selectedClient = useMemo(
     () => clients.find((client) => client.id === selectedClientId) || null,
@@ -2003,7 +1989,6 @@ export default function ExpertDashboard({
           text: action.text,
           status: action.status || "todo",
           done_at: action.doneAt || null,
-          created_by: currentUser?.id || null,
           created_at: action.createdAt || new Date().toISOString(),
         }))
         .filter((action) => action.id),
@@ -2136,6 +2121,7 @@ export default function ExpertDashboard({
           supabase
             .from("client_notes")
             .select("*")
+            .eq("cabinet_id", currentCabinet.id)
             .in("client_id", clientIds)
             .order("created_at", { ascending: false }),
         { notify: false },
@@ -2146,6 +2132,7 @@ export default function ExpertDashboard({
           supabase
             .from("client_actions")
             .select("*")
+            .eq("cabinet_id", currentCabinet.id)
             .in("client_id", clientIds)
             .order("created_at", { ascending: false }),
         { notify: false },
@@ -2156,6 +2143,7 @@ export default function ExpertDashboard({
           supabase
             .from("client_history")
             .select("*")
+            .eq("cabinet_id", currentCabinet.id)
             .in("client_id", clientIds)
             .order("created_at", { ascending: false }),
         { notify: false },
@@ -2201,10 +2189,16 @@ export default function ExpertDashboard({
 
     return cloudClients.map((client) => ({
       ...client,
-      notes: notesByClient.get(client.id) || [],
-      notesList: notesByClient.get(client.id) || [],
-      actions: actionsByClient.get(client.id) || [],
-      history: historyByClient.get(client.id) || [],
+      notes: notesResult.error ? getClientNoteEntries(client) : notesByClient.get(client.id) || [],
+      notesList: notesResult.error
+        ? getClientNoteEntries(client)
+        : notesByClient.get(client.id) || [],
+      actions: actionsResult.error
+        ? getClientActions(client)
+        : actionsByClient.get(client.id) || [],
+      history: historyResult.error
+        ? getClientHistoryEntries(client)
+        : historyByClient.get(client.id) || [],
     }));
   }
 
@@ -2268,7 +2262,6 @@ export default function ExpertDashboard({
       text: action.text,
       status: action.status || "todo",
       done_at: action.doneAt || null,
-      created_by: currentUser?.id || null,
       created_at: action.createdAt || new Date().toISOString(),
     };
 
@@ -2553,6 +2546,8 @@ export default function ExpertDashboard({
 
         if (error) {
           handleCloudError("Client cloud fetch failed:", error);
+          const localStoredClients = getLocalStoredClients();
+          setClients(localStoredClients.length > 0 ? localStoredClients : demoClients);
           return;
         }
 
@@ -2574,10 +2569,19 @@ export default function ExpertDashboard({
                 region: getClientRegion(localClient),
                 clientType,
                 client_type: clientType,
+                notes: getClientNoteEntries(localClient),
+                notesList: getClientNoteEntries(localClient),
+                actions: Array.isArray(localClient?.actions)
+                  ? getClientActions(localClient)
+                  : [],
+                history: Array.isArray(localClient?.history)
+                  ? getClientHistoryEntries(localClient)
+                  : [],
               };
             }),
           );
           if (!isCancelled) {
+            saveClientsToLocalStorage(cloudClients);
             setClients(cloudClients);
           }
           return;
@@ -2586,10 +2590,17 @@ export default function ExpertDashboard({
         const localStoredClients = getLocalStoredClients();
         if (localStoredClients.length > 0) {
           await syncLocalClientsToCloud(localStoredClients);
+          if (!isCancelled) {
+            setClients(localStoredClients);
+          }
+          return;
         }
+
+        setClients(demoClients);
       } finally {
         if (!isCancelled) {
           setIsDashboardLoading(false);
+          setClientsLoaded(true);
         }
       }
     }
@@ -2654,12 +2665,10 @@ export default function ExpertDashboard({
   }, []);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(EXPERT_CLIENTS_STORAGE_KEY, JSON.stringify(clients));
-    } catch {
-      // Ignore localStorage issues in the expert prototype.
-    }
-  }, [clients]);
+    if (!clientsLoaded || clients.length === 0) return;
+
+    saveClientsToLocalStorage(clients);
+  }, [clients, clientsLoaded]);
 
   useEffect(() => {
     try {
