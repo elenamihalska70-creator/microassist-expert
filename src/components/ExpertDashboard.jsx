@@ -1239,15 +1239,17 @@ function normalizeInvoiceEntry(invoice, index = 0) {
   const amount = Number(invoice.amount ?? invoice.total ?? invoice.totalAmount ?? 0);
   const statusValue = invoice.status || invoice.state || "non_transmis";
   const statusLabels = {
-    draft: "Brouillon",
-    brouillon: "Brouillon",
+    draft: "Brouillon Factur-X",
+    brouillon: "Brouillon Factur-X",
     pdf_generated: "PDF généré",
     pdf: "PDF généré",
-    facturx_ready: "Factur-X prêt",
-    factur_x_ready: "Factur-X prêt",
-    sent: "Factur-X prêt",
-    not_sent: "non transmis",
-    non_transmis: "non transmis",
+    facturx_ready: "Brouillon Factur-X",
+    factur_x_ready: "Brouillon Factur-X",
+    sent: "Transmission à venir",
+    transmission_pending: "Transmission à venir",
+    transmission_a_venir: "Transmission à venir",
+    not_sent: "Non transmis",
+    non_transmis: "Non transmis",
   };
   const hasTva =
     invoice.hasTva === true ||
@@ -1590,23 +1592,54 @@ export default function ExpertDashboard({
   currentUser = null,
   currentCabinet = null,
 }) {
-  const [clients, setClients] = useState(() => {
-    try {
-      const raw = localStorage.getItem(EXPERT_CLIENTS_STORAGE_KEY);
-      if (raw) {
-        return JSON.parse(raw);
-      }
+  const [clients, setClients] = useState([]);
+  const [clientsLoaded, setClientsLoaded] = useState(false);
+    
+  useEffect(() => {
+    async function loadClients() {
+      try {
+        const { data, error } = await supabase.from("clients").select("*");
 
-      const legacyRaw = localStorage.getItem(LEGACY_EXPERT_CLIENTS_STORAGE_KEY);
-      if (legacyRaw) {
-        return JSON.parse(legacyRaw);
-      }
+        if (error) throw error;
 
-      return demoClients;
-    } catch {
-      return demoClients;
+        if (data && data.length > 0) {
+          setClients(data);
+        } else {
+          const raw =
+            localStorage.getItem(EXPERT_CLIENTS_STORAGE_KEY) ||
+            localStorage.getItem(LEGACY_EXPERT_CLIENTS_STORAGE_KEY);
+
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            setClients(Array.isArray(parsed) ? parsed : demoClients);
+          } else {
+            setClients(demoClients);
+          }
+        }
+      } catch (error) {
+        console.error("Cloud load failed:", error);
+
+        try {
+          const raw =
+            localStorage.getItem(EXPERT_CLIENTS_STORAGE_KEY) ||
+            localStorage.getItem(LEGACY_EXPERT_CLIENTS_STORAGE_KEY);
+
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            setClients(Array.isArray(parsed) ? parsed : demoClients);
+          } else {
+            setClients(demoClients);
+          }
+        } catch {
+          setClients(demoClients);
+        }
+      } finally {
+        setClientsLoaded(true);
+      }
     }
-  });
+
+    loadClients();
+  }, []);
   const [selectedClientId, setSelectedClientId] = useState(null);
   const [activeFilter, setActiveFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -4108,10 +4141,11 @@ export default function ExpertDashboard({
                 handleInvoiceFormChange("status", event.target.value)
               }
             >
-              <option value="draft">Brouillon</option>
+              <option value="draft">Brouillon Factur-X</option>
               <option value="pdf_generated">PDF généré</option>
-              <option value="facturx_ready">Factur-X prêt</option>
-              <option value="non_transmis">non transmis</option>
+              <option value="facturx_ready">Factur-X prêt (brouillon)</option>
+              <option value="non_transmis">Non transmis</option>
+              <option value="transmission_pending">Transmission à venir</option>
             </select>
           </div>
 
@@ -4814,6 +4848,9 @@ export default function ExpertDashboard({
               <div className="expertPanelHeader">
                 <div>
                   <h3>Factures</h3>
+                  <span className="expertInvoiceReadinessBadge">
+                    Factur-X prêt (brouillon)
+                  </span>
                   {selectedClientInvoices.length > 0 && (
                     <span>{selectedClientInvoices.length} facture(s)</span>
                   )}
@@ -4826,9 +4863,18 @@ export default function ExpertDashboard({
                   Créer une facture
                 </button>
               </div>
-              <p className="expertInvoiceNote">
-                Préparation Factur-X — transmission PDP prévue dans une prochaine version.
-              </p>
+              <div className="expertInvoiceReadiness">
+                <h4>Préparez vos clients à la facture électronique</h4>
+                <p>
+                  Chaque facture peut être générée avec un brouillon Factur-X
+                  (PDF + XML). La transmission via plateforme agréée sera
+                  disponible dans une prochaine version.
+                </p>
+                <strong>
+                  Identifiez les clients non prêts pour la réforme 2026 et
+                  anticipez les risques.
+                </strong>
+              </div>
               {selectedClientInvoices.length > 0 ? (
                 <>
                   {selectedClientInvoices.reduce(
@@ -5066,6 +5112,10 @@ export default function ExpertDashboard({
         {renderInvoiceModal()}
       </section>
     );
+  }
+
+  if (!clientsLoaded) {
+    return null;
   }
 
   return (
