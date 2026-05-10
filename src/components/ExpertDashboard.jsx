@@ -1462,7 +1462,12 @@ function saveClientsToLocalStorage(nextClients) {
   }
 }
 
-function getCloudClientId(clientId) {
+function getCloudClientId(client) {
+  const clientId =
+    typeof client === "object" && client !== null
+      ? client.cloudClientId || client.id
+      : client;
+
   if (typeof clientId === "string" && UUID_PATTERN.test(clientId)) {
     return clientId;
   }
@@ -1477,7 +1482,7 @@ function createUuid() {
 }
 
 function toCloudClientPayload(client, cabinetId) {
-  const cloudId = getCloudClientId(client.id);
+  const cloudId = getCloudClientId(client);
 
   if (!cloudId || !cabinetId) {
     return null;
@@ -1529,6 +1534,7 @@ function fromCloudClientRow(row) {
 
   return {
     id: row.id,
+    cloudClientId: row.id,
     name: row.name,
     ...client,
     riskScore: riskScore.score,
@@ -1566,6 +1572,40 @@ function fromCloudHistoryRow(row) {
     label: row.label,
     date: row.created_at || new Date().toISOString(),
   };
+}
+
+function findLocalClientForCloudRow(localClients, row) {
+  return localClients.find(
+    (client) =>
+      client.id === row.id ||
+      client.cloudClientId === row.id ||
+      normalizeClientName(client.name) === normalizeClientName(row.name),
+  );
+}
+
+function getLocalRelationFallbacks(client) {
+  const notes = getClientNoteEntries(client);
+
+  return {
+    notes,
+    notesList: notes,
+    actions: Array.isArray(client?.actions) ? getClientActions(client) : [],
+    history: Array.isArray(client?.history) ? getClientHistoryEntries(client) : [],
+  };
+}
+
+function groupRowsByClient(rows, mapRow) {
+  const rowsByClient = new Map();
+
+  (rows || []).forEach((row) => {
+    if (!row.client_id) return;
+
+    const currentRows = rowsByClient.get(row.client_id) || [];
+    currentRows.push(mapRow(row));
+    rowsByClient.set(row.client_id, currentRows);
+  });
+
+  return rowsByClient;
 }
 
 function getSupabaseErrorMessage(error) {
@@ -1655,9 +1695,6 @@ export default function ExpertDashboard({
   const [noteClientId, setNoteClientId] = useState(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [noteError, setNoteError] = useState("");
-  const [notesClientId, setNotesClientId] = useState(null);
-  const [inlineNoteDraft, setInlineNoteDraft] = useState("");
-  const [inlineNoteError, setInlineNoteError] = useState("");
   const [detailNoteDraft, setDetailNoteDraft] = useState("");
   const [detailNoteError, setDetailNoteError] = useState("");
   const [detailActionDraft, setDetailActionDraft] = useState("");
@@ -1710,17 +1747,6 @@ export default function ExpertDashboard({
   const selectedClientSummary = useMemo(
     () => getClientFileSummary(selectedClient),
     [selectedClient],
-  );
-  const notesClient = useMemo(() => {
-    if (notesClientId) {
-      return clients.find((client) => client.id === notesClientId) || clients[0] || null;
-    }
-
-    return clients[0] || null;
-  }, [clients, notesClientId]);
-  const notesClientEntries = useMemo(
-    () => getClientNoteEntries(notesClient),
-    [notesClient],
   );
   const allClientNotes = useMemo(() => {
     return clients
@@ -1948,21 +1974,16 @@ export default function ExpertDashboard({
 
     if (cloudClients.length === 0) return;
 
-    const { error } = await runSupabaseRequest(
-      "Client cloud upload failed:",
-      () =>
-        supabase.from("clients").upsert(
-          cloudClients.map((clientSync) => clientSync.payload),
-          {
-            onConflict: "id",
-            ignoreDuplicates: false,
-          },
-        ),
-    );
+    for (const clientSync of cloudClients) {
+      const { error } = await saveClientPayloadToCloud(
+        clientSync.payload,
+        "Client cloud upload failed:",
+      );
 
-    if (error) {
-      handleCloudError("Client cloud upload failed:", error);
-      return;
+      if (error) {
+        handleCloudError("Client cloud upload failed:", error);
+        return localClients;
+      }
     }
 
     const notePayload = cloudClients.flatMap((clientSync) =>
@@ -2059,14 +2080,69 @@ export default function ExpertDashboard({
       }
     }
 
+    const syncedClients = localClients.map((client) => {
+      const syncedClient = cloudClients.find(
+        (clientSync) => clientSync.localClient.id === client.id,
+      );
+
+      return syncedClient
+        ? {
+            ...client,
+            id: syncedClient.payload.id,
+            cloudClientId: syncedClient.payload.id,
+          }
+        : client;
+    });
+
     setClients((currentClients) =>
       currentClients.map((client) => {
         const syncedClient = cloudClients.find(
           (clientSync) => clientSync.localClient.id === client.id,
         );
 
-        return syncedClient ? { ...client, id: syncedClient.payload.id } : client;
+        return syncedClient
+          ? {
+              ...client,
+              id: syncedClient.payload.id,
+              cloudClientId: syncedClient.payload.id,
+            }
+          : client;
       }),
+    );
+
+    return syncedClients;
+  }
+
+  async function saveClientPayloadToCloud(payload, label, options) {
+    if (!supabase || !payload?.id || !currentCabinet?.id) {
+      return { data: null, error: null };
+    }
+
+    const { id, ...updatePayload } = payload;
+    const updateResult = await runSupabaseRequest(
+      label,
+      () =>
+        supabase
+          .from("clients")
+          .update(updatePayload)
+          .eq("id", id)
+          .eq("cabinet_id", currentCabinet.id)
+          .select("id"),
+      options,
+    );
+
+    if (updateResult.error) {
+      return updateResult;
+    }
+
+    if (Array.isArray(updateResult.data) && updateResult.data.length > 0) {
+      return updateResult;
+    }
+
+    return runSupabaseRequest(
+      label,
+      () => supabase.from("clients").insert(payload).select("id").single(),
+      options,
     );
   }
 
@@ -2076,11 +2152,9 @@ export default function ExpertDashboard({
     const payload = toCloudClientPayload(client, currentCabinet.id);
     if (!payload) return;
 
-    const { error } = await runSupabaseRequest("Client cloud insert failed:", () =>
-      supabase.from("clients").upsert(payload, {
-        onConflict: "id",
-        ignoreDuplicates: false,
-      }),
+    const { error } = await saveClientPayloadToCloud(
+      payload,
+      "Client cloud insert failed:",
     );
 
     if (error) {
@@ -2151,41 +2225,26 @@ export default function ExpertDashboard({
     ]);
 
     if (notesResult.error) {
-      handleCloudError("Notes cloud fetch failed:", notesResult.error);
+      handleCloudError("Notes cloud fetch failed:", notesResult.error, {
+        notify: false,
+      });
     }
 
     if (actionsResult.error) {
-      handleCloudError("Actions cloud fetch failed:", actionsResult.error);
+      handleCloudError("Actions cloud fetch failed:", actionsResult.error, {
+        notify: false,
+      });
     }
 
     if (historyResult.error) {
-      handleCloudError("History cloud fetch failed:", historyResult.error);
+      handleCloudError("History cloud fetch failed:", historyResult.error, {
+        notify: false,
+      });
     }
 
-    const notesByClient = new Map();
-    const actionsByClient = new Map();
-    const historyByClient = new Map();
-
-    (notesResult.data || []).forEach((note) => {
-      const currentNotes = notesByClient.get(note.client_id) || [];
-      notesByClient.set(note.client_id, [...currentNotes, fromCloudNoteRow(note)]);
-    });
-
-    (actionsResult.data || []).forEach((action) => {
-      const currentActions = actionsByClient.get(action.client_id) || [];
-      actionsByClient.set(action.client_id, [
-        ...currentActions,
-        fromCloudActionRow(action),
-      ]);
-    });
-
-    (historyResult.data || []).forEach((entry) => {
-      const currentHistory = historyByClient.get(entry.client_id) || [];
-      historyByClient.set(entry.client_id, [
-        ...currentHistory,
-        fromCloudHistoryRow(entry),
-      ]);
-    });
+    const notesByClient = groupRowsByClient(notesResult.data, fromCloudNoteRow);
+    const actionsByClient = groupRowsByClient(actionsResult.data, fromCloudActionRow);
+    const historyByClient = groupRowsByClient(historyResult.data, fromCloudHistoryRow);
 
     return cloudClients.map((client) => ({
       ...client,
@@ -2388,25 +2447,21 @@ export default function ExpertDashboard({
       acre_status: client.acre || client.acreStatus || null,
     };
 
-    const { error } = await runSupabaseRequest(
-      "Invoice client cloud upsert failed:",
-      () =>
-        supabase.from("clients").upsert(payload, {
-          onConflict: "id",
-          ignoreDuplicates: false,
-        }),
+    const { error } = await saveClientPayloadToCloud(
+      payload,
+      "Invoice client cloud save failed:",
       { notify: false },
     );
 
     if (error) {
-      handleCloudError("Invoice client cloud upsert failed:", error, { notify: false });
+      handleCloudError("Invoice client cloud save failed:", error, { notify: false });
       return null;
     }
 
     setClients((currentClients) =>
       currentClients.map((currentClient) =>
         currentClient.id === client.id
-          ? { ...currentClient, cloudClientId }
+          ? { ...currentClient, id: cloudClientId, cloudClientId }
           : currentClient,
       ),
     );
@@ -2480,12 +2535,6 @@ export default function ExpertDashboard({
       };
     }
 
-    if (!client?.id) {
-      return { skipped: true };
-    }
-
-    console.log("Cloud mode active", currentCabinet);
-
     const cloudClientId = await ensureInvoiceClientInCloud(client);
 
     if (!cloudClientId) {
@@ -2502,8 +2551,6 @@ export default function ExpertDashboard({
       issued_at: invoice.issuedAt || invoice.date || new Date().toISOString(),
     };
 
-    console.log("Invoice insert payload", payload);
-
     const { data, error } = await runSupabaseRequest(
       "Invoice cloud insert failed:",
       () =>
@@ -2513,8 +2560,6 @@ export default function ExpertDashboard({
           .select("*"),
       { notify: false },
     );
-
-    console.log("Invoice insert result", { data, error });
 
     if (error) {
       handleCloudError("Invoice cloud insert failed:", error, { notify: false });
@@ -2556,12 +2601,7 @@ export default function ExpertDashboard({
           const cloudClients = await loadClientRelatedData(
             data.map((row) => {
               const cloudClient = fromCloudClientRow(row);
-              const localClient = localStoredClients.find(
-                (client) =>
-                  client.id === row.id ||
-                  client.cloudClientId === row.id ||
-                  normalizeClientName(client.name) === normalizeClientName(row.name),
-              );
+              const localClient = findLocalClientForCloudRow(localStoredClients, row);
               const clientType = getClientType(localClient);
 
               return {
@@ -2569,19 +2609,11 @@ export default function ExpertDashboard({
                 region: getClientRegion(localClient),
                 clientType,
                 client_type: clientType,
-                notes: getClientNoteEntries(localClient),
-                notesList: getClientNoteEntries(localClient),
-                actions: Array.isArray(localClient?.actions)
-                  ? getClientActions(localClient)
-                  : [],
-                history: Array.isArray(localClient?.history)
-                  ? getClientHistoryEntries(localClient)
-                  : [],
+                ...getLocalRelationFallbacks(localClient),
               };
             }),
           );
           if (!isCancelled) {
-            saveClientsToLocalStorage(cloudClients);
             setClients(cloudClients);
           }
           return;
@@ -2589,9 +2621,9 @@ export default function ExpertDashboard({
 
         const localStoredClients = getLocalStoredClients();
         if (localStoredClients.length > 0) {
-          await syncLocalClientsToCloud(localStoredClients);
+          const syncedClients = await syncLocalClientsToCloud(localStoredClients);
           if (!isCancelled) {
-            setClients(localStoredClients);
+            setClients(syncedClients || localStoredClients);
           }
           return;
         }
@@ -2638,9 +2670,6 @@ export default function ExpertDashboard({
       setNoteClientId(null);
       setNoteDraft("");
       setNoteError("");
-      setNotesClientId(null);
-      setInlineNoteDraft("");
-      setInlineNoteError("");
       setDetailNoteDraft("");
       setDetailNoteError("");
       setDetailActionDraft("");
@@ -3148,22 +3177,21 @@ export default function ExpertDashboard({
     let cloudError = null;
 
     if (supabase && currentCabinet?.id) {
-      const payload = importedClients
+      const payloads = importedClients
         .map((client) => toCloudClientPayload(client, currentCabinet.id))
         .filter(Boolean);
 
-      if (payload.length > 0) {
-        const { error } = await runSupabaseRequest(
+      for (const payload of payloads) {
+        const { error } = await saveClientPayloadToCloud(
+          payload,
           "CSV client cloud insert failed:",
-          () =>
-            supabase.from("clients").upsert(payload, {
-              onConflict: "id",
-              ignoreDuplicates: false,
-            }),
           { notify: false },
         );
 
-        cloudError = error;
+        if (error) {
+          cloudError = error;
+          break;
+        }
       }
     }
 
@@ -3221,20 +3249,28 @@ export default function ExpertDashboard({
     });
 
     if (editingClient) {
+      const updatedClient = {
+        ...editingClient,
+        ...computedClient,
+        id: editingClient.cloudClientId || editingClient.id,
+        cloudClientId: editingClient.cloudClientId || editingClient.id,
+        notes: editingClient.notes,
+        notesList: editingClient.notesList,
+        actions: editingClient.actions,
+        history: Array.isArray(editingClient.history) ? editingClient.history : [],
+        updatedAt: new Date().toISOString(),
+      };
+
       setClients((currentClients) =>
         currentClients.map((client) =>
           client.id === editingClient.id
-            ? {
-                ...client,
-                ...computedClient,
-                notes: client.notes,
-                notesList: client.notesList,
-                actions: client.actions,
-                history: Array.isArray(client.history) ? client.history : [],
-                updatedAt: new Date().toISOString(),
-              }
+            ? updatedClient
             : client,
         ),
+      );
+      void saveClientPayloadToCloud(
+        toCloudClientPayload(updatedClient, currentCabinet?.id),
+        "Client cloud update failed:",
       );
       addClientHistory(editingClient.id, {
         type: "update",
@@ -3305,9 +3341,6 @@ export default function ExpertDashboard({
 
   async function handleCreateInvoice() {
     if (!selectedClient) return;
-
-    console.log("Invoice submit currentCabinet", currentCabinet);
-    console.log("Invoice submit cloud enabled", Boolean(currentCabinet?.id));
 
     const amount = parseRevenueValue(invoiceForm.amount);
 
@@ -3401,48 +3434,6 @@ export default function ExpertDashboard({
 
     setSuccessMessage(`Note ajoutée pour ${noteClient.name}.`);
     closeNoteModal();
-  }
-
-  function handleAddInlineNote() {
-    if (!notesClient) return;
-
-    const trimmedNote = inlineNoteDraft.trim();
-
-    if (!trimmedNote) {
-      setInlineNoteError("La note expert ne peut pas être vide.");
-      return;
-    }
-
-    const noteCreatedAt = new Date().toISOString();
-    const nextNoteEntry = {
-      id: createUuid() || `note-${Date.now()}`,
-      createdAt: noteCreatedAt,
-      date: noteCreatedAt,
-      text: trimmedNote,
-    };
-    const nextNotesList = [nextNoteEntry, ...getClientNoteEntries(notesClient)];
-
-    setClients((currentClients) =>
-      currentClients.map((client) =>
-        client.id === notesClient.id
-          ? {
-              ...client,
-              notes: trimmedNote,
-              notesList: nextNotesList,
-            }
-          : client,
-      ),
-    );
-
-    void insertClientNoteToCloud(notesClient.id, nextNoteEntry);
-    addClientHistory(notesClient.id, {
-      type: "note",
-      label: "Note ajoutée",
-    });
-
-    setInlineNoteDraft("");
-    setInlineNoteError("");
-    setSuccessMessage(`Note ajoutée pour ${notesClient.name}.`);
   }
 
   function handleAddDetailNote() {

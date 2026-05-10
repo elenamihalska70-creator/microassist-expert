@@ -442,7 +442,6 @@ function App() {
           text: action.text,
           status: action.status || "todo",
           done_at: action.doneAt || null,
-          created_by: currentUser?.id || null,
           created_at: action.createdAt || new Date().toISOString(),
         })),
       );
@@ -560,7 +559,7 @@ function App() {
             <p className="appHeaderMeta">Interface cabinet</p>
             <span className="appPrototypeNote">
               {currentUser
-                ? "Session connectée — synchronisation cloud à venir."
+                ? "Session connectée — données synchronisées avec le cloud."
                 : "Données enregistrées localement dans ce navigateur."}
             </span>
             {currentUser ? (
