@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { Link, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import "./App.css";
 import ExpertDashboard, {
   EXPERT_CLIENTS_REPLACED_EVENT,
@@ -27,6 +28,176 @@ const sections = [
   { id: "parametres", label: "Paramètres" },
 ];
 
+const footerProductLinks = [
+  { label: "Tableau de bord", target: "dashboard" },
+  { label: "Alertes", target: "alertes" },
+  { label: "Échéancier", target: "echeancier" },
+  { label: "Notes clients", target: "notes" },
+  { label: "Historique", target: "clients" },
+  { label: "Synchronisation cloud", target: "parametres" },
+];
+
+const footerTrustLinks = [
+  { label: "Politique de confidentialité", path: "/legal/privacy" },
+  { label: "Conditions d’utilisation", path: "/legal/terms" },
+  { label: "Gestion des cookies", path: "/legal/cookies" },
+  { label: "Mentions légales", path: "/legal/mentions" },
+  { label: "Accessibilité", path: "/legal/accessibility" },
+  { label: "Sécurité des données", path: "/legal/security" },
+  "Contact RGPD",
+];
+
+const legalPages = {
+  privacy: {
+    eyebrow: "RGPD",
+    title: "Politique de confidentialité",
+    intro:
+      "Microassist Expert limite la collecte des données au strict nécessaire pour permettre le suivi des dossiers et l’utilisation du prototype.",
+    sections: [
+      {
+        title: "Données collectées",
+        body:
+          "Les données peuvent inclure les informations de compte, les paramètres cabinet, les fiches clients de démonstration, les notes, actions et historiques saisis dans l’application.",
+      },
+      {
+        title: "Stockage et hébergement",
+        body:
+          "Les données synchronisées sont stockées via Supabase, avec une configuration orientée Europe. Certaines données de démonstration peuvent aussi rester dans le navigateur en mode local.",
+      },
+      {
+        title: "Accès et suppression",
+        body:
+          "L’utilisateur peut demander l’accès, la correction ou la suppression de ses données. Les données de test peuvent être supprimées sur demande à l’adresse de contact RGPD.",
+      },
+      {
+        title: "Contact RGPD",
+        body:
+          "Pour toute demande liée aux données personnelles : contact@microassist.fr.",
+      },
+    ],
+  },
+  terms: {
+    eyebrow: "Conditions",
+    title: "Conditions d’utilisation",
+    intro:
+      "Microassist Expert est un prototype SaaS destiné aux professionnels qui accompagnent des micro-entrepreneurs.",
+    sections: [
+      {
+        title: "Responsabilité utilisateur",
+        body:
+          "L’utilisateur reste responsable des informations saisies, de leur exactitude et des décisions prises à partir du tableau de bord.",
+      },
+      {
+        title: "Usage légal uniquement",
+        body:
+          "La plateforme doit être utilisée dans un cadre légal, professionnel et respectueux des droits des personnes concernées.",
+      },
+      {
+        title: "Phase de test",
+        body:
+          "Le service est en phase de test. Aucune déclaration URSSAF ou TVA n’est envoyée automatiquement depuis Microassist Expert.",
+      },
+      {
+        title: "Interdiction du spam",
+        body:
+          "L’envoi massif, abusif ou non sollicité de messages est interdit. Les rappels doivent rester liés à une relation professionnelle existante.",
+      },
+    ],
+  },
+  cookies: {
+    eyebrow: "Cookies",
+    title: "Gestion des cookies",
+    intro:
+      "Microassist Expert utilise uniquement les éléments nécessaires au fonctionnement du prototype et à la connexion utilisateur.",
+    sections: [
+      {
+        title: "Cookies de session",
+        body:
+          "Des informations techniques peuvent être utilisées pour maintenir une session active et sécuriser l’accès à l’espace professionnel.",
+      },
+      {
+        title: "Connexion utilisateur",
+        body:
+          "Les mécanismes d’authentification peuvent conserver des jetons de session afin d’éviter une reconnexion à chaque page.",
+      },
+      {
+        title: "Analytics éventuel",
+        body:
+          "Un outil de mesure d’audience respectueux de la vie privée pourra être ajouté ultérieurement. Dans ce cas, cette page sera mise à jour.",
+      },
+    ],
+  },
+  mentions: {
+    eyebrow: "Informations éditeur",
+    title: "Mentions légales",
+    intro:
+      "Cette page regroupe les informations d’identification et d’hébergement du prototype Microassist Expert.",
+    sections: [
+      { title: "Éditeur", body: "Olena Mykhalska / Digital Lab" },
+      { title: "Ville", body: "Belfort, France" },
+      { title: "Email", body: "contact@microassist.fr" },
+      { title: "Hébergement", body: "Supabase + Vercel" },
+      { title: "SIRET", body: "À compléter" },
+    ],
+  },
+  accessibility: {
+    eyebrow: "Accessibilité",
+    title: "Accessibilité",
+    intro:
+      "Microassist Expert vise une interface lisible, responsive et utilisable par le plus grand nombre.",
+    sections: [
+      {
+        title: "Responsive",
+        body:
+          "L’interface s’adapte aux écrans desktop, tablette et mobile afin de conserver une lecture confortable.",
+      },
+      {
+        title: "Contraste lisible",
+        body:
+          "Les couleurs et séparateurs sont pensés pour offrir un contraste clair entre les contenus, actions et états importants.",
+      },
+      {
+        title: "Navigation clavier",
+        body:
+          "Les contrôles principaux sont accessibles au clavier avec des états de focus visibles.",
+      },
+      {
+        title: "Amélioration continue",
+        body:
+          "L’accessibilité sera améliorée au fil des retours utilisateurs et des tests réalisés sur le prototype.",
+      },
+    ],
+  },
+  security: {
+    eyebrow: "Confiance",
+    title: "Sécurité des données",
+    intro:
+      "La sécurité de Microassist Expert repose sur une collecte limitée, des accès contrôlés et un hébergement moderne.",
+    sections: [
+      {
+        title: "Accès sécurisé",
+        body:
+          "Les espaces professionnels sont conçus pour limiter l’accès aux personnes autorisées.",
+      },
+      {
+        title: "Authentification",
+        body:
+          "La connexion utilisateur s’appuie sur l’authentification Supabase et sur des sessions sécurisées.",
+      },
+      {
+        title: "Hébergement européen",
+        body:
+          "L’hébergement applicatif combine Supabase et Vercel, avec une attention portée à la localisation européenne des données.",
+      },
+      {
+        title: "Minimisation et suppression",
+        body:
+          "Seules les données utiles au suivi sont demandées. Une suppression peut être demandée à contact@microassist.fr.",
+      },
+    ],
+  },
+};
+
 const defaultCabinetSettings = {
   name: "Cabinet Microassist",
   email: "contact@cabinet.fr",
@@ -46,6 +217,48 @@ function logDevError(...details) {
   if (import.meta.env.DEV) {
     console.error(...details);
   }
+}
+
+function LegalPage({ onBackToDashboard }) {
+  const { slug } = useParams();
+  const page = legalPages[slug] || legalPages.privacy;
+
+  return (
+    <section className="legalPage">
+      <div className="legalHeader">
+        <div>
+          <p className="appEyebrow">{page.eyebrow}</p>
+          <h2>{page.title}</h2>
+          <p>{page.intro}</p>
+        </div>
+        <button
+          type="button"
+          className="btn btnGhost btnSmall"
+          onClick={onBackToDashboard}
+        >
+          Retour dashboard
+        </button>
+      </div>
+
+      <div className="legalGrid">
+        {page.sections.map((section) => (
+          <article className="legalCard" key={section.title}>
+            <h3>{section.title}</h3>
+            <p>{section.body}</p>
+          </article>
+        ))}
+      </div>
+
+      <div className="legalNotice">
+        <strong>Prototype en test</strong>
+        <p>
+          Ces informations sont fournies pour donner un cadre clair aux
+          utilisateurs. Elles seront précisées avant toute mise en production
+          commerciale.
+        </p>
+      </div>
+    </section>
+  );
 }
 
 function parseDemoNumber(value) {
@@ -187,6 +400,8 @@ async function ensureDemoCabinet() {
 }
 
 function App() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [activeSection, setActiveSection] = useState("dashboard");
   const [cabinetSettings, setCabinetSettings] = useState(() => {
     try {
@@ -206,6 +421,17 @@ function App() {
   const activeLabel =
     sections.find((section) => section.id === activeSection)?.label ||
     "Dashboard";
+  const isLegalRoute = location.pathname.startsWith("/legal/");
+  const headerLabel = isLegalRoute ? "Confiance & conformité" : activeLabel;
+
+  function openAppSection(sectionId) {
+    setActiveSection(sectionId);
+    navigate("/");
+  }
+
+  function backToDashboard() {
+    openAppSection("dashboard");
+  }
 
   useEffect(() => {
     const localDemoCabinet = getOrCreateLocalDemoCabinet();
@@ -541,7 +767,7 @@ function App() {
               }`}
               key={section.id}
               type="button"
-              onClick={() => setActiveSection(section.id)}
+              onClick={() => openAppSection(section.id)}
             >
               {section.label}
             </button>
@@ -553,7 +779,7 @@ function App() {
         <header className="appHeader">
           <div>
             <p className="appEyebrow">Mon cabinet</p>
-            <h2>{activeLabel}</h2>
+            <h2>{headerLabel}</h2>
           </div>
           <div className="appHeaderActions">
             <p className="appHeaderMeta">Interface cabinet</p>
@@ -594,15 +820,19 @@ function App() {
         </header>
 
         <main className="appMain">
-          {["dashboard", "clients", "echeancier", "alertes", "notes"].includes(activeSection) ? (
-            <ExpertDashboard
-              view={activeSection}
-              onOpenClient={() => setActiveSection("clients")}
-              currentUser={currentUser}
-              currentCabinet={currentCabinet}
-            />
-          ) : activeSection === "parametres" ? (
-            <section className="settingsPage">
+          <Routes>
+            <Route
+              path="/"
+              element={
+                ["dashboard", "clients", "echeancier", "alertes", "notes"].includes(activeSection) ? (
+                  <ExpertDashboard
+                    view={activeSection}
+                    onOpenClient={() => setActiveSection("clients")}
+                    currentUser={currentUser}
+                    currentCabinet={currentCabinet}
+                  />
+                ) : activeSection === "parametres" ? (
+                  <section className="settingsPage">
               <div className="settingsHeader">
                 <p className="appEyebrow">Administration</p>
                 <h2>Paramètres cabinet</h2>
@@ -764,14 +994,128 @@ function App() {
                   </section>
                 )}
               </div>
-            </section>
-          ) : (
-            <section className="appPlaceholderCard">
-              <p className="appPlaceholderLabel">{activeLabel}</p>
-              <h3>Section à venir</h3>
-            </section>
-          )}
+                  </section>
+                ) : (
+                  <section className="appPlaceholderCard">
+                    <p className="appPlaceholderLabel">{activeLabel}</p>
+                    <h3>Section à venir</h3>
+                  </section>
+                )
+              }
+            />
+            <Route
+              path="/legal/:slug"
+              element={<LegalPage onBackToDashboard={backToDashboard} />}
+            />
+          </Routes>
         </main>
+
+        <footer className="expert-footer" aria-label="Informations Microassist Expert">
+          <div className="footer-grid">
+            <section className="footer-column footer-column--brand">
+              <h2>Microassist Expert</h2>
+              <p>
+                Outil de suivi intelligent pour les professionnels qui
+                accompagnent des micro-entrepreneurs.
+              </p>
+              <p>
+                Détection des risques, rappels, priorités clients et suivi
+                simplifié des dossiers.
+              </p>
+              <div className="footer-badges" aria-label="Garanties produit">
+                <span className="footer-badge">✔ Prototype SaaS français</span>
+                <span className="footer-badge">✔ Données hébergées en Europe</span>
+                <span className="footer-badge">✔ Interface sécurisée</span>
+              </div>
+            </section>
+
+            <nav className="footer-column" aria-label="Produit">
+              <h3>Produit</h3>
+              <div className="footer-link-list">
+                {footerProductLinks.map((link) => (
+                  <button
+                    key={link.label}
+                    type="button"
+                    className="footer-link"
+                    onClick={() => openAppSection(link.target)}
+                  >
+                    {link.label}
+                  </button>
+                ))}
+              </div>
+            </nav>
+
+            <section className="footer-column">
+              <h3>Confiance &amp; conformité</h3>
+              <p>
+                Microassist Expert est actuellement un prototype en phase de
+                test. Aucune déclaration URSSAF ou TVA n’est envoyée
+                automatiquement.
+              </p>
+              <div className="footer-link-list">
+                {footerTrustLinks.map((link) => (
+                  typeof link === "string" ? (
+                    <a
+                      key={link}
+                      className="footer-link"
+                      href="mailto:contact@microassist.fr"
+                    >
+                      {link}
+                    </a>
+                  ) : (
+                    <Link key={link.label} className="footer-link" to={link.path}>
+                      {link.label}
+                    </Link>
+                  )
+                ))}
+              </div>
+              <p className="footer-rgpd-note">
+                Conforme aux principes RGPD (minimisation des données, accès
+                sécurisé, suppression sur demande).
+              </p>
+            </section>
+
+            <section className="footer-column">
+              <h3>Éditeur</h3>
+              <dl className="footer-editor-list">
+                <div>
+                  <dt>Nom</dt>
+                  <dd>Olena Mykhalska / Digital Lab</dd>
+                </div>
+                <div>
+                  <dt>Ville</dt>
+                  <dd>Belfort, France</dd>
+                </div>
+                <div>
+                  <dt>Email</dt>
+                  <dd>
+                    <a href="mailto:contact@microassist.fr">contact@microassist.fr</a>
+                  </dd>
+                </div>
+                <div>
+                  <dt>SIRET</dt>
+                  <dd>À compléter</dd>
+                </div>
+                <div>
+                  <dt>Statut</dt>
+                  <dd>Micro-entreprise (à venir)</dd>
+                </div>
+                <div>
+                  <dt>Hébergement</dt>
+                  <dd>Supabase + Vercel</dd>
+                </div>
+              </dl>
+            </section>
+          </div>
+
+          <div className="footer-bottom">
+            <span>© 2026 Microassist Expert — Prototype SaaS en test.</span>
+            <span>
+              Développé à Belfort pour simplifier l’accompagnement des
+              micro-entrepreneurs.
+            </span>
+          </div>
+        </footer>
       </div>
 
       {showAuthModal && (
