@@ -1,0 +1,16 @@
+name: Keep Vercel Awake
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Ping MicroAssist Expert
+        run: |
+          curl --fail --silent --show-error https://microassist-expert.vercel.app/api/ping
