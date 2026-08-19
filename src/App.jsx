@@ -134,10 +134,12 @@ const legalPages = {
       "Cette page regroupe les informations d’identification et d’hébergement du prototype Microassist Expert.",
     sections: [
       { title: "Éditeur", body: "Olena Mykhalska / Digital Lab" },
+      { title: "Statut", body: "Entrepreneur individuel" },
+      { title: "SIREN", body: "105 759 286" },
+      { title: "SIRET", body: "105 759 286 00013" },
       { title: "Ville", body: "Belfort, France" },
       { title: "Email", body: "contact@microassist.fr" },
       { title: "Hébergement", body: "Supabase + Vercel" },
-      { title: "SIRET", body: "À compléter" },
     ],
   },
   accessibility: {
@@ -1093,12 +1095,16 @@ function App() {
                   </dd>
                 </div>
                 <div>
+                  <dt>SIREN</dt>
+                  <dd>105 759 286</dd>
+                </div>
+                <div>
                   <dt>SIRET</dt>
-                  <dd>À compléter</dd>
+                  <dd>105 759 286 00013</dd>
                 </div>
                 <div>
                   <dt>Statut</dt>
-                  <dd>Micro-entreprise (à venir)</dd>
+                  <dd>Entrepreneur individuel</dd>
                 </div>
                 <div>
                   <dt>Hébergement</dt>
