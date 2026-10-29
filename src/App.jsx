@@ -136,8 +136,8 @@ const legalPages = {
       { title: "Éditeur", body: "Olena Mykhalska / Digital Lab" },
       { title: "Statut", body: "Entrepreneur individuel" },
       { title: "SIREN", body: "105 759 286" },
-      { title: "SIRET", body: "105 759 286 00013" },
-      { title: "Ville", body: "Belfort, France" },
+      { title: "SIRET", body: "105 759 286 00021" },
+      { title: "Ville", body: "Besançon, France" },
       { title: "Email", body: "contact@microassist.fr" },
       { title: "Hébergement", body: "Supabase + Vercel" },
     ],
@@ -1086,7 +1086,7 @@ function App() {
                 </div>
                 <div>
                   <dt>Ville</dt>
-                  <dd>Belfort, France</dd>
+                  <dd>Besançon, France</dd>
                 </div>
                 <div>
                   <dt>Email</dt>
@@ -1100,7 +1100,7 @@ function App() {
                 </div>
                 <div>
                   <dt>SIRET</dt>
-                  <dd>105 759 286 00013</dd>
+                  <dd>105 759 286 00021</dd>
                 </div>
                 <div>
                   <dt>Statut</dt>
